@@ -1,0 +1,61 @@
+# Demo Prompts — 用示例问题激活每个特性
+
+两种运行模式：
+- **`make dev-mock`**：离线，mock LLM 写死（先调 echo 工具再回答）——看 Fast Path / 工具卡 / 流式打字机 / 会话保存
+- **`make dev`**：真实模型（.env 的 OPENAI_BASE_URL/KEY）——完整能力（工具选择、审批、Markdown、多轮、技能）
+
+## A. Fast Path（零模型调用）
+
+| 输入 | 预期 |
+|------|------|
+| `3+4` | 秒回 `Fast Path resolved: 7`，无工具卡、无流式 |
+| `(2.5 * 4) + 18 / 3` | 直接算出 `16`（带空格/括号） |
+
+## B. 工具 + 流式 + 思考（make dev-mock 即可）
+
+| 输入 | 预期 |
+|------|------|
+| 任意文本（如 `你好，请重复我这句话`） | thinking 块 → echo 工具卡 → 答案逐字打字机输出 |
+
+## C. 审批流（make dev 真实模型）
+
+| 输入 | 预期 |
+|------|------|
+| `3+4` | **不弹审批**——被 Fast Path 秒截（对比用） |
+| `请用计算器工具帮我算一下 (23.5 × 17) ÷ 3` | 模型请求 calculator → 弹 **⚠ Approve/Reject** → 批准后看到结果 |
+| 批准后 `再帮我算 100 ÷ 8，保留两位` | 再次弹审批（多轮人机协同） |
+| 换问题后点 **Reject** | 模型收到拒绝会换说法，不硬调同工具 |
+
+## D. 联网探索（make dev + browser 工具）
+
+| 输入 | 预期 |
+|------|------|
+| `打开 example.com 看看是什么网站` | browser-open 工具卡 → 返回页面标题+正文 |
+| `调研一下 React 19 的新特性，给我总结` | 模型连续开几个页面 → 汇总（多步工具调用） |
+
+## E. 技能（make dev；侧栏 Skills 区可点开看描述）
+
+| 输入 | 预期 |
+|------|------|
+| `帮我 review 一下 packages/core/src/services/agent.ts` | 模型读 code-review 技能 → read-file 读文件 → shell 跑 stats.py（弹审批）→ 输出结构化审查报告 |
+| `帮我在 erishen.cn 随机找篇文章评论一下` | pick-post（无审批）→ 选文章 → 生成评论 → shell 提交（弹审批一次）→ 汇报状态 |
+
+## F. Markdown + 多轮 + 持久化
+
+| 输入 | 预期 |
+|------|------|
+| `用 Markdown 表格对比 REST 和 GraphQL，再给一段 axios 示例代码` | 表格 + 代码块正确渲染 |
+| `记住：我养了一只叫 Lucky 的橘猫` → `我的猫叫什么？` | 第二轮能答出（多轮上下文） |
+| 发几条后**刷新页面** | 左侧侧栏出现会话，点击恢复（含工具卡与 thinking 块） |
+
+## G. 看后端日志（不需要提问）
+
+```bash
+node --import tsx packages/core/src/index.ts --config cordis.patch.yml
+# 预期：loader load @cordisjs/plugin-timer / @agent-harness/plugin-hello + 心跳日志
+#  → 跨生态插件按 npm 包名加载
+```
+
+## 推荐一条龙（make dev）
+
+`3+4`（Fast Path）→ 带自然语言的计算（审批弹窗，批准）→ Markdown 请求（渲染）→ 刷新（会话恢复）→「帮我 review 一个文件」（技能触发）。

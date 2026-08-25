@@ -1,0 +1,5 @@
+# Minimal manifest used by the fs-roots loader test. The `fs-roots` service is
+# auto-registered by loadConfig regardless of whether an `fs:` block is present.
+plugins:
+  - id: tools
+    name: tools

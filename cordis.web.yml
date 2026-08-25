@@ -1,0 +1,78 @@
+# Web UI composition — same runtime, but the frontend is the React app (web/)
+# served via the `web-server` HTTP bridge instead of the CLI REPL.
+#
+# Run:  node --import tsx packages/core/src/index.ts --config cordis.web.yml
+# Then: cd apps/web && pnpm dev   (Vite dev server on :5173, proxies /api → :8787)
+#
+# Filesystem sandbox roots (optional). The `fs-roots` service is always loaded;
+# omit this block to default to cwd (read also adds HARNESS_EXTRA_ROOTS). Set it
+# to pin the sandbox, e.g.:
+# fs:
+#   readRoots:  [WORKSPACE]
+#   writeRoots: [WORKSPACE]
+#   shellRoots: [WORKSPACE]
+plugins:
+  - id: tools
+    name: tools
+  - id: agent
+    name: agent
+  - id: fastpath
+    name: fastpath
+  - id: approval
+    name: approval
+  - id: usage
+    name: usage
+  - id: skills
+    name: skills
+  - id: mcp
+    name: mcp
+    config:
+      # MCP servers: 工具以 <id>:<tool> 注册进 ctx.tools，默认需审批（approval: false 可关）
+      # servers:
+      #   - id: fs
+      #     transport: stdio
+      #     command: npx
+      #     args: ['-y', '@modelcontextprotocol/server-filesystem', '~erishen']
+      #   - id: remote
+      #     transport: http
+      #     url: https://example.com/mcp
+      servers: []
+  - id: hello
+    name: '@agent-harness/plugin-hello'
+    config:
+      interval: 15000
+  - id: tool-hello
+    name: tool-hello
+  - id: llm
+    name: llm-mock
+    config:
+      tool: echo
+  - id: tool-echo
+    name: tool-echo
+  - id: tool-calculator
+    name: tool-calculator
+  - id: tool-read-file
+    name: tool-read-file
+  - id: tool-analyze-dir
+    name: tool-analyze-dir
+  - id: tool-analyze-code-dir
+    name: tool-analyze-code-dir
+  - id: tool-write-file
+    name: tool-write-file
+  - id: tool-shell
+    name: tool-shell
+  - id: tool-browser
+    name: tool-browser
+  - id: tool-pick-post
+    name: tool-pick-post
+  - id: tool-skill-run
+    name: tool-skill-run
+  - id: tool-portfolio-summary
+    name: tool-portfolio-summary
+  - id: tool-pse-review
+    name: tool-pse-review
+  - id: web
+    name: web-server
+    config:
+      host: 127.0.0.1
+      port: 8787

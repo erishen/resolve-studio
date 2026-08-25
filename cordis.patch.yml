@@ -1,0 +1,22 @@
+# cordis.patch.yml — dsh-compatible manifest format.
+#
+# This proves the loader accepts DeepSeek Harness's `cordis.patch.yml` shape
+# (a top-level `- insert:` block whose rows carry `name` / `config`). The
+# `name` here is an npm *package* name, not a local short name: `@cordisjs/
+# plugin-timer` is a pure-Cordis plugin (zero dsh-* dependencies) that ships in
+# both the dsh ecosystem and the upstream Cordis plugin registry. It loads by
+# dynamic import with no code changes — exactly the cross-ecosystem goal.
+#
+# Run: node --import tsx packages/core/src/index.ts --config cordis.patch.yml
+
+- insert:
+    - id: timer
+      name: '@cordisjs/plugin-timer'
+      config:
+        # timer plugin accepts an optional `root` path; default is fine here.
+        root: ['.']
+    - id: hello
+      name: '@agent-harness/plugin-hello'
+      config:
+        interval: 15000
+        greeting: 'heartbeat: agent-harness monorepo is alive'

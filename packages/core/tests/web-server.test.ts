@@ -1,0 +1,175 @@
+/**
+ * Web server integration tests: boot the real HTTP bridge on a fixed port and
+ * exercise /api/tools, /api/skills and the session CRUD endpoints end-to-end.
+ */
+
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { Context } from 'cordis'
+import { ToolRegistry } from '../src/services/tools.js'
+import { AgentService } from '../src/services/agent.js'
+import { FastPathService } from '../src/services/fastpath.js'
+import { ApprovalService } from '../src/services/approval.js'
+import { UsageService } from '../src/services/usage.js'
+import { FsRootsService } from '../src/services/fs-roots.js'
+import { skills } from '../src/plugins/skills.js'
+import { mcpPlugin } from '../src/plugins/mcp.js'
+import { llmMock } from '../src/plugins/llm-mock.js'
+import { toolEcho } from '../src/plugins/tool-echo.js'
+import { toolCalculator } from '../src/plugins/tool-calculator.js'
+import { webServer } from '../src/plugins/web-server.js'
+
+const PORT = 8899
+const BASE = `http://127.0.0.1:${PORT}`
+
+async function buildServer(): Promise<Context> {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService)
+  await root.plugin(UsageService)
+  await root.plugin(FsRootsService)
+  await root.plugin(skills, { dir: '../../skills' })
+  await root.plugin(mcpPlugin)
+  await root.plugin(llmMock)
+  await root.plugin(toolEcho)
+  await root.plugin(toolCalculator)
+  await root.plugin(webServer, { host: '127.0.0.1', port: PORT })
+  // server.listen is async; give it a beat to bind.
+  await new Promise((r) => setTimeout(r, 300))
+  return root
+}
+
+test('GET /api/tools and /api/skills', async () => {
+  const root = await buildServer()
+
+  const tools = (await (await fetch(`${BASE}/api/tools`)).json()) as {
+    tools: { name: string; needsApproval?: boolean }[]
+  }
+  assert.ok(tools.tools.some((t) => t.name === 'echo'))
+  assert.ok(tools.tools.some((t) => t.name === 'calculator' && t.needsApproval))
+
+  const sk = (await (await fetch(`${BASE}/api/skills`)).json()) as {
+    skills: { name: string }[]
+  }
+  assert.ok(sk.skills.some((s) => s.name === 'code-review'))
+
+  await root.fiber.dispose()
+})
+
+test('GET /api/fs lists the read roots, then a directory', async () => {
+  const root = await buildServer()
+
+  // Root view: no path → lists the configured read roots as virtual dirs.
+  const roots = (await (await fetch(`${BASE}/api/fs`)).json()) as {
+    dir: string
+    parent: string | null
+    entries: { name: string; isDir: boolean; path: string }[]
+  }
+  assert.equal(roots.dir, '')
+  assert.equal(roots.parent, null)
+  assert.ok(roots.entries.length >= 1, 'at least one read root')
+  assert.ok(roots.entries.every((e) => e.isDir), 'root entries are directories')
+
+  // Drill into the cwd root (the first entry) and expect to see its contents.
+  const cwdEntry = roots.entries[0]
+  const listing = (await (await fetch(`${BASE}/api/fs?path=${encodeURIComponent(cwdEntry.path)}`)).json()) as {
+    dir: string
+    entries: { name: string }[]
+  }
+  assert.equal(listing.dir, cwdEntry.path)
+  // The project directory should contain at least its package.json.
+  assert.ok(listing.entries.some((e) => e.name === 'package.json'), 'cwd should list package.json')
+
+  // A read root must report atRoot:true with a null parent (its filesystem
+  // parent is outside the sandbox, so "up" returns to the root list instead).
+  const rootView = (await (await fetch(`${BASE}/api/fs?path=${encodeURIComponent(cwdEntry.path)}`)).json()) as {
+    atRoot: boolean
+    parent: string | null
+  }
+  assert.equal(rootView.atRoot, true)
+  assert.equal(rootView.parent, null)
+
+  // A subdirectory inside the root must expose a non-null parent so the UI's
+  // "up" button can navigate back out.
+  const sub = listing.entries.find((e) => e.name === 'packages' || e.name === 'apps')
+  if (sub) {
+    const subListing = (await (await fetch(`${BASE}/api/fs?path=${encodeURIComponent(sub.path)}`)).json()) as {
+      parent: string | null
+    }
+    assert.ok(subListing.parent, 'subdirectory should have a navigable parent')
+  }
+
+  // Path traversal outside the sandbox must be rejected (400), not listed.
+  const bad = await fetch(`${BASE}/api/fs?path=${encodeURIComponent('/etc')}`)
+  assert.equal(bad.status, 400)
+
+  await root.fiber.dispose()
+})
+
+test('session CRUD round-trip', async () => {
+  const root = await buildServer()
+  const id = 't-sess-1'
+
+  const created = await fetch(`${BASE}/api/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, title: 'Test', messages: [{ role: 'user', content: 'hi' }] }),
+  })
+  assert.equal(created.status, 200)
+
+  const list = (await (await fetch(`${BASE}/api/sessions`)).json()) as {
+    sessions: { id: string; messageCount: number }[]
+  }
+  const found = list.sessions.find((s) => s.id === id)
+  assert.ok(found, 'session should appear in list')
+  assert.equal(found.messageCount, 1)
+
+  const one = (await (await fetch(`${BASE}/api/sessions/${id}`)).json()) as {
+    session: { messages: { content: string }[] }
+  }
+  assert.equal(one.session.messages[0].content, 'hi')
+
+  const del = await fetch(`${BASE}/api/sessions/${id}`, { method: 'DELETE' })
+  assert.equal(del.status, 200)
+
+  const after = (await (await fetch(`${BASE}/api/sessions`)).json()) as {
+    sessions: { id: string }[]
+  }
+  assert.ok(!after.sessions.some((s) => s.id === id), 'session should be gone')
+
+  await root.fiber.dispose()
+})
+
+test('DELETE /api/sessions clears all stored sessions', async () => {
+  const root = await buildServer()
+  // Start from a clean slate so other tests' leftovers don't skew the count.
+  await fetch(`${BASE}/api/sessions`, { method: 'DELETE' })
+
+  const seed = (id: string) =>
+    fetch(`${BASE}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, title: id, messages: [{ role: 'user', content: 'hi' }] }),
+    })
+  await seed('clear-a')
+  await seed('clear-b')
+
+  const before = (await (await fetch(`${BASE}/api/sessions`)).json()) as {
+    sessions: { id: string }[]
+  }
+  assert.equal(before.sessions.length, 2)
+
+  const del = await fetch(`${BASE}/api/sessions`, { method: 'DELETE' })
+  assert.equal(del.status, 200)
+  const body = (await del.json()) as { removed: number }
+  assert.equal(body.removed, 2)
+
+  const after = (await (await fetch(`${BASE}/api/sessions`)).json()) as {
+    sessions: { id: string }[]
+  }
+  assert.equal(after.sessions.length, 0)
+
+  await root.fiber.dispose()
+})

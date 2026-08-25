@@ -1,0 +1,45 @@
+{
+  "name": "@agent-harness/core",
+  "version": "0.1.0",
+  "description": "Core runtime for agent-harness: Cordis-powered agent runtime (loader, services, plugins)",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./loader": "./src/loader.ts",
+    "./types": "./src/types.ts"
+  },
+  "bin": {
+    "agent-harness": "src/index.ts"
+  },
+  "scripts": {
+    "chat": "tsx src/index.ts",
+    "chat:loader": "tsx src/index.ts --config cordis.yml",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test --test-force-exit tests/*.test.ts",
+    "check": "npm run typecheck && npm test"
+  },
+  "dependencies": {
+    "@agent-harness/plugin-hello": "workspace:*",
+    "@cordisjs/plugin-logger-console": "^1.0.0",
+    "@cordisjs/plugin-timer": "^1.1.2",
+    "@modelcontextprotocol/sdk": "^1.13.0",
+    "cordis": "^4.0.0-rc.8",
+    "dotenv": "^17.2.3",
+    "openai": "^6.16.3",
+    "playwright-core": "^1.49.0",
+    "yaml": "^2.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "zod": "^3.23.8"
+  }
+}

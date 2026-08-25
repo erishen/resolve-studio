@@ -1,0 +1,21 @@
+{
+  "name": "agent-harness",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent harness monorepo (pnpm workspace): a Cordis-powered agent runtime where everything is a plugin",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "install:all": "pnpm install",
+    "typecheck": "pnpm -C packages/core run typecheck",
+    "test": "pnpm -C packages/core run test",
+    "check": "pnpm -C packages/core run check",
+    "build": "pnpm -C packages/core run build",
+    "build-web": "pnpm -C apps/web run build"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.0"
+  }
+}
