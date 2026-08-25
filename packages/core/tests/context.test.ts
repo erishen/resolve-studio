@@ -32,3 +32,22 @@ test('fitContext trims old messages and inserts a system note when over budget',
   // The most recent message survives (contiguous tail).
   assert.equal(out[out.length - 1].content, many[many.length - 1].content)
 })
+
+test('fitContext (summarizeDropped) lists dropped tool activity in the note', () => {
+  const sys = msg('system', 'you are helpful')
+  // An assistant message that issued a tool call, which will be dropped.
+  const dropped = {
+    role: 'assistant',
+    content: 'let me check',
+    toolCalls: [{ id: 'c1', name: 'read-file', arguments: '{}' }],
+  } as unknown as ChatMessage
+  const many: ChatMessage[] = []
+  for (let i = 0; i < 60; i++) many.push(msg('user', `message number ${i} ` + 'x'.repeat(60)))
+  const msgs = [sys, dropped, ...many]
+
+  const out = fitContext(msgs, { maxChars: 2000, summarizeDropped: true })
+
+  const note = out.find((m) => typeof m.content === 'string' && m.content.includes('omitted'))
+  assert.ok(note, 'an omit note should be present')
+  assert.match(String(note?.content), /read-file/, 'note should mention the dropped tool')
+})

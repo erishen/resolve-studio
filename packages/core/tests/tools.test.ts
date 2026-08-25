@@ -88,3 +88,17 @@ test('echo returns the input text', async () => {
   assert.equal(await root.tools.call('echo', JSON.stringify({ text: 'hi' })), 'hi')
   await root.fiber.dispose()
 })
+
+test('tools.call honors { internal: true } and surfaces it on the event', async () => {
+  const root = await buildContext()
+  let seen: { name: string; internal?: boolean } | null = null
+  root.on('tools/call', (p: { name: string; internal?: boolean }) => {
+    seen = p
+  })
+  const res = await root.tools.call('echo', JSON.stringify({ text: 'hi' }), { internal: true })
+  assert.equal(res, 'hi')
+  assert.ok(seen, 'tools/call event should fire')
+  assert.equal(seen?.name, 'echo')
+  assert.equal(seen?.internal, true, 'internal flag should be forwarded to the event')
+  await root.fiber.dispose()
+})

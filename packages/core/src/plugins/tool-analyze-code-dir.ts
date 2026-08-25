@@ -17,6 +17,10 @@
  *     *inside* a tool execute, which bypasses the agent-loop approval gate
  *     (see agent.ts — the gate lives in the loop, not in ToolsService.call).
  *     The user invokes this tool ONCE and is not spammed with prompts.
+ *   - These internal delegations are flagged `{ internal: true }` so the bypass
+ *     is explicit and intentional (a composite tool's sub-calls inherit the
+ *     parent tool's already-granted approval). See docs/TODO.md "复合工具内部调用
+ *     绕过审批闸门" — the chosen fix is the explicit-exemption path.
  *   - If Serena is not connected, or returns no symbols (unsupported language
  *     / LSP not ready), the tool transparently falls back to the raw
  *     `analyze-dir` walker so the request still succeeds.
@@ -144,16 +148,16 @@ const registerAnalyzeCodeDir = (ctx: Context) => {
       let symbolsFound = 0
       const usedTools: string[] = []
       try {
-        const act = await ctx.tools.call('serena:activate_project', { project: abs })
+        const act = await ctx.tools.call('serena:activate_project', { project: abs }, { internal: true })
         if (isError(act)) throw new Error(act)
         usedTools.push('serena:activate_project')
 
         for (const rel of relFiles) {
-          const sym = await ctx.tools.call('serena:get_symbols_overview', { relative_path: rel, depth: 0 })
+          const sym = await ctx.tools.call('serena:get_symbols_overview', { relative_path: rel, depth: 0 }, { internal: true })
           const symbols = isError(sym) ? '' : sym.slice(0, MAX_SYMBOL_CHARS)
           let diagnostics = ''
           if (includeDiagnostics && symbols) {
-            const dia = await ctx.tools.call('serena:get_diagnostics_for_file', { relative_path: rel })
+            const dia = await ctx.tools.call('serena:get_diagnostics_for_file', { relative_path: rel }, { internal: true })
             if (!isError(dia) && dia.trim()) diagnostics = dia.slice(0, MAX_DIAG_CHARS)
           }
           if (symbols) symbolsFound++
@@ -184,7 +188,7 @@ const registerAnalyzeCodeDir = (ctx: Context) => {
         }
       } else {
         // transparent fallback to the raw walker
-        const raw = await ctx.tools.call('analyze-dir', { dir: abs })
+        const raw = await ctx.tools.call('analyze-dir', { dir: abs }, { internal: true })
         if (isError(raw)) {
           report = { mode: 'failed', engine: 'none', usedTools: [], dir: abs, error: raw }
         } else {

@@ -40,6 +40,12 @@ declare module 'cordis' {
   }
 }
 
+export interface AgentConfig {
+  /** Default context-window budget in chars before old messages are trimmed.
+   *  Overridable per-run via {@link AgentRunOptions.contextBudgetChars}. */
+  contextBudgetChars?: number
+}
+
 export class AgentService extends Service {
   // The agent loop reaches into the tool registry and the LLM backend, so it
   // must declare those as injected dependencies; otherwise Cordis' property
@@ -47,8 +53,12 @@ export class AgentService extends Service {
   // `this.ctx.tools` / `this.ctx.llm`.
   static inject = { tools: {}, llm: {}, fastpath: {}, approval: {}, skills: {} }
 
-  constructor(ctx: Context) {
+  /** Per-plugin default context budget; a run may override it. */
+  private readonly budgetChars?: number
+
+  constructor(ctx: Context, config: AgentConfig = {}) {
     super(ctx, 'agent')
+    this.budgetChars = config.contextBudgetChars
   }
 
   /**
@@ -66,9 +76,12 @@ export class AgentService extends Service {
     // global `ctx.events` bus, which keeps the CLI's `ctx.events.on(...)` and
     // the tests' observers working unchanged.
     const bus: RunEventBus = options.bus ?? ((this.ctx.events as unknown) as RunEventBus)
-    // Bound the conversation to the context window before anything else.
+    // Bound the conversation to the context window before anything else. A
+    // pre-budget (cheaper than the per-message cap in llm-openai.ts) plus a
+    // rolling summary of dropped tool activity keeps long sessions coherent.
     const messages: ChatMessage[] = fitContext(options.messages.map((m) => ({ ...m })), {
-      maxChars: options.contextBudgetChars,
+      maxChars: options.contextBudgetChars ?? this.budgetChars,
+      summarizeDropped: true,
     })
 
     // Fast Path: if the last user message is a pure arithmetic query we can

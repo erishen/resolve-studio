@@ -42,7 +42,7 @@ BACKEND_MATCH := $(BACKEND_BIN) --config
 WEB_MATCH     := vite --host 127.0.0.1 --port $(WEB_PORT)
 
 .PHONY: all install typecheck test check build build-web \
-        chat chat-real dev dev-mock stop clean help new-plugin
+        chat chat-real dev dev-mock stop clean help new-plugin manifests
 
 all: install
 
@@ -65,6 +65,9 @@ build-web:         ## 构建前端到 apps/web/dist/
 
 new-plugin:        ## 生成新插件包：make new-plugin name=weather
 	node scripts/new-plugin.mjs $(name)
+
+manifests:         ## 重新生成 4 份 cordis*.yml（单源：scripts/gen-manifests.mjs）
+	node scripts/gen-manifests.mjs
 
 # ---- 运行 ----
 

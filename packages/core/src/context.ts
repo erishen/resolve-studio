@@ -31,6 +31,31 @@ export function estimateChars(messages: ChatMessage[]): number {
 export interface FitOptions {
   /** Max total chars before trimming kicks in (default 60_000 ≈ 15k tokens). */
   maxChars?: number
+  /**
+   * When set, dropped messages are summarized (a cheap "rolling summary" lite):
+   * the names of tools invoked in the omitted prefix are listed in the omit
+   * note, so the model retains a hint of what happened earlier without an
+   * extra LLM summarization call. (See docs/TODO.md "会话历史仅事后截断".)
+   */
+  summarizeDropped?: boolean
+}
+
+/**
+ * Scan dropped messages and summarize the tool activity that happened there.
+ * Returns an empty string when nothing tool-related was found, so callers can
+ * append it unconditionally.
+ */
+function summarizeDroppedMessages(msgs: ChatMessage[]): string {
+  const counts = new Map<string, number>()
+  for (const m of msgs) {
+    const toolCalls = (m as { toolCalls?: { name: string }[] }).toolCalls
+    if (Array.isArray(toolCalls)) {
+      for (const tc of toolCalls) counts.set(tc.name, (counts.get(tc.name) ?? 0) + 1)
+    }
+  }
+  if (counts.size === 0) return ''
+  const parts = [...counts.entries()].map(([name, n]) => `${n}× ${name}`)
+  return ` Earlier activity included: ${parts.join(', ')}.`
 }
 
 /**
@@ -63,11 +88,12 @@ export function fitContext(messages: ChatMessage[], opts: FitOptions = {}): Chat
   const dropped = start
   const trimmed = [...head, ...rest.slice(start)]
   if (dropped > 0) {
+    const summary = opts.summarizeDropped ? summarizeDroppedMessages(rest.slice(0, start)) : ''
     // Insert the omit-note right after the preserved leading system message,
     // so the original system prompt stays first.
     trimmed.splice(head.length, 0, {
       role: 'system',
-      content: `[system] ${dropped} earlier message(s) were omitted to fit the context window. The conversation continues below.`,
+      content: `[system] ${dropped} earlier message(s) were omitted to fit the context window.${summary} The conversation continues below.`,
     })
   }
   return trimmed

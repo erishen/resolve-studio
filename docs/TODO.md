@@ -4,7 +4,9 @@
 
 ## 近期（先收尾）
 
-- [ ] **提交整理**：今天（monorepo + 四功能 + 工具三件套 + 浏览器 + skills + UI 优化 + 测试/文档）大量改动仍未 commit，建议按模块拆几个提交
+- [x] **本地提交**：已 `git init` + 根提交 `4caaeea`（104 文件）+ 清理 commit `1774cbd`（清临时脚本），local only 未推送
+- [ ] **是否推送 remote**：当前仅本地、无 remote；待用户决策是否建 remote 并 push
+- [ ] **重启后端让改动生效**：MCP 配置（`fs` 追加 invest 根 / serena `--context claude-code`）· `mcp.ts` 120s 连接超时 · 新工具 `analyze-code-dir` · 引擎徽章后端字段 `engine`/`usedTools` · 用量徽章依赖 `usage` 服务——均需**重启 `make dev` 后端进程**才生效（前端 HMR 不生效，旧进程仍跑旧代码）
 - [ ] `.env.example` 补齐：`PROD_WORDPRESS_USERNAME / PROD_WORDPRESS_APP_PASSWORD`（post-comment 复用）等新变量说明
 
 ## 第二层方向（差异化，二选一）
@@ -28,6 +30,13 @@
 - [ ] **正文互链脚本**：扫现有文章，输出 PSE 系列该互相引用的「延伸阅读」清单（站内互链的正确姿势）
 - [ ] **掘金/思否评论草稿技能**（tech-comment-draft）：读对方文章 → 生成真诚评论草稿（带自然链接）→ **只出草稿、人工提交**；知乎外链环境差暂不做
 - [ ] **公众号 API 技能**（wechat-draft）：存草稿/发素材，需 appid+appsecret（待确认是否有开发者权限）
+
+## 已知技术债（待排期）
+
+- [x] **4 份 yml 重复条目漂移** → `scripts/gen-manifests.mjs` 单源生成 4 份 manifest（2×2 矩阵：mock/openai × 无 web/有 web + openai.web 的 `fs` 块与 pse-review config）；`make manifests` 重新生成；`tests/manifests.test.ts` 锁生成结果、漂移即失败
+- [x] **审批粒度仅服务器级布尔** → `mcp.ts` 的 `McpServerConfig.approval` 扩展为 `boolean | { allow?: string[]; deny?: string[] }`，新增 `needsApprovalFor(toolName, policy)`；缺省 `undefined→true` 向后兼容；connect 时按工具逐个计算注入 `needsApproval`
+- [x] **复合工具内部调用绕过审批闸门** → `tools.call(name, args, opts?)` 增加 `internal?: boolean` 选项，`tools/call` 事件携带 `internal`；`tool-analyze-code-dir` 内部三次 serena 调用与 analyze-dir 回退显式 `{ internal: true }`，注释说明「内部委托继承父工具审批状态、有意跳过 agent 循环闸门」
+- [x] **会话历史仅事后截断** → `context.ts` 的 `fitContext` 新增 `summarizeDropped`：被裁剪旧消息自动生成「滚动摘要 lite」（统计各工具调用次数，无 LLM 调用），附在 omit 提示后；`agent.ts` 支持 `config.contextBudgetChars`（默认预算，options 优先）并默认开启滚动摘要；`context.test.ts` 已覆盖
 
 ## 已搁置（记录原因）
 

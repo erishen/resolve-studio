@@ -12,9 +12,11 @@
  *
  * Security posture: MCP tools default to `needsApproval: true` — external
  * capabilities can be powerful, so every call is human-gated unless a server
- * explicitly opts out (`approval: false` for read-only servers). A failed
- * server never crashes the composition: it records an `error` state and the
- * rest of the harness keeps running.
+ * opts out. The `approval` policy is now tool-level (not just a server-wide
+ * boolean): `false` opts the whole server out; `{ allow: [...] }` auto-approves
+ * only the named `<id>:<tool>` tools; `{ deny: [...] }` keeps named tools gated
+ * even under `false`. A failed server never crashes the composition: it records
+ * an `error` state and the rest of the harness keeps running.
  */
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
@@ -25,6 +27,17 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { Context, Service } from 'cordis'
 import type { Tool, ToolParameter } from '../types.js'
 import { definePlugin } from './util.js'
+
+/**
+ * Per-server approval policy for the tools this server registers.
+ *  - `true` (default): every tool needs human approval;
+ *  - `false`: no tool needs approval (only safe for read-only servers);
+ *  - `{ allow: [...] }`: ONLY the listed `<id>:<tool>` names are auto-approved;
+ *    everything else still needs approval;
+ *  - `{ deny: [...] }`: the listed names STILL need approval even when the
+ *    server-wide default is `false` (e.g. keep write/exec tools gated).
+ */
+export type McpApprovalPolicy = boolean | { allow?: string[]; deny?: string[] }
 
 export interface McpServerConfig {
   /** Unique id; becomes the tool-name prefix (`<id>:<tool>`). */
@@ -38,8 +51,8 @@ export interface McpServerConfig {
   env?: Record<string, string>
   /** http: the MCP endpoint URL (Streamable HTTP). */
   url?: string
-  /** Override the default approval gate (default: true → tools need approval). */
-  approval?: boolean
+  /** Approval policy for this server's tools (see {@link McpApprovalPolicy}). */
+  approval?: McpApprovalPolicy
 }
 
 export interface McpConfig {
@@ -103,6 +116,24 @@ function formatMcpResult(raw: unknown): string {
   }
   if (res.structuredContent !== undefined) return JSON.stringify(res.structuredContent)
   return (res.content ?? []).map((c) => c.text ?? '').filter(Boolean).join('\n')
+}
+
+/**
+ * Resolve whether a specific tool from a server needs human approval, given the
+ * server's {@link McpApprovalPolicy}.
+ *   - undefined / true → needs approval
+ *   - false            → never needs approval
+ *   - { allow: [...] } → needs approval UNLESS the tool name is listed
+ *   - { deny: [...] }  → needs approval IF the tool name is listed
+ * This turns the previous server-wide boolean into real tool-level granularity
+ * (see docs/TODO.md "审批粒度仅服务器级布尔").
+ */
+export function needsApprovalFor(toolName: string, policy: McpApprovalPolicy | undefined): boolean {
+  const p = policy ?? true
+  if (typeof p === 'boolean') return p
+  if (Array.isArray(p.allow)) return !p.allow.includes(toolName)
+  if (Array.isArray(p.deny)) return p.deny.includes(toolName)
+  return true
 }
 
 export class McpService extends Service {
@@ -172,7 +203,7 @@ export class McpService extends Service {
       command: config.command,
       args: config.args,
       url: config.url,
-      approval: config.approval ?? true,
+      approval: typeof config.approval === 'boolean' ? config.approval : true,
       status: 'error',
       toolCount: 0,
       tools: [],
@@ -188,7 +219,7 @@ export class McpService extends Service {
           name,
           description: t.description ?? `MCP tool from server "${config.id}"`,
           parameters: (t.inputSchema ?? { type: 'object' }) as ToolParameter,
-          needsApproval: status.approval,
+          needsApproval: needsApprovalFor(name, config.approval),
           async execute(args) {
             const res = await connected.client.callTool({ name: t.name, arguments: args })
             return formatMcpResult(res)

@@ -10,12 +10,25 @@
 import { Context, Service } from 'cordis'
 import type { Tool, ToolSchema } from '../types.js'
 
+/** Options for {@link ToolRegistry.call}. */
+export interface ToolCallOptions {
+  /**
+   * Mark this call as an internal delegation — e.g. a composite tool invoking
+   * another tool (see `tool-analyze-code-dir`). Internal calls intentionally
+   * skip the agent-loop approval gate (which lives in the loop, not in
+   * `call`), because they run as part of an already-approved parent tool and
+   * must not spam the user with per-subcall prompts. The flag is also surfaced
+   * on the `tools/call` event so observers can distinguish delegated calls.
+   */
+  internal?: boolean
+}
+
 declare module 'cordis' {
   interface Context {
     tools: ToolRegistry
   }
   interface Events {
-    'tools/call'(payload: { name: string; args: unknown; ok: boolean; result: string }): void
+    'tools/call'(payload: { name: string; args: unknown; ok: boolean; result: string; internal?: boolean }): void
   }
 }
 
@@ -64,11 +77,15 @@ export class ToolRegistry extends Service {
    * object. Failures are caught and returned as an error string so the agent
    * loop can continue instead of crashing.
    */
-  async call(name: string, args: string | Record<string, unknown>): Promise<string> {
+  async call(
+    name: string,
+    args: string | Record<string, unknown>,
+    opts: ToolCallOptions = {},
+  ): Promise<string> {
     const tool = this.registry.get(name)
     if (!tool) {
       const result = `error: unknown tool "${name}"`
-      this.ctx.events.emit('tools/call', { name, args, ok: false, result })
+      this.ctx.events.emit('tools/call', { name, args, ok: false, result, internal: opts.internal })
       return result
     }
     let parsed: Record<string, unknown>
@@ -76,17 +93,17 @@ export class ToolRegistry extends Service {
       parsed = typeof args === 'string' ? (args ? JSON.parse(args) : {}) : args
     } catch (err) {
       const result = `error: invalid JSON arguments for ${name}: ${(err as Error).message}`
-      this.ctx.events.emit('tools/call', { name, args, ok: false, result })
+      this.ctx.events.emit('tools/call', { name, args, ok: false, result, internal: opts.internal })
       return result
     }
     try {
       const out = await tool.execute(parsed)
       const result = typeof out === 'string' ? out : JSON.stringify(out)
-      this.ctx.events.emit('tools/call', { name, args: parsed, ok: true, result })
+      this.ctx.events.emit('tools/call', { name, args: parsed, ok: true, result, internal: opts.internal })
       return result
     } catch (err) {
       const result = `error: ${tool.name} failed: ${(err as Error).message}`
-      this.ctx.events.emit('tools/call', { name, args: parsed, ok: false, result })
+      this.ctx.events.emit('tools/call', { name, args: parsed, ok: false, result, internal: opts.internal })
       return result
     }
   }
