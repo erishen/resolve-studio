@@ -66,6 +66,7 @@ const BASE_PLUGINS = [
   { id: 'tool-crm-task', name: 'tool-crm-task' },
   { id: 'tool-wp-publish', name: 'tool-wp-publish' },
   { id: 'tool-crewai-publish', name: 'tool-crewai-publish' },
+  { id: 'tool-crewai-discover', name: 'tool-crewai-discover' },
   { id: 'tool-system-info', name: 'tool-system-info' },
 ]
 

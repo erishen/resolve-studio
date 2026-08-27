@@ -74,6 +74,8 @@ plugins:
     name: tool-wp-publish
   - id: tool-crewai-publish
     name: tool-crewai-publish
+  - id: tool-crewai-discover
+    name: tool-crewai-discover
   - id: tool-system-info
     name: tool-system-info
   - id: cli
