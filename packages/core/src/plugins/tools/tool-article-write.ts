@@ -63,7 +63,7 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       'If the user did not specify a project, call this tool WITHOUT the project parameter first ' +
       'to get the list of available projects, then ask the user to pick one — do NOT guess or ' +
       'invent a project name. ' +
-      'Default provider: agnes (free); set provider="deepseek" for paid higher quality. ' +
+      'Default provider: free (default); set provider="deepseek" for paid higher quality. ' +
       'Do NOT read any files before calling this tool — all paths and configs are handled internally.',
     parameters: {
       type: 'object',
@@ -89,18 +89,18 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
         provider: {
           type: 'string',
           description:
-            'Model provider: "agnes" (free, default, matches `make articles`) or "deepseek" (paid, higher quality, matches `make articles-paid`).',
-          enum: ['agnes', 'deepseek'],
-          default: 'agnes',
+            'Model provider: "free" (default, matches `make articles`) or "deepseek" (paid, higher quality, matches `make articles-paid`).',
+          enum: ['free', 'deepseek'],
+          default: 'free',
         },
       },
       required: [],
     },
     async execute(
-      args: { project?: string; publish?: boolean; style?: string; provider?: 'agnes' | 'deepseek' },
+      args: { project?: string; publish?: boolean; style?: string; provider?: 'free' | 'deepseek' },
       execCtx?: ToolExecutionContext,
     ): Promise<string> {
-      const { project, publish = false, style, provider = 'agnes' } = args
+      const { project, publish = false, style, provider = 'free' } = args
       const onProgress = execCtx?.onProgress
 
       // If no project specified, return the list of available projects.
@@ -148,10 +148,10 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       let stdout = ''
       let stderr = ''
       try {
-        // Build child env explicitly to match `make articles` (agnes, free) vs
+        // Build child env explicitly to match `make articles` (free, default) vs
         // `make articles-paid` (deepseek). We cannot rely on inherited env vars
-        // because the harness .env sets agnes-2.0-flash without the `openai/`
-        // prefix that crewai-pse expects, and load_dotenv won't override.
+        // because the harness `.env` model name may differ from what crewai-pse
+        // expects, and load_dotenv won't override.
         const childEnv: NodeJS.ProcessEnv = { ...process.env }
         delete childEnv.OPENAI_MODEL
         delete childEnv.OPENAI_BASE_URL
@@ -160,12 +160,12 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
           // crewai-pse/.env carries deepseek creds; load_dotenv will pick them up.
           ctx.logger('article-write').info('provider=deepseek (paid)')
         } else {
-          // Agnes: same creds as the harness, but model name needs the `openai/`
-          // prefix that crewai-pse's litellm wrapper expects.
-          childEnv.OPENAI_API_KEY = process.env.AGNES_KEY ?? process.env.OPENAI_API_KEY ?? ''
-          childEnv.OPENAI_MODEL = 'openai/agnes-2.0-flash'
-          childEnv.OPENAI_BASE_URL = process.env.AGNES_BASE_URL ?? 'https://apihub.agnes-ai.com/v1'
-          ctx.logger('article-write').info('provider=agnes (free)')
+          // free: use the harness's standard OpenAI-compatible creds from `.env`
+          // (OPENAI_*); no vendor-specific model prefix or private gateway.
+          childEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? ''
+          childEnv.OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini'
+          childEnv.OPENAI_BASE_URL = process.env.OPENAI_BASE_URL ?? ''
+          ctx.logger('article-write').info('provider=free (default)')
         }
         const { out, err } = await spawnStream('uv', cmdArgs, {
           cwd: CREWAI_PSE,

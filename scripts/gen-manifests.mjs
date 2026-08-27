@@ -71,10 +71,14 @@ const BASE_PLUGINS = [
 
 // LLM adapter variants.
 const LLM_MOCK = { id: 'llm', name: 'llm-mock', config: { tool: 'echo' } }
+// Default sample model for the OpenAI build. Intentionally NOT read from
+// process.env — the harness reads OPENAI_MODEL at runtime and supersedes this
+// value, so no private endpoint/model name is ever baked into the committed
+// manifest. Public default is a generic OpenAI-compatible model.
 const LLM_OPENAI = {
   id: 'llm',
   name: 'llm-openai',
-  config: { model: process.env.OPENAI_MODEL || 'agnes-2.0-flash', temperature: 0.7 },
+  config: { model: 'gpt-4o-mini', temperature: 0.7 },
 }
 
 // Interface variant — `cli` and `web` are mutually exclusive.
@@ -109,7 +113,7 @@ const VARIANTS = {
   'cordis.openai.web.yml': build({
     llm: LLM_OPENAI,
     iface: WEB,
-    pseReviewConfig: { provider: 'agnes' },
+    pseReviewConfig: { provider: 'free' },
     // Read widened to the whole invest workspace so the web file-picker can
     // reach sibling projects; writes/shell stay pinned to this repo for safety.
     // Relative paths are resolved against cwd at runtime by fs-roots service.

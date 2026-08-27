@@ -50,7 +50,7 @@ const TASKS = {
 } as const
 
 type TaskKey = keyof typeof TASKS
-const PROVIDERS = ['agnes', 'deepseek'] as const
+const PROVIDERS = ['free', 'deepseek'] as const
 type Provider = (typeof PROVIDERS)[number]
 
 export interface CrmTaskConfig {
@@ -66,7 +66,7 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
       '(2) follow-up-draft — personalized follow-up message drafts for contacts; ' +
       '(3) weekly-review — weekly relationship summary from CRM data. ' +
       'All use the PSE graph (Planner + Specialist + Evaluator + Verify) with anti-hallucination. ' +
-      'Default provider: agnes (free). Requires personal-CRM backend or database to be accessible. ' +
+      'Default provider: free (default). Requires personal-CRM backend or database to be accessible. ' +
       'Do NOT read any files before calling this tool.',
     parameters: {
       type: 'object',
@@ -78,9 +78,9 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
         },
         provider: {
           type: 'string',
-          description: 'Model provider: agnes (free, default) or deepseek (paid, higher quality).',
+          description: 'Model provider: free (default) or deepseek (paid, higher quality).',
           enum: [...PROVIDERS],
-          default: 'agnes',
+          default: 'free',
         },
         api_base_url: {
           type: 'string',
@@ -106,7 +106,7 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
       },
       execCtx?: ToolExecutionContext,
     ): Promise<string> {
-      const { task, provider = 'agnes', api_base_url, db_path } = args
+      const { task, provider = 'free', api_base_url, db_path } = args
       const onProgress = execCtx?.onProgress
       const cfg = TASKS[task]
 

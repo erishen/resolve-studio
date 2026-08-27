@@ -20,7 +20,7 @@ const RUN = join(TASK_DIR, 'run.py')
 const RUN_TIMEOUT_MS = 300_000
 const MAX_OUTPUT = 64 * 1024
 
-const PROVIDERS = ['agnes', 'deepseek'] as const
+const PROVIDERS = ['free', 'deepseek'] as const
 type Provider = (typeof PROVIDERS)[number]
 
 const SUBJECTS = [
@@ -54,7 +54,7 @@ const registerInterviewQuestions = (ctx: Context, _config: InterviewQuestionsCon
       'Generates 9 questions (3 easy / 3 medium / 3 hard) with anti-hallucination topic verification. ' +
       'Takes 1-5 minutes. Returns the generated question set (Markdown) and save path. ' +
       'Use when the user asks to generate interview questions, prepare for an interview, or create a quiz. ' +
-      'Default provider: agnes (free). ' +
+      'Default provider: free (default). ' +
       'Do NOT read any files before calling this tool — all paths and configs are handled internally.',
     parameters: {
       type: 'object',
@@ -85,9 +85,9 @@ const registerInterviewQuestions = (ctx: Context, _config: InterviewQuestionsCon
         },
         provider: {
           type: 'string',
-          description: 'Model provider: agnes (free, default) or deepseek (paid, higher quality).',
+          description: 'Model provider: free (default) or deepseek (paid, higher quality).',
           enum: [...PROVIDERS],
-          default: 'agnes',
+          default: 'free',
         },
       },
       required: ['mode'],
@@ -102,7 +102,7 @@ const registerInterviewQuestions = (ctx: Context, _config: InterviewQuestionsCon
       },
       execCtx?: ToolExecutionContext,
     ): Promise<string> {
-      const { mode, subject = 'python', jd_text, resume_text, provider = 'agnes' } = args
+      const { mode, subject = 'python', jd_text, resume_text, provider = 'free' } = args
       const onProgress = execCtx?.onProgress
 
       // Validate

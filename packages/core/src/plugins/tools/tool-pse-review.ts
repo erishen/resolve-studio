@@ -43,14 +43,14 @@ const REVIEW_SAVED_RE = /Review 已保存 →\s*(\S+)/
  * autogen-pse's `run.py` reads `OPENAI_MODEL` / `OPENAI_BASE_URL` / `OPENAI_API_KEY`
  * from the environment (os.environ overrides its own `.env`). This tool USED to
  * just inherit `process.env`, which silently made it follow whatever the harness
- * `.env` happened to set (currently agnes-2.0-flash) — a fragile, invisible choice.
+ * `.env` happened to set (currently gpt-4o-mini) — a fragile, invisible choice.
  * Now the provider is explicit:
  *
- *   provider = config.provider ?? process.env.PSE_REVIEW_PROVIDER ?? 'agnes'
+ *   provider = config.provider ?? process.env.PSE_REVIEW_PROVIDER ?? 'free'
  *
- * - 'agnes'     → FREE, non-streaming. Uses the harness `.env` agnes creds that
- *                 are already in process.env; sets PSE_MODEL_STREAM=false (matches
- *                 autogen-pse's `make review-agnes`).
+ * - 'free'      → FREE, non-streaming. Uses the harness `.env` OpenAI-compatible
+ *                 creds that are already in process.env; sets PSE_MODEL_STREAM=false
+ *                 (matches autogen-pse's `make review-free`).
  * - 'deepseek'  → PAID (DeepSeek V4 Pro). Overrides model/base_url to deepseek and
  *                 DROPS OPENAI_API_KEY so run.py falls back to autogen-pse/.env's
  *                 deepseek key (cwd=AUTOGEN_PSE → pydantic env_file); sets
@@ -58,21 +58,21 @@ const REVIEW_SAVED_RE = /Review 已保存 →\s*(\S+)/
  */
 
 export interface PseReviewConfig {
-  /** 'agnes' (free) or 'deepseek' (paid). Defaults to 'agnes'. */
-  provider?: 'agnes' | 'deepseek'
+  /** 'free' (default) or 'deepseek' (paid). Defaults to 'free'. */
+  provider?: 'free' | 'deepseek'
 }
 
-function buildRunEnv(provider: 'agnes' | 'deepseek'): NodeJS.ProcessEnv {
+function buildRunEnv(provider: 'free' | 'deepseek'): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env }
   if (provider === 'deepseek') {
-    // Override to DeepSeek; drop the inherited agnes key so run.py reads the
+    // Override to DeepSeek; drop the inherited key so run.py reads the
     // deepseek key from its own .env (env_file, since cwd=AUTOGEN_PSE).
     env.OPENAI_MODEL = 'deepseek-v4-flash'
     env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
     delete env.OPENAI_API_KEY
     env.PSE_MODEL_STREAM = 'true'
   } else {
-    // agnes: harness .env already carries the correct OPENAI_* (agnes) creds;
+    // free: harness .env already carries the correct OPENAI_* creds;
     // just pin non-streaming for stability (free tier streaming is flaky).
     env.PSE_MODEL_STREAM = 'false'
   }
@@ -80,9 +80,9 @@ function buildRunEnv(provider: 'agnes' | 'deepseek'): NodeJS.ProcessEnv {
 }
 
 const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
-  // Resolve provider: yml config > env override > default (free agnes).
+  // Resolve provider: yml config > env override > default (free).
   const rawProvider = config.provider ?? (process.env.PSE_REVIEW_PROVIDER as string | undefined)
-  const provider: 'agnes' | 'deepseek' = rawProvider === 'deepseek' ? 'deepseek' : 'agnes'
+  const provider: 'free' | 'deepseek' = rawProvider === 'deepseek' ? 'deepseek' : 'free'
   const runEnv = buildRunEnv(provider)
   ctx.logger('pse-review').info('provider=%s (paid=%s)', provider, provider === 'deepseek')
 

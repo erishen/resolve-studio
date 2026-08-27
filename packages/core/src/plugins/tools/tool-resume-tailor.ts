@@ -19,7 +19,7 @@ const RUN = join(RESUME_TAILOR_DIR, 'run.py')
 const RUN_TIMEOUT_MS = 300_000
 const MAX_OUTPUT = 64 * 1024
 
-const PROVIDERS = ['agnes', 'deepseek', 'scnet-kimi', 'scnet-minimax'] as const
+const PROVIDERS = ['free', 'deepseek', 'scnet-kimi', 'scnet-minimax'] as const
 type Provider = (typeof PROVIDERS)[number]
 
 export interface ResumeTailorConfig {
@@ -35,7 +35,7 @@ const registerResumeTailor = (ctx: Context, _config: ResumeTailorConfig = {}) =>
       '(2) recommend best-fit positions based on your experience. ' +
       'Takes 1-5 minutes. Returns the generated resume (Markdown) and save path. ' +
       'Use when the user asks to tailor/optimize a resume for a job, or asks for ' +
-      'job/career recommendations. Default provider: agnes (free). ' +
+      'job/career recommendations. Default provider: free (default). ' +
       'Do NOT read any files before calling this tool — all paths and configs are handled internally.',
     parameters: {
       type: 'object',
@@ -55,9 +55,9 @@ const registerResumeTailor = (ctx: Context, _config: ResumeTailorConfig = {}) =>
         },
         provider: {
           type: 'string',
-          description: 'Model provider: agnes (free, default), deepseek, scnet-kimi, scnet-minimax.',
+          description: 'Model provider: free (default), deepseek, scnet-kimi, scnet-minimax.',
           enum: [...PROVIDERS],
-          default: 'agnes',
+          default: 'free',
         },
       },
       required: ['mode'],
@@ -66,7 +66,7 @@ const registerResumeTailor = (ctx: Context, _config: ResumeTailorConfig = {}) =>
       args: { mode: 'customize' | 'recommend'; jd_text?: string; provider?: Provider },
       execCtx?: ToolExecutionContext,
     ): Promise<string> {
-      const { mode, jd_text, provider = 'agnes' } = args
+      const { mode, jd_text, provider = 'free' } = args
       const onProgress = execCtx?.onProgress
 
       // Validate

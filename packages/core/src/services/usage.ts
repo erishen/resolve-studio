@@ -65,8 +65,6 @@ const DEFAULT_PRICES: PriceTable = {
   'deepseek-chat': { in: 0.002, out: 0.008 },
   'deepseek-v4-flash': { in: 0.001, out: 0.004 },
   'deepseek-reasoner': { in: 0.004, out: 0.016 },
-  'agnes-2.0-flash': { in: 0, out: 0 },
-  'agnes-2.0': { in: 0, out: 0 },
   'gpt-4o': { in: 0.025, out: 0.075 },
   'gpt-4o-mini': { in: 0.00075, out: 0.003 },
   default: { in: 0.005, out: 0.015 },

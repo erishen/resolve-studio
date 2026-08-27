@@ -513,8 +513,8 @@ function isCoreEntry(rel, symbols) {
 
 // ---- AI 架构摘要 ----
 
-// 从 .env 加载 agnes API 配置
-function loadAgnesConfig() {
+// 从 .env 加载 LLM API 配置（OpenAI 兼容端点）
+function loadLlmConfig() {
   const envPath = join(ROOT, '***REMOVED***/.env')
   try {
     const content = readFileSync(envPath, 'utf8')
@@ -529,16 +529,16 @@ function loadAgnesConfig() {
   }
 }
 
-const AGNES_CFG = loadAgnesConfig()
+const LLM_CFG = loadLlmConfig()
 
 /**
- * 调用 agnes API 为项目生成 AI 架构摘要。
+ * 调用 LLM API 为项目生成 AI 架构摘要。
  * 输入：项目 key、描述、各语言单元的符号概览和依赖。
  * 输出：2-3 段中文架构分析（核心流程、设计模式、技术栈）。
  */
 async function generateAiSummary(projectKey, desc, units) {
-  if (!AGNES_CFG.OPENAI_API_KEY || !AGNES_CFG.OPENAI_BASE_URL) {
-    console.error('  [AI] 跳过：未配置 agnes API')
+  if (!LLM_CFG.OPENAI_API_KEY || !LLM_CFG.OPENAI_BASE_URL) {
+    console.error('  [AI] 跳过：未配置 LLM API')
     return ''
   }
   // 构建上下文：各单元的文件+符号概览（截断避免超长）
@@ -579,14 +579,14 @@ ${context}
 5. 直接输出摘要正文，不要标题或前缀`
 
   try {
-    const res = await fetch(`${AGNES_CFG.OPENAI_BASE_URL}/chat/completions`, {
+    const res = await fetch(`${LLM_CFG.OPENAI_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${AGNES_CFG.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${LLM_CFG.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
-        model: AGNES_CFG.OPENAI_MODEL || 'agnes-2.0-flash',
+        model: LLM_CFG.OPENAI_MODEL || 'gpt-4o-mini',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
         max_tokens: 500,

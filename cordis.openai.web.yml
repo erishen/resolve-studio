@@ -43,7 +43,7 @@ plugins:
   - id: llm
     name: llm-openai
     config:
-      model: agnes-2.0-flash
+      model: gpt-4o-mini
       temperature: 0.7
   - id: tool-echo
     name: tool-echo
@@ -70,7 +70,7 @@ plugins:
   - id: tool-pse-review
     name: tool-pse-review
     config:
-      provider: agnes
+      provider: free
   - id: tool-article-write
     name: tool-article-write
   - id: tool-resume-tailor
