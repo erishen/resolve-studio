@@ -32,8 +32,8 @@ Core idea: the LLM backend, tools, agent loop, approvals, skills, and the fronte
 
 ```bash
 pnpm install
-make dev            # single terminal: backend (mock) + frontend dev → opens http://127.0.0.1:5173
-make dev-real       # same, but against a real model (needs cp .env.example .env + fill in OPENAI_*)
+make dev            # single terminal: backend (real model, needs .env + OPENAI_*) + frontend dev → opens http://127.0.0.1:5173
+make dev-mock       # same, but offline mock (no key required) → opens http://127.0.0.1:5173
 ```
 
 CLI version (no browser):

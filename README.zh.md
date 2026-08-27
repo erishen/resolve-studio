@@ -32,8 +32,8 @@
 
 ```bash
 pnpm install
-make dev            # 单终端：后端(mock) + 前端 dev → 浏览器开 http://127.0.0.1:5173
-make dev-real       # 同上，接真实模型（需 cp .env.example .env 填 OPENAI_*）
+make dev            # 单终端：后端(真实模型，需 .env 填 OPENAI_*) + 前端 dev → 浏览器开 http://127.0.0.1:5173
+make dev-mock       # 同上，离线 mock（无需密钥）→ 浏览器开 http://127.0.0.1:5173
 ```
 
 CLI 版（不用浏览器）：
