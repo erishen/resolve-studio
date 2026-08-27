@@ -2,145 +2,145 @@
 
 English | [中文](README.zh.md)
 
-一个用 **TypeScript** 写的 Agent 运行时，模仿 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 的「**everything is a plugin**」设计，底层使用 [Cordis](https://cordis.xiaoyaoji.cn/) 的依赖注入容器。
+An **TypeScript** Agent runtime that mimics the "**everything is a plugin**" design of [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness), built on the [Cordis](https://cordis.xiaoyaoji.cn/) dependency-injection container.
 
-核心思想：LLM 后端、工具、Agent 循环、审批、技能、前端（CLI/Web）全部是 Cordis **插件/服务**，由一份 `cordis*.yml` 组合驱动。换模型、加工具、换前端都只是改配置，不动核心代码。
+Core idea: the LLM backend, tools, agent loop, approvals, skills, and the frontend (CLI/Web) are all Cordis **plugins/services**, composed by a set of `cordis*.yml` files. Switching models, adding tools, or swapping the frontend is just a config change — no core code is touched.
 
-> 架构细节见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)（含每个模块的面试导读）；示例问题见 [docs/demo-prompts.md](docs/demo-prompts.md)。
+> See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for architecture details (with an interview-prep guide per module); see [docs/demo-prompts.md](docs/demo-prompts.md) for example prompts.
 
-## 特性一览
+## Feature overview
 
-| 能力              | 说明                                                                                   |
-| ----------------- | -------------------------------------------------------------------------------------- |
-| **Agent 循环**    | LLM ⇄ 工具多轮循环（普通 8 轮 / PSE 模式 15 轮），流式输出，事件驱动                   |
-| **PSE 三角色**    | Planner-Specialist-Evaluator 工作流，UI 一键开关，角色定义从 souls 目录加载             |
-| **OS 级沙箱**     | shell 命令在 macOS Seatbelt / Linux bwrap 沙箱中执行，可写目录受限                     |
-| **沙箱工作区**    | write-file 默认写入 `sandbox/<task>/`，任务级目录隔离，路径自动规范化                  |
-| **Fast Path**     | 纯算术等确定性输入**零模型调用**秒回（`3+4` → `7`）                                    |
-| **工具审批**      | `needsApproval` 工具执行前挂起，UI 上 Approve/Reject，超时自动拒绝（60s）              |
-| **流式输出**      | SSE `delta` 逐 token 打字机；DeepSeek 系 `reasoning_content` 思考过程单独显示          |
-| **联网探索**      | Playwright 驱动系统 Chrome（零下载）：`browser-open`（提取正文）/ `browser-screenshot` |
-| **技能 Skills**   | 外部 `resolve-skills/skills/<name>/SKILL.md` 指令包，索引注入 system prompt             |
-| **会话持久化**    | 会话历史（含工具卡与思考块）JSON 落盘，刷新恢复                                        |
-| **Markdown 渲染** | 表格/代码块/列表（react-markdown + remark-gfm）                                        |
-| **插件脚手架**    | `make new-plugin name=x` 一键生成插件包并接线                                          |
-| **跨生态加载**    | 支持按 npm 包名动态加载纯 Cordis 插件（dsh `cordis.patch.yml` 格式）                   |
-| **MCP 接入**      | 连接任意 MCP Server（stdio/http），工具以 `<id>:<tool>` 注册，默认需审批               |
-| **专用工具集**    | 文章写作/发布、简历定制、面试题生成、CRM 任务、投资组合汇总、项目发现等 60+ 工具        |
+| Capability                | Description                                                                              |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| **Agent loop**            | LLM ⇄ tool multi-round loop (8 normal / 15 in PSE mode), streaming, event-driven         |
+| **PSE three roles**       | Planner-Specialist-Evaluator workflow, one-click toggle in the UI, roles loaded from the souls directory |
+| **OS-level sandbox**      | shell commands run inside a macOS Seatbelt / Linux bwrap sandbox, with restricted writable dirs |
+| **Sandboxed workspace**   | write-file defaults to `sandbox/<task>/`, per-task directory isolation, paths auto-normalized |
+| **Fast Path**             | deterministic inputs like arithmetic get answered with **zero model calls** (`3+4` → `7`) |
+| **Tool approval**         | `needsApproval` tools pause before execution; Approve/Reject in the UI, auto-reject on timeout (60s) |
+| **Streaming output**      | SSE `delta` token-by-token typing; DeepSeek-style `reasoning_content` shown as a separate thinking block |
+| **Web exploration**       | Playwright drives the system Chrome (zero download): `browser-open` (extract article) / `browser-screenshot` |
+| **Skills**                | external `resolve-skills/skills/<name>/SKILL.md` instruction packs, indexed into the system prompt |
+| **Session persistence**   | conversation history (with tool cards and thinking blocks) persisted to JSON, restored on refresh |
+| **Markdown rendering**    | tables / code blocks / lists (react-markdown + remark-gfm)                               |
+| **Plugin scaffolding**    | `make new-plugin name=x` generates a plugin package and wires it up in one step           |
+| **Cross-ecosystem loading** | dynamically load pure Cordis plugins by npm package name (dsh `cordis.patch.yml` format) |
+| **MCP integration**       | connect any MCP Server (stdio/http), tools registered as `<id>:<tool>`, approval on by default |
+| **Specialized toolset**   | 60+ tools for article writing/publishing, resume tailoring, interview questions, CRM tasks, portfolio summary, project discovery, and more |
 
-## 快速开始
+## Quick start
 
 ```bash
 pnpm install
-make dev            # 单终端：后端(mock) + 前端 dev → 浏览器开 http://127.0.0.1:5173
-make dev-real       # 同上，接真实模型（需 cp .env.example .env 填 OPENAI_*）
+make dev            # single terminal: backend (mock) + frontend dev → opens http://127.0.0.1:5173
+make dev-real       # same, but against a real model (needs cp .env.example .env + fill in OPENAI_*)
 ```
 
-CLI 版（不用浏览器）：
+CLI version (no browser):
 
 ```bash
-pnpm run chat                # mock LLM，离线
-pnpm run chat -- --config cordis.openai.yml   # 真实模型
+pnpm run chat                # mock LLM, offline
+pnpm run chat -- --config cordis.openai.yml   # real model
 ```
 
-## 环境变量配置
+## Environment variables
 
-复制 `.env.example` 为 `.env` 并按需填写：
+Copy `.env.example` to `.env` and fill in as needed:
 
-| 变量                            | 说明                                    | 默认值                     |
-| ------------------------------- | --------------------------------------- | -------------------------- |
-| `OPENAI_BASE_URL`               | OpenAI 兼容 API 地址                    | —                          |
-| `OPENAI_API_KEY`                | API Key                                 | —                          |
-| `OPENAI_MODEL`                  | 默认模型                                | —                          |
-| `WORKSPACE_OUT`                 | 工作区扫描报告输出目录                  | `<cwd>/workspace-analysis` |
-| `SERENA_UV`                     | `uv` 二进制路径（运行 serena 代码分析） | `uv`（PATH 查找）          |
-| `HARNESS_EXTRA_ROOTS`           | 额外允许的文件系统根目录（逗号分隔）    | —                          |
-| `HARNESS_SHELL_ALLOW_TRAVERSAL` | 设为 `1` 允许 shell 工具目录跳转        | `0`                        |
-| `HARNESS_PRICES`                | 自定义模型价格表（JSON）                | 内置价格表                 |
-| `SANDBOX_ENABLED`               | 开启 OS 级沙箱（macOS Seatbelt/Linux bwrap） | `false`               |
-| `SANDBOX_ALLOW_NETWORK`         | 沙箱中允许网络访问                      | `true`                     |
-| `PSE_ENABLED`                   | 开启 PSE 三角色模式                     | `false`                    |
-| `PSE_SOULS_DIR`                 | PSE 角色定义目录                        | `HARNESS_SKILLS_DIR/../souls` |
-| `CREWAI_PSE_DIR`                | crewai-pse 项目路径                     | 相对路径自动推导           |
-| `AUTOGEN_PSE_DIR`               | autogen-pse 项目路径                    | 相对路径自动推导           |
-| `LLAMAINDEX_PSE_DIR`            | llamaindex-pse 项目路径                 | 相对路径自动推导           |
-| `LANGGRAPH_PSE_DIR`             | langgraph-pse 项目路径                  | 相对路径自动推导           |
+| Variable                        | Description                                          | Default                    |
+| ------------------------------- | ---------------------------------------------------- | -------------------------- |
+| `OPENAI_BASE_URL`               | OpenAI-compatible API base URL                       | —                          |
+| `OPENAI_API_KEY`                | API Key                                              | —                          |
+| `OPENAI_MODEL`                  | Default model                                        | —                          |
+| `WORKSPACE_OUT`                 | Workspace scan report output directory               | `<cwd>/workspace-analysis` |
+| `SERENA_UV`                     | path to the `uv` binary (for serena code analysis)   | `uv` (PATH lookup)         |
+| `HARNESS_EXTRA_ROOTS`           | extra allowed filesystem roots (comma-separated)     | —                          |
+| `HARNESS_SHELL_ALLOW_TRAVERSAL` | set to `1` to allow shell tool directory traversal   | `0`                        |
+| `HARNESS_PRICES`                | custom model price table (JSON)                      | built-in price table       |
+| `SANDBOX_ENABLED`               | enable OS-level sandbox (macOS Seatbelt / Linux bwrap) | `false`                  |
+| `SANDBOX_ALLOW_NETWORK`         | allow network access inside the sandbox              | `true`                     |
+| `PSE_ENABLED`                   | enable PSE three-role mode                           | `false`                    |
+| `PSE_SOULS_DIR`                 | PSE role definition directory                        | `HARNESS_SKILLS_DIR/../souls` |
+| `CREWAI_PSE_DIR`                | crewai-pse project path                              | auto-derived relative path |
+| `AUTOGEN_PSE_DIR`               | autogen-pse project path                             | auto-derived relative path |
+| `LLAMAINDEX_PSE_DIR`            | llamaindex-pse project path                          | auto-derived relative path |
+| `LANGGRAPH_PSE_DIR`             | langgraph-pse project path                           | auto-derived relative path |
 
-> 所有路径类配置都支持环境变量覆盖，无需修改代码即可在不同机器间迁移。
+> All path-style configs support environment-variable overrides, so the project can be migrated across machines without touching code.
 
-## 配置驱动组合
+## Config-driven composition
 
-四个配置 = CLI/Web × mock/真实模型：
+Four configs = CLI/Web × mock/real model:
 
-| 配置                    | LLM         | 前端     |
-| ----------------------- | ----------- | -------- |
-| `cordis.yml`            | mock        | CLI REPL |
-| `cordis.web.yml`        | mock        | Web UI   |
-| `cordis.openai.yml`     | OpenAI 兼容 | CLI REPL |
-| `cordis.openai.web.yml` | OpenAI 兼容 | Web UI   |
+| Config                    | LLM               | Frontend  |
+| ------------------------- | ----------------- | --------- |
+| `cordis.yml`              | mock              | CLI REPL  |
+| `cordis.web.yml`          | mock              | Web UI    |
+| `cordis.openai.yml`       | OpenAI-compatible | CLI REPL  |
+| `cordis.openai.web.yml`   | OpenAI-compatible | Web UI    |
 
-`loader.ts` 解析 `plugins` 列表，把 `name` 映射到 `src/plugins/registry.ts` 的本地插件（短名）或动态 `import()`（npm 包名）。`cordis.patch.yml` 沿用 dsh 的 `- insert:` 清单格式，按包名加载 `@cordisjs/plugin-timer`、`@resolve-studio/plugin-hello` 等。
+`loader.ts` parses the `plugins` list and maps each `name` to either a local plugin in `src/plugins/registry.ts` (short name) or a dynamic `import()` (npm package name). `cordis.patch.yml` follows dsh's `- insert:` manifest format, loading packages like `@cordisjs/plugin-timer` and `@resolve-studio/plugin-hello` by name.
 
-## 运行时服务（ctx.*）
+## Runtime services (ctx.*)
 
-| 服务             | 职责                                                                   |
-| ---------------- | ---------------------------------------------------------------------- |
-| `ctx.llm`        | 聊天补全契约，`chat` + `chatStream`（流式，默认 fallback）             |
-| `ctx.tools`      | 工具注册表（register/list/schemas/call），异常转 `error:` 前缀不崩循环 |
-| `ctx.agent`      | Agent 循环：Fast Path → 技能注入 → LLM ⇄ 工具（含审批挂起）            |
-| `ctx.approval`   | 人机审批：挂起等待 / 外部 resolve / 超时自动拒绝                       |
-| `ctx.fastpath`   | 确定性预处理器（纯算术短路）                                           |
-| `ctx.skills`     | 技能索引（扫描外部 `resolve-skills/skills/*/SKILL.md`，frontmatter 解析） |
-| `ctx.pse`        | PSE 三角色模式：开关状态、角色定义加载、系统提示词注入                 |
-| `ctx.sandbox`    | OS 级沙箱：Seatbelt/bwrap profile 生成、shell 命令包装                 |
-| `ctx.mcp`        | MCP 客户端：连接/断开 server，工具动态注册                             |
-| `ctx.systemInfo` | 运行时诊断（内存/CPU/uptime/平台，定时采集 + 事件发射）                |
+| Service           | Responsibility                                                                          |
+| ----------------- | --------------------------------------------------------------------------------------- |
+| `ctx.llm`         | chat-completion contract: `chat` + `chatStream` (streaming, fallback by default)        |
+| `ctx.tools`       | tool registry (register/list/schemas/call); exceptions become `error:` prefix, no crash |
+| `ctx.agent`       | agent loop: Fast Path → skill injection → LLM ⇄ tools (incl. approval pause)            |
+| `ctx.approval`    | human-in-the-loop approval: pause / external resolve / auto-reject on timeout           |
+| `ctx.fastpath`    | deterministic pre-processor (arithmetic short-circuit)                                   |
+| `ctx.skills`      | skill index (scans external `resolve-skills/skills/*/SKILL.md`, parses frontmatter)     |
+| `ctx.pse`         | PSE three-role mode: toggle state, role loading, system-prompt injection                |
+| `ctx.sandbox`     | OS-level sandbox: Seatbelt/bwrap profile generation, shell command wrapping             |
+| `ctx.mcp`         | MCP client: connect/disconnect servers, dynamic tool registration                       |
+| `ctx.systemInfo`  | runtime diagnostics (memory/CPU/uptime/platform, periodic collection + event emit)      |
 
-## 安全与沙箱
+## Security & sandboxing
 
-resolve-studio 提供多层安全机制，防止 LLM 误操作破坏系统：
+resolve-studio provides multiple layers of safety to stop the LLM from accidentally damaging the system:
 
-| 层级 | 机制 | 说明 |
-|------|------|------|
-| **OS 级沙箱** | macOS Seatbelt / Linux bwrap | shell 命令只能写入工作目录 + 系统临时目录，无法访问其他位置 |
-| **路径守卫** | fs-roots 服务 | write-file 受白名单目录限制，越界路径直接拒绝 |
-| **沙箱工作区** | `sandbox/<task>/` | write-file 相对路径自动写入任务隔离目录，路径自动去重 |
-| **人工审批** | approval 服务 | shell 等高危工具执行前需人工确认，60s 超时自动拒绝 |
-| **MCP 隔离** | fs MCP 限制 | fs MCP server 只暴露 sandbox 目录，不暴露整个文件系统 |
+| Layer | Mechanism | Description |
+|-------|-----------|-------------|
+| **OS-level sandbox** | macOS Seatbelt / Linux bwrap | shell commands can only write to the working directory + system temp dir, no access elsewhere |
+| **Path guard** | fs-roots service | write-file is limited to a whitelist of directories; out-of-bounds paths are rejected |
+| **Sandboxed workspace** | `sandbox/<task>/` | write-file relative paths auto-write into a per-task isolated directory, paths auto-deduped |
+| **Human approval** | approval service | high-risk tools like shell require human confirmation before running; auto-reject after 60s |
+| **MCP isolation** | fs MCP restriction | the fs MCP server only exposes the sandbox directory, not the whole filesystem |
 
-开启沙箱：`.env` 中设置 `SANDBOX_ENABLED=true`。
+Enable the sandbox: set `SANDBOX_ENABLED=true` in `.env`.
 
-## PSE 三角色模式
+## PSE three-role mode
 
-Planner-Specialist-Evaluator 工作流，让 LLM 按角色分工完成复杂任务：
+The Planner-Specialist-Evaluator workflow lets the LLM divide work by role to tackle complex tasks:
 
-- **Planner**：规划分解任务，不亲自写代码
-- **Specialist**：执行具体子任务
-- **Evaluator**：独立验收，输出 PASS/PARTIAL/FAIL/BLOCKED
+- **Planner**: plans and decomposes the task, does not write code itself
+- **Specialist**: executes the concrete subtasks
+- **Evaluator**: independently accepts the result, outputs PASS/PARTIAL/FAIL/BLOCKED
 
-UI 顶部一键开关，或 `.env` 中设置 `PSE_ENABLED=true`。PSE 模式下 Agent 循环上限自动提升到 15 轮。
+Toggle it from the top of the UI, or set `PSE_ENABLED=true` in `.env`. In PSE mode the agent-loop cap is automatically raised to 15 rounds.
 
-## 内置工具（60+，⚠ = 需审批）
+## Built-in tools (60+, ⚠ = needs approval)
 
-基础工具：
+Basic tools:
 ```
 hello · echo · calculator⚠ · read-file · write-file · shell⚠
 browser-open · browser-screenshot · pick-post · system-info · skill-run
 ```
 
-专用工具（文章/投资/面试/CRM）：
+Specialized tools (articles / investing / interviews / CRM):
 ```
 article-write · article-validate · article-publish · article-archive · article-discover
 resume-tailor · interview-questions · crm-task · portfolio-summary · pse-review
 wp-publish · crewai-publish · crewai-discover
 ```
 
-读的操作无审批（browser/pick-post/read-file/system-info），写与执行必过审批（shell/calculator 演示）。**MCP server 的工具**（配置 `servers:` 后）以 `<serverId>:<toolName>` 追加注册，默认同样需审批。
+Read operations need no approval (browser/pick-post/read-file/system-info); writes and executions must pass approval (shell/calculator are demos). Tools from an **MCP server** (after configuring `servers:`) are appended as `<serverId>:<toolName>` and, by default, also require approval.
 
-### 接一个 MCP server（示例）
+### Connect an MCP server (example)
 
 ```yaml
-# cordis.web.yml 的 mcp 条目
+# mcp entry in cordis.web.yml
 - id: mcp
   name: mcp
   config:
@@ -152,69 +152,72 @@ wp-publish · crewai-publish · crewai-discover
       - id: remote
         transport: http
         url: https://example.com/mcp
-        approval: false # 只读 server 可关审批
+        approval: false # read-only server can disable approval
 ```
 
-连接后工具列表会出现 `fs:read_file`、`fs:list_directory` 等，模型可直接调用。
+After connecting, tools like `fs:read_file` and `fs:list_directory` appear in the tool list and can be called directly by the model.
 
-## 脚本
+## Scripts
 
-包管理器固定 **pnpm**，常用任务收敛到 `Makefile`（`make help`）：
+The package manager is pinned to **pnpm**; common tasks live in the `Makefile` (`make help`):
 
-| 命令                                  | 作用                                      |
-| ------------------------------------- | ----------------------------------------- |
-| `make install`                        | 装全部依赖                                |
-| `make check`                          | typecheck + test（**57 个用例**）         |
-| `make lint` / `make lint-fix`         | ESLint 检查 / 自动修复                    |
-| `make format` / `make format-check`   | Prettier 格式化 / 格式检查                |
-| `make build` / `make build-web`       | 构建后端 / 前端                           |
-| `make dev` / `make dev-mock`          | 单终端起后端+前端（真实模型 / 离线 mock） |
-| `make chat` / `make chat-real`        | 起 CLI                                    |
-| `make new-plugin name=x`              | 脚手架生成新插件包                        |
-| `make docker-up` / `make docker-down` | Docker Compose 起/停（后端+nginx 前端）   |
-| `make clean`                          | 清构建产物                                |
+| Command                                | Purpose                                          |
+| -------------------------------------- | ------------------------------------------------ |
+| `make install`                         | install all dependencies                         |
+| `make check`                           | typecheck + test (**57 test cases**)             |
+| `make lint` / `make lint-fix`          | ESLint check / auto-fix                          |
+| `make format` / `make format-check`    | Prettier format / format check                   |
+| `make build` / `make build-web`        | build backend / frontend                         |
+| `make dev` / `make dev-mock`           | single terminal backend+frontend (real / mock)   |
+| `make chat` / `make chat-real`         | launch the CLI                                   |
+| `make new-plugin name=x`               | scaffold a new plugin package                    |
+| `make docker-up` / `make docker-down`  | Docker Compose up/down (backend + nginx frontend)|
+| `make clean`                           | clean build artifacts                            |
+| `make secret-scan`                     | run gitleaks over the whole repo (local audit)   |
+| `make hook-init`                       | enable the local pre-commit secret-scanning hook |
 
-## Web UI（React + Vite，apps/web/）
+## Web UI (React + Vite, apps/web/)
 
-后端 `web-server` 插件（零依赖，Node 内置 `http`）把 `agent/*` 事件以 **SSE** 推给前端：
+The backend `web-server` plugin (zero-dependency, Node built-in `http`) pushes `agent/*` events to the frontend over **SSE**:
 
-- `GET /health` → 健康检查（uptime / 内存 / 工具数 / MCP server 数）
-- `POST /api/chat` → SSE：`step / tool-call / tool-result / approval-request / delta / reasoning / usage / done / error`
+- `GET /health` → health check (uptime / memory / tool count / MCP server count)
+- `POST /api/chat` → SSE: `step / tool-call / tool-result / approval-request / delta / reasoning / usage / done / error`
 - `GET /api/tools` · `GET /api/models` · `GET /api/skills`
-- `POST /api/approval`（`{callId, decision}`）
-- `GET/POST /api/sessions` · `GET/DELETE /api/sessions/:id`（持久化）
-- `GET /api/usage?sessionId=<id>` → 全局或按会话的 token/费用统计
+- `POST /api/approval` (`{callId, decision}`)
+- `GET/POST /api/sessions` · `GET/DELETE /api/sessions/:id` (persistence)
+- `GET /api/usage?sessionId=<id>` → global or per-session token/cost statistics
 
-前端结构：`api.ts`（SSE 客户端）· `App.tsx`（布局 + 组合）· `hooks/useChat.ts`（消息状态机 + 流式 + 审批）· `hooks/useSessions.ts`（会话 CRUD + 自动保存）· `hooks/useMcp.ts`（MCP server 管理）· `MessageList.tsx`（thinking→工具卡→总结）· `ToolCallCard.tsx`（工具卡 + 审批按钮）· `Composer.tsx` · `ErrorBoundary.tsx`（根级错误兜底）。
+Frontend structure: `api.ts` (SSE client) · `App.tsx` (layout + composition) · `hooks/useChat.ts` (message state machine + streaming + approval) · `hooks/useSessions.ts` (session CRUD + auto-save) · `hooks/useMcp.ts` (MCP server management) · `MessageList.tsx` (thinking → tool card → summary) · `ToolCallCard.tsx` (tool card + approval button) · `Composer.tsx` · `ErrorBoundary.tsx` (root-level error boundary).
 
-## 扩展
+## Extending
 
-详见 [docs/plugin-authoring.md](docs/plugin-authoring.md)（从骨架到完整插件的逐步指南）。
+See [docs/plugin-authoring.md](docs/plugin-authoring.md) for a step-by-step guide from skeleton to a complete plugin.
 
-- **加工具**：`make new-plugin name=x` 生成包，或在 `src/plugins/` 写 `tool-x.ts` + registry + yml
-- **加技能**：在外部 `resolve-skills/skills/<name>/SKILL.md`（frontmatter: name/description + 步骤），通过 `HARNESS_SKILLS_DIR` 环境变量指定目录，重启即入索引
-- **加 LLM 后端**：继承 `LlmService` 实现 `chat`（+ 可选 `chatStream`）
-- **加服务**：`src/services/` 新 Service + `declare module 'cordis'` + 需要处 `inject`
-- **外部插件**：遵循纯 Cordis 契约（只 import `cordis`），按包名发布到 npm，`cordis.yml` 里直接引用
+- **Add a tool**: `make new-plugin name=x` to generate a package, or write `tool-x.ts` + registry + yml under `src/plugins/`
+- **Add a skill**: drop an external `resolve-skills/skills/<name>/SKILL.md` (frontmatter: name/description + steps), point to it via the `HARNESS_SKILLS_DIR` env var; it is indexed on restart
+- **Add an LLM backend**: extend `LlmService` and implement `chat` (+ optional `chatStream`)
+- **Add a service**: new Service in `src/services/` + `declare module 'cordis'` + `inject` where used
+- **External plugins**: follow the pure Cordis contract (only `import 'cordis'`), publish to npm by package name, and reference directly in `cordis.yml`
 
-## 实现笔记
+## Implementation notes
 
-- Cordis 4 的 `Context` 用 `declare module './context'` 注入；tsconfig 必须 `module: ESNext` + `moduleResolution: Bundler`。
-- **跨服务访问必须声明 `inject`**：否则 Cordis 属性拦截器抛 `cannot get property "xxx" without inject`。函数插件用 `definePlugin(fn, name, ['tools'])`，Service 用 `static inject`。
-- 插件函数返回 **disposer** 做清理（关浏览器/关 server）——不能 `ctx.on('dispose')`（不在事件类型里）。
-- `definePlugin` 用 `Object.defineProperty` 把 `name` 设为可写，绕开 tsx/esbuild 对 class/function `name` 的只读限制。
-- SSE 用每请求独立的短时监听器（`ctx.events.on` 返回 disposer），请求结束回收，并发会话不串台。
-- pnpm workspace 注意：根命令行用的工具（tsx 等）必须声明在根；子包 tsconfig 引用的 `@types/*` 必须在自己 devDeps 声明。
+- Cordis 4's `Context` is injected via `declare module './context'`; tsconfig must use `module: ESNext` + `moduleResolution: Bundler`.
+- **Cross-service access must declare `inject`**: otherwise Cordis's property interceptor throws `cannot get property "xxx" without inject`. Function plugins use `definePlugin(fn, name, ['tools'])`; Services use `static inject`.
+- Plugin functions return a **disposer** for cleanup (close browser / close server) — do not use `ctx.on('dispose')` (not in the event type).
+- `definePlugin` uses `Object.defineProperty` to make `name` writable, working around tsx/esbuild's read-only restriction on class/function `name`.
+- SSE uses a per-request short-lived listener (`ctx.events.on` returns a disposer) that is reclaimed when the request ends, so concurrent sessions do not cross-talk.
+- pnpm workspace caveat: tools used by root CLI commands (tsx, etc.) must be declared at root; `@types/*` referenced by a sub-package's tsconfig must be declared in its own devDeps.
 
-## 工程化
+## Engineering / tooling
 
-- **ESLint**（flat config）+ **Prettier**：`pnpm run lint` / `pnpm run format`，配置在根目录 `eslint.config.js` / `.prettierrc.json`
-- **EditorConfig**：统一缩进/换行/编码
-- **CI**（GitHub Actions）：`.github/workflows/ci.yml`，push/PR 自动跑 typecheck + test + build + lint + format-check
-- **Docker**：多阶段构建后端镜像，`docker-compose.yml` 起后端 + nginx 前端（`/api` 反代到后端，SSE 支持）
+- **ESLint** (flat config) + **Prettier**: `pnpm run lint` / `pnpm run format`, configs at root `eslint.config.js` / `.prettierrc.json`
+- **EditorConfig**: unified indentation / line endings / encoding
+- **CI** (GitHub Actions): `.github/workflows/ci.yml` runs typecheck + test + build + lint + format-check on every push/PR; a `secret-scan` job runs [gitleaks](https://github.com/gitleaks/gitleaks) (config `.gitleaks.toml`) and uploads the SARIF report to the Security tab
+- **Secret scanning**: `make secret-scan` scans the whole repo locally; `make hook-init` enables a pre-commit hook (`.githooks/pre-commit`) that blocks staged secrets via `gitleaks protect --staged`
+- **Docker**: multi-stage backend image build; `docker-compose.yml` brings up backend + nginx frontend (`/api` reverse-proxied to the backend, with SSE support)
 
 ```bash
-# 本地一键起容器
-make docker-up        # 后端 :8787 + 前端 :5173
+# bring up containers locally in one step
+make docker-up        # backend :8787 + frontend :5173
 make docker-down
 ```

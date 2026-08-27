@@ -173,6 +173,8 @@ wp-publish · crewai-publish · crewai-discover
 | `make new-plugin name=x`              | 脚手架生成新插件包                        |
 | `make docker-up` / `make docker-down` | Docker Compose 起/停（后端+nginx 前端）   |
 | `make clean`                          | 清构建产物                                |
+| `make secret-scan`                    | 本机全量跑 gitleaks 扫描（本地密钥审计）  |
+| `make hook-init`                      | 启用本地 pre-commit 密钥扫描钩子          |
 
 ## Web UI（React + Vite，apps/web/）
 
@@ -210,7 +212,8 @@ wp-publish · crewai-publish · crewai-discover
 
 - **ESLint**（flat config）+ **Prettier**：`pnpm run lint` / `pnpm run format`，配置在根目录 `eslint.config.js` / `.prettierrc.json`
 - **EditorConfig**：统一缩进/换行/编码
-- **CI**（GitHub Actions）：`.github/workflows/ci.yml`，push/PR 自动跑 typecheck + test + build + lint + format-check
+- **CI**（GitHub Actions）：`.github/workflows/ci.yml`，push/PR 自动跑 typecheck + test + build + lint + format-check；`secret-scan` job 跑 [gitleaks](https://github.com/gitleaks/gitleaks)（配置 `.gitleaks.toml`），SARIF 报告上传到 Security 面板
+- **密钥扫描**：`make secret-scan` 本机全量扫描；`make hook-init` 启用 pre-commit 钩子（`.githooks/pre-commit`），提交前用 `gitleaks protect --staged` 拦截暂存区密钥
 - **Docker**：多阶段构建后端镜像，`docker-compose.yml` 起后端 + nginx 前端（`/api` 反代到后端，SSE 支持）
 
 ```bash
