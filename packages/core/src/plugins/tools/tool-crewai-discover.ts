@@ -14,7 +14,7 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const CREWAI_PSE =
   process.env.CREWAI_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')
 
-const TASK_TIMEOUT_MS = 60_000
+const TASK_TIMEOUT_MS = 120_000
 const MAX_OUTPUT = 64 * 1024
 
 function truncate(s: string, max: number): string {
@@ -44,7 +44,11 @@ const registerCrewAiDiscover = (ctx: Context) => {
       const { add = false } = args
       const onProgress = execCtx?.onProgress
 
-      const flags = add ? ['--add'] : []
+      // NOTE: pass --add as a *make variable* (FLAGS=--add), NOT as a bare
+      // `make discover --add` argument — GNU Make treats a leading `--` as its
+      // own option and aborts with "unrecognized option '--add'", so the script
+      // would never run and nothing would ever be written.
+      const flags = add ? ['FLAGS=--add'] : []
       ctx.logger('article-discover').info('running make discover (add=%s, cwd=%s)', add, CREWAI_PSE)
 
       try {
