@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.log
+*.tsbuildinfo
 .env
 .DS_Store
 .run/
@@ -11,3 +12,10 @@ dist/
 
 # generated workspace analysis report (projects.json, index.html, scan status)
 workspace-analysis/
+
+# sandbox workspace (keep README, ignore task dirs)
+sandbox/*
+!sandbox/README.md
+
+# sandbox test temp files
+packages/core/sandbox/
