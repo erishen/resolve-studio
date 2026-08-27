@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 interface ToolCallCardProps {
   name: string
@@ -28,6 +28,30 @@ function renderArgs(args: string | Record<string, unknown>): string {
   }
 }
 
+/** Turn URLs in plain text into clickable links (open in new tab). */
+function linkify(text: string): ReactNode[] {
+  const urlRegex = /(https?:\/\/[^\s<>"')\]]+)/g
+  const parts: ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = urlRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index))
+    }
+    const url = match[0]
+    parts.push(
+      <a key={match.index} href={url} target="_blank" rel="noreferrer" className="tool-link">
+        {url}
+      </a>,
+    )
+    lastIndex = match.index + url.length
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex))
+  }
+  return parts
+}
+
 /** Collapsible <pre>: shows first MAX_LINES by default, toggle to expand. */
 function CollapsiblePre({ text, maxLines = 8 }: { text: string; maxLines?: number }) {
   const [expanded, setExpanded] = useState(false)
@@ -36,7 +60,7 @@ function CollapsiblePre({ text, maxLines = 8 }: { text: string; maxLines?: numbe
   const display = expanded ? text : lines.slice(0, maxLines).join('\n')
   return (
     <div className="collapsible-pre">
-      <pre className={expanded ? '' : 'pre-collapsed'}>{display}</pre>
+      <pre className={expanded ? '' : 'pre-collapsed'}>{linkify(display)}</pre>
       {needsCollapse && (
         <button
           className="btn btn-sm btn-toggle"

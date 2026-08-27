@@ -1094,6 +1094,16 @@ body {
   color: var(--text);
 }
 
+.collapsible-pre .tool-link {
+  color: var(--accent, #4a9eff);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.collapsible-pre .tool-link:hover {
+  color: var(--accent-hover, #6bb3ff);
+}
+
 .tool-result {
   border-top: 1px dashed var(--border);
 }

@@ -131,7 +131,18 @@ export function MessageList({
                   className={`message-text${m.role === 'assistant' ? ' message-text-markdown' : ''}`}
                 >
                   {m.role === 'assistant' ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        a: ({ href, children }) => (
+                          <a href={href} target="_blank" rel="noreferrer">
+                            {children}
+                          </a>
+                        ),
+                      }}
+                    >
+                      {m.content}
+                    </ReactMarkdown>
                   ) : (
                     m.content
                   )}
