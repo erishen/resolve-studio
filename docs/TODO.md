@@ -2,12 +2,22 @@
 
 > 状态标注：`[ ]` 待办 · `[x]` 已完成 · `[?]` 待用户决策
 
-## 近期（先收尾）
+## 公开前收尾（2026-08-27）
+
+> 目标：仓库去标识化 + 加防泄露闸门，准备公开。
+
+- [x] **隐私/安全审计**：全量扫描（`.env` 是否入库、密钥/token/私钥、git 历史）——结论：git 层面零泄露；唯一本地隐患是 `.env` 权限 `0644`，已收到 `0600`（不进版本库）
+- [x] **去标识化**：提交 `d6eba8a` —— provider `agnes`→中性 `free`（5 个工具文件）；`tool-article-write` 移除硬编码私有网关 `apihub.agnes-ai.com` 与 `AGNES_KEY/AGNES_BASE_URL`，统一走标准 `OPENAI_*`；`usage.ts` 删 `agnes-2.0-flash/agnes-2.0` 免费条目；`gen-manifests.mjs` 不再读 `process.env.OPENAI_MODEL`（防私有模型名烘焙进清单），默认固定 `gpt-4o-mini`；`workspace-scan.mjs` 的 `AGNES_CFG`→`LLM_CFG`。验证：`tsc --noEmit` 绿、`usage.test.ts` 3/3、全仓 `git grep` 追踪源码 0 残留 agnes/apihub/2.0-flash
+- [x] **secret-scan 闸门**：提交 `384ad1b` —— `.github/workflows/ci.yml` 加 `secret-scan` job（gitleaks/gitleaks-action，推 SARIF 到 Security）；`.githooks/pre-commit` 提交前 `gitleaks protect --staged` 扫暂存区（未装时优雅跳过）；`Makefile` 加 `make secret-scan`/`make hook-init`；`.gitleaks.toml` 继承默认规则 + 项目 allowlist。本机验证：全树 14 commits `no leaks found`；伪造 `AKIA…`/`ghp_…` 被拦（exit 1）、干净文件放行（exit 0）。`core.hooksPath` 已切到 `.githooks`
+- [x] **ARCHITECTURE.md 去重**：提交 `50f7a06` —— 删除根目录重复份，合并 `docs/ARCHITECTURE.md` 为唯一架构文档（含独有目录结构、分层表、循环时序图、面试导读），README 链接无需改
+- [ ] **推送 remote**：当前仍 local only（4 次本地提交未推）——公开前需 `git remote add` + `push`；push 后 CI 的 `secret-scan` 才真正跑起来
+- [ ] **公开前最终核验**：`make secret-scan` 跑一遍确认全绿；复查 README/文档有无「实际使用的模型/网关」措辞（本次 grep 文档 0 命中，基本安全）
+
+## 近期（历史收尾，待清）
 
 - [x] **本地提交**：已 `git init` + 根提交 `4caaeea`（104 文件）+ 清理 commit `1774cbd`（清临时脚本），local only 未推送
-- [ ] **是否推送 remote**：当前仅本地、无 remote；待用户决策是否建 remote 并 push
-- [ ] **重启后端让改动生效**：MCP 配置（`fs` 追加 invest 根 / serena `--context claude-code`）· `mcp.ts` 120s 连接超时 · 新工具 `analyze-code-dir` · 引擎徽章后端字段 `engine`/`usedTools` · 用量徽章依赖 `usage` 服务——均需**重启 `make dev` 后端进程**才生效（前端 HMR 不生效，旧进程仍跑旧代码）
 - [ ] `.env.example` 补齐：`PROD_WORDPRESS_USERNAME / PROD_WORDPRESS_APP_PASSWORD`（post-comment 复用）等新变量说明
+- [ ] **重启后端让改动生效**（较早一轮 MCP/工具改动）：MCP 配置 · `mcp.ts` 120s 连接超时 · 新工具 `analyze-code-dir` · 引擎/用量徽章后端字段——均需**重启 `make dev` 后端进程**才生效
 
 ## 第二层方向（差异化，二选一）
 
