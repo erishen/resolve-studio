@@ -9,7 +9,7 @@ import type { Tool, ToolExecutionContext } from '../../types.js'
 const execFileAsync = promisify(execFile)
 
 // …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = individuular-invest. Override with CREWAI_PSE_DIR in .env.
+// 8 levels up = ***REMOVED***. Override with CREWAI_PSE_DIR in .env.
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CREWAI_PSE =
   process.env.CREWAI_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')
@@ -25,7 +25,7 @@ const registerCrewAiDiscover = (ctx: Context) => {
   ctx.tools.register({
     name: 'article-discover',
     description:
-      '扫描大项目（individuular-invest）下所有有 github remote 的子项目，对比已有 projects.json，输出建议新增的项目列表（含 desc/highlights/source_dir 自动生成）。用于发现可写技术文章的新项目。默认只输出建议不写入；传 add=true 直接写入 projects.json。',
+      '扫描大项目（***REMOVED***）下所有有 github remote 的子项目，对比已有 projects.json，输出建议新增的项目列表（含 desc/highlights/source_dir 自动生成）。用于发现可写技术文章的新项目。默认只输出建议不写入；传 add=true 直接写入 projects.json。',
     parameters: {
       type: 'object',
       properties: {

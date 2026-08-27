@@ -8,7 +8,7 @@ import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
 // …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = individuular-invest. Override with LLAMAINDEX_PSE_DIR in .env.
+// 8 levels up = ***REMOVED***. Override with LLAMAINDEX_PSE_DIR in .env.
 const HERE = dirname(fileURLToPath(import.meta.url))
 const LLAMAINDEX_PSE =
   process.env.LLAMAINDEX_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')

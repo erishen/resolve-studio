@@ -7,7 +7,7 @@ import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
 // …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = individuular-invest. Override with CREWAI_PSE_DIR in .env.
+// 8 levels up = ***REMOVED***. Override with CREWAI_PSE_DIR in .env.
 const HERE = dirname(fileURLToPath(import.meta.url))
 const CREWAI_PSE =
   process.env.CREWAI_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')

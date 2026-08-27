@@ -9,7 +9,7 @@ import type { Tool, ToolExecutionContext } from '../../types.js'
 const execFileAsync = promisify(execFile)
 
 // …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = individuular-invest. Override with WORDPRESS_TOOLS_DIR in .env.
+// 8 levels up = ***REMOVED***. Override with WORDPRESS_TOOLS_DIR in .env.
 const HERE = dirname(fileURLToPath(import.meta.url))
 const WP_TOOLS =
   process.env.WORDPRESS_TOOLS_DIR ??

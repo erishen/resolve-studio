@@ -10,7 +10,7 @@ import type { Tool } from '../../types.js'
 const execFileAsync = promisify(execFile)
 
 // …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = individuular-invest. Override with AUTOGEN_PSE_DIR in .env.
+// 8 levels up = ***REMOVED***. Override with AUTOGEN_PSE_DIR in .env.
 const HERE = dirname(fileURLToPath(import.meta.url))
 const AUTOGEN_PSE =
   process.env.AUTOGEN_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')
