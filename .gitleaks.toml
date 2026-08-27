@@ -1,0 +1,27 @@
+# Resolve-Studio 密钥扫描配置
+# 继承 gitleaks 内置默认规则集，仅叠加项目级 allowlist，
+# 避免对示例/占位符/构建产物/文档误报（公开前尤其重要）。
+
+title = "Resolve-Studio gitleaks config"
+
+[extend]
+# 使用 gitleaks 内置默认规则（覆盖主流密钥：AWS/GCP/GitHub/Slack/私钥/通用 high-entropy 等）
+useDefault = true
+
+[allowlist]
+description = "项目内已知安全的示例值 / 占位符 / 构建产物 / 文档"
+paths = [
+  '''(?i).*\.env\.example$''',
+  '''.*fixtures/.*''',
+  '''.*/dist/.*''',
+  '''.*workspace-analysis/.*''',
+  '''.*\.gitleaks\.toml$''',
+  '''.*\.gitleaksignore$''',
+]
+# 允许形如 sk-your-key-here / your-username / your-app-password 的示例值
+regexes = [
+  '''sk-your-key-here''',
+  '''your-username''',
+  '''your-app-password''',
+  '''(?i)your-[a-z0-9-]+-here''',
+]

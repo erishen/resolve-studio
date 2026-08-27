@@ -1,0 +1,18 @@
+#!/bin/sh
+# 本地 pre-commit 钩子：提交前扫描暂存区，阻止密钥进入版本库（公开前关键防线）。
+# 未安装 gitleaks 时优雅跳过（CI 仍会拦截），不阻断既有工作流。
+set -e
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "[secret-scan] 未检测到 gitleaks，跳过本地扫描（CI 仍会拦截）。"
+  echo "[secret-scan] 安装：brew install gitleaks"
+  exit 0
+fi
+
+# gitleaks v8.30：staged 扫描用 `protect --staged`（detect 已无 --staged 旗标）。
+# --redact 避免密钥回显到终端。
+if ! gitleaks protect --staged --config=.gitleaks.toml --redact --no-banner; then
+  echo "[secret-scan] 发现疑似密钥，已阻止提交。请检查上方输出后重试。"
+  exit 1
+fi
+echo "[secret-scan] 暂存区无密钥"

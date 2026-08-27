@@ -18,6 +18,8 @@
 #   make dev        # 起后端(真实模型)+前端 dev，开浏览器即可聊
 #   make dev-mock   # 起后端(mock)+前端 dev（离线，无需密钥）
 #   make stop       # 停掉 dev / dev-mock 起的后台进程
+#   make secret-scan # 本地全量密钥扫描（防泄露，公开前必跑）
+#   make hook-init  # 启用提交前自动密钥扫描钩子
 
 SHELL := /bin/zsh
 .DEFAULT_GOAL := install
@@ -43,7 +45,8 @@ WEB_MATCH     := vite --host 127.0.0.1 --port $(WEB_PORT)
 
 .PHONY: all install typecheck test check build build-web \
         chat chat-real dev dev-mock stop clean help new-plugin manifests \
-        lint lint-fix format format-check docker-build docker-up docker-down logs
+        lint lint-fix format format-check docker-build docker-up docker-down logs \
+        secret-scan hook-init
 
 all: install
 
@@ -137,6 +140,14 @@ format:            ## Prettier 格式化
 
 format-check:      ## Prettier 格式检查
 	pnpm run format:check
+
+secret-scan:       ## 本地全量密钥扫描（需 gitleaks）
+	@command -v gitleaks >/dev/null 2>&1 || { echo "gitleaks 未安装：brew install gitleaks"; exit 1; }
+	gitleaks detect --source=. --config=.gitleaks.toml --redact --no-banner
+
+hook-init:         ## 启用本地 pre-commit 密钥扫描钩子
+	git config core.hooksPath .githooks
+	@echo "已启用 .githooks/pre-commit（提交前自动扫描密钥）"
 
 docker-build:      ## 构建 Docker 镜像
 	docker compose build
