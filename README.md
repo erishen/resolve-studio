@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-An **TypeScript** Agent runtime that mimics the "**everything is a plugin**" design of [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness), built on the [Cordis](https://cordis.xiaoyaoji.cn/) dependency-injection container.
+A **TypeScript** Agent runtime that mimics the "**everything is a plugin**" design of [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness), built on the [Cordis](https://cordis.xiaoyaoji.cn/) dependency-injection container.
 
 Core idea: the LLM backend, tools, agent loop, approvals, skills, and the frontend (CLI/Web) are all Cordis **plugins/services**, composed by a set of `cordis*.yml` files. Switching models, adding tools, or swapping the frontend is just a config change — no core code is touched.
 

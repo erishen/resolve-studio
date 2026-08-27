@@ -2,16 +2,20 @@
 
 > 状态标注：`[ ]` 待办 · `[x]` 已完成 · `[?]` 待用户决策
 
-## 公开前收尾（2026-08-27）
+## 公开前收尾（2026-08-27，已基本完成）
 
-> 目标：仓库去标识化 + 加防泄露闸门，准备公开。
+> 目标：去标识化 + 防泄露闸门 + 文档中英双语，准备公开。
 
 - [x] **隐私/安全审计**：全量扫描（`.env` 是否入库、密钥/token/私钥、git 历史）——结论：git 层面零泄露；唯一本地隐患是 `.env` 权限 `0644`，已收到 `0600`（不进版本库）
 - [x] **去标识化**：提交 `d6eba8a` —— provider `agnes`→中性 `free`（5 个工具文件）；`tool-article-write` 移除硬编码私有网关 `apihub.agnes-ai.com` 与 `AGNES_KEY/AGNES_BASE_URL`，统一走标准 `OPENAI_*`；`usage.ts` 删 `agnes-2.0-flash/agnes-2.0` 免费条目；`gen-manifests.mjs` 不再读 `process.env.OPENAI_MODEL`（防私有模型名烘焙进清单），默认固定 `gpt-4o-mini`；`workspace-scan.mjs` 的 `AGNES_CFG`→`LLM_CFG`。验证：`tsc --noEmit` 绿、`usage.test.ts` 3/3、全仓 `git grep` 追踪源码 0 残留 agnes/apihub/2.0-flash
 - [x] **secret-scan 闸门**：提交 `384ad1b` —— `.github/workflows/ci.yml` 加 `secret-scan` job（gitleaks/gitleaks-action，推 SARIF 到 Security）；`.githooks/pre-commit` 提交前 `gitleaks protect --staged` 扫暂存区（未装时优雅跳过）；`Makefile` 加 `make secret-scan`/`make hook-init`；`.gitleaks.toml` 继承默认规则 + 项目 allowlist。本机验证：全树 14 commits `no leaks found`；伪造 `AKIA…`/`ghp_…` 被拦（exit 1）、干净文件放行（exit 0）。`core.hooksPath` 已切到 `.githooks`
-- [x] **ARCHITECTURE.md 去重**：提交 `50f7a06` —— 删除根目录重复份，合并 `docs/ARCHITECTURE.md` 为唯一架构文档（含独有目录结构、分层表、循环时序图、面试导读），README 链接无需改
-- [ ] **推送 remote**：当前仍 local only（4 次本地提交未推）——公开前需 `git remote add` + `push`；push 后 CI 的 `secret-scan` 才真正跑起来
-- [ ] **公开前最终核验**：`make secret-scan` 跑一遍确认全绿；复查 README/文档有无「实际使用的模型/网关」措辞（本次 grep 文档 0 命中，基本安全）
+- [x] **ARCHITECTURE.md 去重**：提交 `50f7a06` —— 删除根目录重复份，合并 `docs/ARCHITECTURE.md` 为唯一架构文档（含独有目录结构、分层表、循环时序图、面试导读）
+- [x] **README 英文双语**：提交 `96338d1` —— README.md 英文主版 + README.zh.md 中文镜像，均已含 secret-scan 说明
+- [x] **README dev 描述修正**：提交 `b157f38` —— `make dev`=真实模型（需 `.env`+`OPENAI_*`）、`make dev-mock`=离线 mock；删掉不存在的 `make dev-real`
+- [x] **本地 dist 重建**：`pnpm -C packages/core run build` 基于去标识化后源码重编译，`packages/core/dist` 内 agnes/apihub/`2.0-flash` 0 残留（`dist` gitignored，不进版本库、无需提交）
+- [x] **GitHub About / Topics**：`gh repo edit` 设 description + 12 个通用 topics（typescript/ai-agents/multi-agent/agent-framework/llm/mcp/cordis/pnpm/monorepo/react/vite/automation），无私有模型/网关标识
+- [ ] **推送代码到 remote**：remote `origin` 已配（`github.com/erishen/resolve-studio`）、GitHub 仓库已建且 **public**、About/Topics 已填；但本地提交（d6eba8a/384ad1b/50f7a06/4bbd212/96338d1/b157f38 等）与 dist 重建**仍未 push**。push 后 CI `secret-scan` 才真正跑起来
+- [ ] **公开前最终核验**：`make secret-scan` 跑一遍确认全绿；复查文档无「实际使用的模型/网关」措辞（已 grep 0 命中）
 
 ## 近期（历史收尾，待清）
 
