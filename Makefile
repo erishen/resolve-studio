@@ -94,8 +94,8 @@ dev: $(PID_DIR)    ## 后端(真实模型)+前端 dev（前台常驻，Ctrl-C �
 	$(call kill_port,$(BACKEND_PORT))
 	$(call kill_port,$(WEB_PORT))
 	@echo "starting backend (real model) on :$(BACKEND_PORT) && web dev on :$(WEB_PORT) ..."; \
-	echo "--- backend log (live) ---"; \
-	node --import tsx $(CORE)/src/index.ts --config $(DEV_CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & BACKEND_PID=$$!; \
+	echo "--- backend log (live, colored) ---"; \
+	FORCE_COLOR=1 node --import tsx $(CORE)/src/index.ts --config $(DEV_CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & BACKEND_PID=$$!; \
 	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & WEB_PID=$$!; \
 	echo "ready: http://127.0.0.1:$(WEB_PORT)  (backend :$(BACKEND_PORT), real model)"; \
 	echo "Ctrl-C to stop. web log: $(PID_DIR)/web.log"; \
@@ -106,8 +106,8 @@ dev-mock: $(PID_DIR)  ## 后端(mock)+前端 dev（离线，无需密钥，Ctrl-
 	$(call kill_port,$(BACKEND_PORT))
 	$(call kill_port,$(WEB_PORT))
 	@echo "starting backend (mock) on :$(BACKEND_PORT) && web dev on :$(WEB_PORT) ..."; \
-	echo "--- backend log (live) ---"; \
-	node --import tsx $(CORE)/src/index.ts --config $(CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & BACKEND_PID=$$!; \
+	echo "--- backend log (live, colored) ---"; \
+	FORCE_COLOR=1 node --import tsx $(CORE)/src/index.ts --config $(CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & BACKEND_PID=$$!; \
 	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & WEB_PID=$$!; \
 	echo "ready: http://127.0.0.1:$(WEB_PORT)  (backend :$(BACKEND_PORT), mock)"; \
 	echo "Ctrl-C to stop. web log: $(PID_DIR)/web.log"; \
