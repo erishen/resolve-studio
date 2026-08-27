@@ -366,7 +366,7 @@ export function App() {
               <div className="app-header-left">
                 <div className="app-title">
                   <span className="dot" />
-                  Agent Harness
+                  Resolve Studio
                 </div>
                 <div className="app-nav">
                   <button
