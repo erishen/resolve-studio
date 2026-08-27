@@ -12,7 +12,7 @@ import { FastPathService } from '../src/services/fastpath.js'
 import { ApprovalService } from '../src/services/approval.js'
 import { skills } from '../src/plugins/skills.js'
 import { llmMock } from '../src/plugins/llm-mock.js'
-import { toolEcho } from '../src/plugins/tool-echo.js'
+import { toolEcho } from '../src/plugins/tools/tool-echo.js'
 
 async function buildContext(): Promise<Context> {
   const root = new Context()

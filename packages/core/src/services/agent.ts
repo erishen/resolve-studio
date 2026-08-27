@@ -12,7 +12,10 @@
  * can stream progress without coupling to the loop internals.
  */
 
-import { Context, Service } from 'cordis'
+import type { Context } from 'cordis'
+import { Service } from 'cordis'
+// Load PSE plugin's type declarations so `ctx.pse` is typed.
+import type {} from '@resolve-studio/plugin-pse'
 import type {
   AgentRunOptions,
   AgentStep,
@@ -33,7 +36,12 @@ declare module 'cordis' {
   interface Events {
     'agent/step'(step: AgentStep): void
     'agent/tool-call'(call: ToolCall): void
-    'agent/tool-result'(payload: { call: ToolCall; result: string; ok: boolean }): void
+    'agent/tool-result'(payload: {
+      call: ToolCall
+      result: string
+      ok: boolean
+      durationMs: number
+    }): void
     'agent/delta'(text: string): void
     'agent/reasoning'(text: string): void
     'agent/done'(answer: string): void
@@ -68,21 +76,30 @@ export class AgentService extends Service {
    * not touched. Emits `agent/step` per iteration and `agent/done` at the end.
    */
   async run(options: AgentRunOptions): Promise<string> {
-    const maxIterations = options.maxIterations ?? 8
+    // PSE three-role mode needs more iterations (Planner → Specialist → Evaluator
+    // may each take multiple tool calls); bump the cap when PSE is active.
+    const pseActive = this.ctx.pse?.enabled ?? false
+    const maxIterations = options.maxIterations ?? (pseActive ? 15 : 8)
     const tools = options.tools ?? this.ctx.tools.schemas()
+    // Index schemas by name once per run so the per-tool-call lookup inside the
+    // loop is O(1) instead of a linear scan through the (small) tool list.
+    const toolSchemaByName = new Map(tools.map((t) => [t.name, t]))
     // Per-run event sink: when the caller supplies one (the web bridge does,
     // once per HTTP request) every `agent/*` / `llm/*` event is scoped to that
     // run so concurrent chats don't cross-talk. Without it we fall back to the
     // global `ctx.events` bus, which keeps the CLI's `ctx.events.on(...)` and
     // the tests' observers working unchanged.
-    const bus: RunEventBus = options.bus ?? ((this.ctx.events as unknown) as RunEventBus)
+    const bus: RunEventBus = options.bus ?? (this.ctx.events as unknown as RunEventBus)
     // Bound the conversation to the context window before anything else. A
     // pre-budget (cheaper than the per-message cap in llm-openai.ts) plus a
     // rolling summary of dropped tool activity keeps long sessions coherent.
-    const messages: ChatMessage[] = fitContext(options.messages.map((m) => ({ ...m })), {
-      maxChars: options.contextBudgetChars ?? this.budgetChars,
-      summarizeDropped: true,
-    })
+    const messages: ChatMessage[] = fitContext(
+      options.messages.map((m) => ({ ...m })),
+      {
+        maxChars: options.contextBudgetChars ?? this.budgetChars,
+        summarizeDropped: true,
+      },
+    )
 
     // Fast Path: if the last user message is a pure arithmetic query we can
     // resolve deterministically, short-circuit the whole LLM loop (zero model
@@ -99,6 +116,22 @@ export class AgentService extends Service {
       }
     }
 
+    // Environment briefing: tell the model about the sandbox and file-writing
+    // conventions so it doesn't waste a call on /home/user/ paths or miss the
+    // task-level directory isolation.
+    const envBrief = [
+      '## 运行环境',
+      '- 所有 shell 命令和文件写入都在沙箱中运行，无法写入工作目录和系统临时目录之外的位置。',
+      '- write-file 工具：相对路径会自动写入 sandbox/<task>/ 目录，**直接写文件名即可，不要加 sandbox/ 前缀**。例如 path: "lru_cache.py" + task: "lru-cache" → 实际写入 sandbox/lru-cache/lru_cache.py。',
+      '- 务必传入 task 参数（如 task: "lru-cache"）为每个任务创建独立子目录，不要直接写在 sandbox 根目录。',
+      '- shell 命令中访问文件时，使用完整路径 sandbox/<task>/<filename>，或 cd 到该目录后运行。',
+      '- 不要使用 /home/user/、/root/ 等绝对路径写入文件；读取文件可以用绝对路径。',
+      '- shell 命令的工作目录是项目根目录，可正常运行 pnpm、node、python 等命令；如缺少依赖（如 pytest），用 python 直接运行脚本或先 pip install。',
+      '- serena:* 工具需要先调用 serena:activate_project 激活项目；如果报 "No active project"，不要反复调用，改用内置的 read-file/write-file 工具。',
+      '- 如果某个工具连续调用失败，换一种方式实现，不要反复重试消耗迭代次数。',
+    ].join('\n')
+    messages.unshift({ role: 'system', content: envBrief })
+
     // Skills: inject the index of available skills into a system message so
     // the model knows what workflows it can follow (it reads SKILL.md via the
     // read-file tool when it decides to use one).
@@ -107,7 +140,28 @@ export class AgentService extends Service {
       if (skillsIndex) messages.unshift({ role: 'system', content: skillsIndex })
     }
 
+    // PSE three-role mode: if enabled, inject the role discipline so the model
+    // follows Planner → Specialist → Evaluator instead of a flat ReAct loop.
+    if (this.ctx.pse?.enabled) {
+      const psePrompt = await this.ctx.pse.systemPrompt()
+      if (psePrompt) messages.unshift({ role: 'system', content: psePrompt })
+    }
+
+    // Caller-supplied system prompt (role preset / task instructions). Inserted
+    // after the skills index so it takes precedence as the topmost instruction.
+    if (options.systemPrompt) {
+      messages.unshift({ role: 'system', content: options.systemPrompt })
+    }
+
     const runId = options.runId
+
+    // Loop detection: track recent assistant contents and tool-call counts so we
+    // can bail early when the model is spinning (e.g. PSE mode where Planner /
+    // Evaluator keep talking without making progress). Three consecutive rounds
+    // with zero tool calls and near-identical content → terminate.
+    const recentContents: string[] = []
+    const recentToolCounts: number[] = []
+    const LOOP_WINDOW = 3
 
     for (let i = 0; i < maxIterations; i++) {
       // Allow an in-flight run to be cancelled between steps.
@@ -124,6 +178,7 @@ export class AgentService extends Service {
           model: options.model,
           signal: options.signal,
           bus,
+          sessionId: options.sessionId,
         })
       } catch (err) {
         // Aborted mid-stream: stop and return whatever we have so far.
@@ -146,40 +201,48 @@ export class AgentService extends Service {
       const toolResults: { call: ToolCall; result: string; ok: boolean }[] = []
 
       if (toolCalls.length) {
-        for (const call of toolCalls) {
-          // Namespace the call id with the run id so two concurrent runs that
-          // happen to get the same model-generated call id don't collide in
-          // the approval registry. The original id is still used for the
-          // tool-result message the LLM sees.
-          const nsId = this.ns(call.id, runId)
-          bus.emit('agent/tool-call', { ...call, id: nsId })
+        // Execute tool calls in parallel. Approval-gated tools also wait in
+        // parallel (the UI surfaces multiple approval cards at once); results
+        // are then appended in original call order so the LLM API sees tool
+        // messages aligned with tool_calls.
+        interface ExecutedCall {
+          call: ToolCall
+          result: string
+          ok: boolean
+          nsId: string
+          durationMs: number
+        }
+        const executed: ExecutedCall[] = await Promise.all(
+          toolCalls.map(async (call): Promise<ExecutedCall> => {
+            const nsId = this.ns(call.id, runId)
+            bus.emit('agent/tool-call', { ...call, id: nsId })
+            const t0 = performance.now()
 
-          // Human-in-the-loop: tools flagged `needsApproval` block here until
-          // a human approves or rejects them (via ctx.approval — wired to the
-          // web UI's /api/approval endpoint). A rejection is fed back to the
-          // model as a tool result so it can adjust instead of crashing.
-          const schema = tools.find((t) => t.name === call.name)
-          if (schema?.needsApproval && this.ctx.approval) {
-            const decision: ApprovalDecision = await this.ctx.approval.request({ ...call, id: nsId }, bus)
-            if (decision === 'reject') {
-              const result = `User rejected the tool call "${call.name}" (arguments: ${JSON.stringify(call.arguments)}). Do not call it again; explain or adjust.`
-              const ok = false
-              toolResults.push({ call, result, ok })
-              bus.emit('agent/tool-result', { call: { ...call, id: nsId }, result, ok })
-              messages.push({
-                role: 'tool',
-                tool_call_id: call.id,
-                name: call.name,
-                content: result,
-              })
-              continue
+            const schema = toolSchemaByName.get(call.name)
+            if (schema?.needsApproval && this.ctx.approval) {
+              const decision: ApprovalDecision = await this.ctx.approval.request(
+                { ...call, id: nsId },
+                bus,
+              )
+              if (decision === 'reject') {
+                const result = `User rejected the tool call "${call.name}" (arguments: ${JSON.stringify(call.arguments)}). Do not call it again; explain or adjust.`
+                return { call, result, ok: false, nsId, durationMs: performance.now() - t0 }
+              }
             }
-          }
 
-          const result = await this.ctx.tools.call(call.name, call.arguments)
-          const ok = !result.startsWith('error:')
+            const result = await this.ctx.tools.call(call.name, call.arguments, {
+              onProgress: (chunk: string) => {
+                bus.emit('agent/tool-progress', { id: nsId, chunk })
+              },
+            })
+            const ok = !result.startsWith('error:')
+            return { call, result, ok, nsId, durationMs: performance.now() - t0 }
+          }),
+        )
+
+        for (const { call, result, ok, nsId, durationMs } of executed) {
           toolResults.push({ call, result, ok })
-          bus.emit('agent/tool-result', { call: { ...call, id: nsId }, result, ok })
+          bus.emit('agent/tool-result', { call: { ...call, id: nsId }, result, ok, durationMs })
           messages.push({
             role: 'tool',
             tool_call_id: call.id,
@@ -191,6 +254,26 @@ export class AgentService extends Service {
 
       const step: AgentStep = { message: assistant, toolCalls, toolResults }
       bus.emit('agent/step', step)
+
+      // Loop detection: if the model has gone LOOP_WINDOW rounds with zero tool
+      // calls and near-identical content, it is spinning (common in PSE mode
+      // where Planner/Evaluator keep restating). Bail with the last answer.
+      recentContents.push((response.content ?? '').trim())
+      recentToolCounts.push(toolCalls.length)
+      if (recentContents.length > LOOP_WINDOW) {
+        recentContents.shift()
+        recentToolCounts.shift()
+      }
+      if (
+        recentContents.length === LOOP_WINDOW &&
+        recentToolCounts.every((c) => c === 0) &&
+        this.contentsSimilar(recentContents)
+      ) {
+        const answer = recentContents[recentContents.length - 1] || this.lastAnswer(messages)
+        this.ctx.logger('agent').warn('loop detected after %d rounds — terminating early', i + 1)
+        bus.emit('agent/done', answer)
+        return answer
+      }
 
       if (!toolCalls.length) {
         // Trim leading/trailing whitespace: many LLM outputs start with a
@@ -216,17 +299,24 @@ export class AgentService extends Service {
    */
   private async nextResponse(
     messages: ChatMessage[],
-    options: { tools?: AgentRunOptions['tools']; model?: string; signal?: AbortSignal; bus?: RunEventBus },
+    options: {
+      tools?: AgentRunOptions['tools']
+      model?: string
+      signal?: AbortSignal
+      bus?: RunEventBus
+      sessionId?: string
+    },
   ): Promise<ChatResponse> {
     const callOptions: ChatOptions = {
       tools: options.tools,
       model: options.model,
       signal: options.signal,
       bus: options.bus,
+      sessionId: options.sessionId,
     }
     if (!this.ctx.llm.chatStream) return this.ctx.llm.chat(messages, callOptions)
 
-    const bus = options.bus ?? ((this.ctx.events as unknown) as RunEventBus)
+    const bus = options.bus ?? (this.ctx.events as unknown as RunEventBus)
     const toolCalls: ToolCall[] = []
     let content = ''
     for await (const chunk of this.ctx.llm.chatStream(messages, callOptions)) {
@@ -257,6 +347,23 @@ export class AgentService extends Service {
     return text || 'Run stopped before a final answer was produced.'
   }
 
+  /**
+   * Heuristic: are all strings in the window near-identical? Used by loop
+   * detection to bail when the model keeps restating without tool calls.
+   * Compares first 80 chars and length ratio — enough to catch "PASS / PASS /
+   * PASS" or repeated summaries without false-positiveing genuine long answers.
+   */
+  private contentsSimilar(texts: string[]): boolean {
+    if (texts.length < 2) return false
+    const first = texts[0]
+    if (!first) return texts.every((t) => !t)
+    return texts.every((t) => {
+      if (!t) return false
+      const lenRatio = Math.min(t.length, first.length) / Math.max(t.length, first.length)
+      return lenRatio > 0.8 && t.slice(0, 80) === first.slice(0, 80)
+    })
+  }
+
   private mergeToolCalls(target: ToolCall[], deltas: ChatStreamChunk['toolCalls']): void {
     for (const d of deltas ?? []) {
       let call = target[d.index]
@@ -266,7 +373,8 @@ export class AgentService extends Service {
       }
       if (d.id) call.id = d.id
       if (d.name) call.name = d.name
-      const acc = typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments)
+      const acc =
+        typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments)
       call.arguments = acc + (d.arguments ?? '')
     }
   }

@@ -10,7 +10,7 @@ import { skills } from '../src/plugins/skills.js'
 
 async function buildContext(): Promise<Context> {
   const root = new Context()
-  await root.plugin(skills, { dir: '../../skills' })
+  await root.plugin(skills, { dir: '../../../harness-skills/skills' })
   return root
 }
 
@@ -20,7 +20,10 @@ test('indexes skill folders with frontmatter name and description', async () => 
   const codeReview = list.find((s) => s.name === 'code-review')
   assert.ok(codeReview, 'expected code-review to be indexed')
   assert.ok(codeReview.description.includes('审查'), 'expected Chinese description')
-  assert.ok(list.some((s) => s.name === 'post-comment'), 'expected post-comment too')
+  assert.ok(
+    list.some((s) => s.name === 'post-comment'),
+    'expected post-comment too',
+  )
   await root.fiber.dispose()
 })
 

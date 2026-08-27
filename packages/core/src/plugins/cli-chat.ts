@@ -17,7 +17,8 @@ const startChat = (ctx: Context) => {
   const log = ctx.logger('cli')
 
   ctx.events.on('agent/tool-call', (call) => {
-    const args = typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments)
+    const args =
+      typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments)
     stdout.write(`  → tool_call: ${call.name}(${args})\n`)
   })
   ctx.events.on('agent/tool-result', ({ call, result, ok }) => {

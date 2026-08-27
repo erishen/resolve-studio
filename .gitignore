@@ -7,3 +7,7 @@ dist/
 
 # session persistence
 .data/
+.serena
+
+# generated workspace analysis report (projects.json, index.html, scan status)
+workspace-analysis/

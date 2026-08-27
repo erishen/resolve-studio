@@ -1,18 +1,22 @@
 /**
  * Skills service — reusable instruction packs for the agent.
  *
- * A "skill" is a directory under `<cwd>/skills/<name>/` containing a
- * `SKILL.md` that describes how to perform a class of tasks (a documented
- * workflow, not code). This service:
- *   - scans the skills directory and indexes each skill (name + description,
- *     parsed from the SKILL.md frontmatter);
- *   - exposes the index as prompt text (`indexText`) that the agent loop
- *     injects into the system message, so the model *knows* which skills exist;
- *   - lets the model fetch a skill's full instructions via `read` (it calls
- *     the existing `read-file` tool for that, or another plugin can call
- *     `ctx.skills.read()` directly).
+ * A "skill" is a directory under a skills root containing a `SKILL.md` that
+ * describes how to perform a class of tasks (a documented workflow, not code).
  *
- * SKILL.md format:
+ * Supports multiple skill directories merged together:
+ *   1. local `<cwd>/skills/` (project-specific skills)
+ *   2. `HARNESS_SKILLS_DIR` env var (shared harness-skills repo, same var as
+ *      resolve-tui / resolve-harness)
+ *   3. `config.dirs` (explicit extra directories)
+ *
+ * On name collisions, earlier directories win (local takes precedence over
+ * shared). This service:
+ *   - scans all directories and indexes each skill (name + description);
+ *   - exposes the index as prompt text the agent loop injects into system msg;
+ *   - lets the model fetch a skill's full instructions via `read`.
+ *
+ * SKILL.md format (aligns with Agent Skills / harness-skills SKILL_SPEC):
  *   ---
  *   name: code-review
  *   description: 审查代码改动并输出结构化报告
@@ -22,8 +26,10 @@
  */
 
 import { readFile, readdir, stat } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { Context, Service } from 'cordis'
+import type { Context } from 'cordis'
+import { Service } from 'cordis'
 import { definePlugin } from './util.js'
 
 declare module 'cordis' {
@@ -40,6 +46,8 @@ export interface SkillInfo {
 export interface SkillsConfig {
   /** Directory containing skill folders (default `<cwd>/skills`). */
   dir?: string
+  /** Extra skill directories to merge (e.g. shared harness-skills). */
+  dirs?: string[]
 }
 
 function parseFrontmatter(raw: string): { name?: string; description?: string } {
@@ -54,44 +62,70 @@ function parseFrontmatter(raw: string): { name?: string; description?: string } 
 }
 
 export class SkillsService extends Service {
-  private readonly dir: string
+  private readonly dirs: string[]
 
   constructor(ctx: Context, config: SkillsConfig = {}) {
     super(ctx, 'skills')
-    this.dir = config.dir ?? join(process.cwd(), 'skills')
+    // Build the directory search list in precedence order (earlier wins).
+    const dirs: string[] = []
+    // 1. Local project skills (highest precedence).
+    if (config.dir) {
+      dirs.push(config.dir)
+    } else {
+      dirs.push(join(process.cwd(), 'skills'))
+    }
+    // 2. Shared harness-skills via env var (same var as resolve-tui / resolve-harness).
+    if (process.env.HARNESS_SKILLS_DIR) {
+      dirs.push(process.env.HARNESS_SKILLS_DIR)
+    }
+    // 3. Explicit extra dirs from config.
+    if (config.dirs) {
+      dirs.push(...config.dirs)
+    }
+    // Deduplicate while preserving order, filter out non-existent dirs at scan time.
+    this.dirs = [...new Set(dirs)]
+    ctx.logger('skills').info('skill roots: %s', this.dirs.join(', '))
   }
 
-  /** All indexed skills (name + description), sorted by name. */
+  /** All indexed skills (name + description), merged across all dirs, sorted. */
   async list(): Promise<SkillInfo[]> {
-    let names: string[]
-    try {
-      names = await readdir(this.dir)
-    } catch {
-      return []
-    }
-    const out: SkillInfo[] = []
-    for (const name of names) {
+    const seen = new Map<string, SkillInfo>()
+    for (const dir of this.dirs) {
+      let names: string[]
       try {
-        if (!(await stat(join(this.dir, name))).isDirectory()) continue
-        const raw = (await readFile(join(this.dir, name, 'SKILL.md'), { encoding: 'utf8' })) as string
-        const fm = parseFrontmatter(raw)
-        out.push({ name: fm.name ?? name, description: fm.description ?? '' })
+        names = await readdir(dir)
       } catch {
-        // folder without a readable SKILL.md — skip
+        continue // directory doesn't exist — skip
+      }
+      for (const name of names) {
+        if (seen.has(name)) continue // earlier dir already has this skill
+        try {
+          if (!(await stat(join(dir, name))).isDirectory()) continue
+          const raw = (await readFile(join(dir, name, 'SKILL.md'), {
+            encoding: 'utf8',
+          })) as string
+          const fm = parseFrontmatter(raw)
+          seen.set(name, { name: fm.name ?? name, description: fm.description ?? '' })
+        } catch {
+          // folder without a readable SKILL.md — skip
+        }
       }
     }
-    return out.sort((a, b) => a.name.localeCompare(b.name))
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  /** Full instructions of a skill, or null if it doesn't exist. */
+  /** Full instructions of a skill, or null if it doesn't exist in any dir. */
   async read(name: string): Promise<string | null> {
     const safe = name.replace(/[^a-zA-Z0-9_-]/g, '')
     if (!safe) return null
-    try {
-      return (await readFile(join(this.dir, safe, 'SKILL.md'), { encoding: 'utf8' })) as string
-    } catch {
-      return null
+    for (const dir of this.dirs) {
+      try {
+        return (await readFile(join(dir, safe, 'SKILL.md'), { encoding: 'utf8' })) as string
+      } catch {
+        // not in this dir — try the next
+      }
     }
+    return null
   }
 
   /**
@@ -103,9 +137,9 @@ export class SkillsService extends Service {
     if (!list.length) return ''
     const lines = list.map((s) => `- ${s.name}${s.description ? `：${s.description}` : ''}`)
     return [
-      '可用技能（skills/ 目录）：',
+      '可用技能（skills）：',
       ...lines,
-      '使用某技能时，先用 read-file 读取 skills/<名称>/SKILL.md，再按其步骤执行。',
+      '使用某技能时，先用 read-file 读取对应 SKILL.md，再按其步骤执行。',
     ].join('\n')
   }
 }

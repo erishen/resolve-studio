@@ -9,7 +9,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { Context } from 'cordis'
 import { ToolRegistry } from '../src/services/tools.js'
 import { FsRootsService } from '../src/services/fs-roots.js'
-import { toolAnalyzeDir } from '../src/plugins/tool-analyze-dir.js'
+import { toolAnalyzeDir } from '../src/plugins/tools/tool-analyze-dir.js'
 
 const ROOT = '.tmp-analyze'
 

@@ -13,8 +13,8 @@ import { ApprovalService } from '../src/services/approval.js'
 import { LlmService } from '../src/services/llm.js'
 import { skills } from '../src/plugins/skills.js'
 import { llmMock } from '../src/plugins/llm-mock.js'
-import { toolEcho } from '../src/plugins/tool-echo.js'
-import { toolCalculator } from '../src/plugins/tool-calculator.js'
+import { toolEcho } from '../src/plugins/tools/tool-echo.js'
+import { toolCalculator } from '../src/plugins/tools/tool-calculator.js'
 import type { ChatMessage, ChatOptions, ChatResponse, ChatStreamChunk } from '../src/types.js'
 
 test('agent loop calls the echo tool and returns a final answer', async () => {
@@ -121,7 +121,10 @@ class AbortLlm extends LlmService {
   async chat(_messages: ChatMessage[], _options?: ChatOptions): Promise<ChatResponse> {
     return { content: 'final' }
   }
-  async *chatStream(_messages: ChatMessage[], options?: ChatOptions): AsyncIterable<ChatStreamChunk> {
+  async *chatStream(
+    _messages: ChatMessage[],
+    options?: ChatOptions,
+  ): AsyncIterable<ChatStreamChunk> {
     const signal = options?.signal
     if (signal?.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' })
     yield { content: 'partial' }
@@ -149,12 +152,94 @@ test('aborting a run resolves without hanging', async () => {
   await root.plugin(AbortLlm)
 
   const ac = new AbortController()
-  const runPromise = root.agent.run({ messages: [{ role: 'user', content: 'hi' }], signal: ac.signal })
+  const runPromise = root.agent.run({
+    messages: [{ role: 'user', content: 'hi' }],
+    signal: ac.signal,
+  })
   await new Promise((r) => setTimeout(r, 50))
   ac.abort()
   const answer = await runPromise
   // The run must settle (not hang) and return a string even when cancelled.
   assert.equal(typeof answer, 'string')
+
+  await root.fiber.dispose()
+})
+
+test('multiple tool calls in one step execute in parallel', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService, { timeout: 500 })
+  await root.plugin(skills, { dir: '../../skills' })
+
+  // Track tool execution windows to prove overlap.
+  const starts: number[] = []
+  const ends: number[] = []
+  const delay = 150
+
+  // Two slow tools; if serial they'd take >=300ms, parallel ~150ms.
+  root.tools.register({
+    name: 'slow-a',
+    description: 'slow tool a',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      starts.push(Date.now())
+      await new Promise((r) => setTimeout(r, delay))
+      ends.push(Date.now())
+      return 'a-done'
+    },
+  })
+  root.tools.register({
+    name: 'slow-b',
+    description: 'slow tool b',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      starts.push(Date.now())
+      await new Promise((r) => setTimeout(r, delay))
+      ends.push(Date.now())
+      return 'b-done'
+    },
+  })
+
+  // LLM that returns both tool calls at once, then a final answer.
+  let step = 0
+  class ParallelLlm extends LlmService {
+    async chat(_messages: ChatMessage[], _options?: ChatOptions): Promise<ChatResponse> {
+      if (step === 0) {
+        step++
+        return {
+          content: '',
+          toolCalls: [
+            { id: 'call-a', name: 'slow-a', arguments: '{}' },
+            { id: 'call-b', name: 'slow-b', arguments: '{}' },
+          ],
+        }
+      }
+      return { content: 'all done' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(ParallelLlm)
+
+  const t0 = Date.now()
+  const answer = await root.agent.run({ messages: [{ role: 'user', content: 'do both' }] })
+  const elapsed = Date.now() - t0
+
+  assert.equal(answer, 'all done')
+  assert.equal(starts.length, 2)
+  assert.equal(ends.length, 2)
+  // Parallel: total time should be close to one delay, not two.
+  assert.ok(elapsed < delay * 1.8, `expected parallel (<${delay * 1.8}ms), got ${elapsed}ms`)
+  // Execution windows must overlap.
+  const sortedStarts = starts.sort((a, b) => a - b)
+  const firstEnd = ends.sort((a, b) => a - b)[0]
+  assert.ok(
+    sortedStarts[1] < firstEnd,
+    `expected overlap: second start ${sortedStarts[1]} < first end ${firstEnd}`,
+  )
 
   await root.fiber.dispose()
 })

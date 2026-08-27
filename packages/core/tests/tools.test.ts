@@ -6,19 +6,22 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { rm, writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { Context } from 'cordis'
 import { ToolRegistry } from '../src/services/tools.js'
 import { FsRootsService } from '../src/services/fs-roots.js'
-import { toolReadFile } from '../src/plugins/tool-read-file.js'
-import { toolWriteFile } from '../src/plugins/tool-write-file.js'
-import { toolShell } from '../src/plugins/tool-shell.js'
-import { toolCalculator } from '../src/plugins/tool-calculator.js'
-import { toolEcho } from '../src/plugins/tool-echo.js'
+import { toolReadFile } from '../src/plugins/tools/tool-read-file.js'
+import { toolWriteFile } from '../src/plugins/tools/tool-write-file.js'
+import { toolShell } from '../src/plugins/tools/tool-shell.js'
+import { sandbox } from '../src/plugins/sandbox.js'
+import { toolCalculator } from '../src/plugins/tools/tool-calculator.js'
+import { toolEcho } from '../src/plugins/tools/tool-echo.js'
 
 async function buildContext(): Promise<Context> {
   const root = new Context()
   await root.plugin(ToolRegistry)
   await root.plugin(FsRootsService)
+  await root.plugin(sandbox)
   await root.plugin(toolReadFile)
   await root.plugin(toolWriteFile)
   await root.plugin(toolShell)
@@ -29,7 +32,10 @@ async function buildContext(): Promise<Context> {
 
 test('read-file reads text and rejects binary / missing files', async () => {
   const root = await buildContext()
-  const self = await root.tools.call('read-file', JSON.stringify({ path: 'src/plugins/tool-read-file.ts' }))
+  const self = await root.tools.call(
+    'read-file',
+    JSON.stringify({ path: 'src/plugins/tools/tool-read-file.ts' }),
+  )
   assert.ok(self.startsWith('/**'), 'expected source text')
 
   const missing = await root.tools.call('read-file', JSON.stringify({ path: 'no-such-file.ts' }))
@@ -45,23 +51,28 @@ test('read-file reads text and rejects binary / missing files', async () => {
 
 test('write-file writes content and creates parent directories', async () => {
   const root = await buildContext()
+  const tmpDir = resolve(process.cwd(), '.tmp-write')
+  const absPath = resolve(tmpDir, 'a/b.txt')
   const res = await root.tools.call(
     'write-file',
-    JSON.stringify({ path: '.tmp-write/a/b.txt', content: 'hello write' }),
+    JSON.stringify({ path: absPath, content: 'hello write' }),
   )
   assert.match(res, /wrote 11 chars/)
 
-  const readBack = await root.tools.call('read-file', JSON.stringify({ path: '.tmp-write/a/b.txt' }))
+  const readBack = await root.tools.call(
+    'read-file',
+    JSON.stringify({ path: absPath }),
+  )
   assert.equal(readBack, 'hello write')
 
-  await rm('.tmp-write', { recursive: true, force: true })
+  await rm(tmpDir, { recursive: true, force: true })
   await root.fiber.dispose()
 })
 
 test('shell runs commands and reports non-zero exit', async () => {
   const root = await buildContext()
   const pwd = await root.tools.call('shell', JSON.stringify({ command: 'pwd' }))
-  assert.ok(pwd.includes('agent-harness'), 'expected cwd in output')
+  assert.ok(pwd.includes('resolve-studio'), 'expected cwd in output')
 
   const failed = await root.tools.call('shell', JSON.stringify({ command: 'exit 3' }))
   assert.match(failed, /^error:/)
@@ -74,7 +85,10 @@ test('shell runs commands and reports non-zero exit', async () => {
 
 test('calculator evaluates safely and rejects junk', async () => {
   const root = await buildContext()
-  assert.equal(await root.tools.call('calculator', JSON.stringify({ expression: '(2 + 3) * 4' })), '20')
+  assert.equal(
+    await root.tools.call('calculator', JSON.stringify({ expression: '(2 + 3) * 4' })),
+    '20',
+  )
   assert.equal(await root.tools.call('calculator', JSON.stringify({ expression: '10 / 4' })), '2.5')
 
   const junk = await root.tools.call('calculator', JSON.stringify({ expression: '2 + junk' }))

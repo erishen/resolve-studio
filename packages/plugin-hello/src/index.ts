@@ -1,10 +1,10 @@
 /**
- * @agent-harness/plugin-hello — a sample first-party Cordis plugin.
+ * @resolve-studio/plugin-hello — a sample first-party Cordis plugin.
  *
  * This package exists to prove the monorepo + loader story end-to-end:
  *   - it lives in `packages/plugin-hello` (its own workspace package),
  *   - it is referenced from `cordis.patch.yml` by its *package name*
- *     (`@agent-harness/plugin-hello`), not a local file path,
+ *     (`@resolve-studio/plugin-hello`), not a local file path,
  *   - the loader resolves it via dynamic `import()` with no special-casing,
  *   - so the exact same plugin could be published to npm and loaded by any
  *     Cordis-4 runtime (including DeepSeek Harness) without code changes.
@@ -13,7 +13,8 @@
  * services. That is what makes it ecosystem-portable.
  */
 
-import { Context, Service } from 'cordis'
+import type { Context } from 'cordis'
+import { Service } from 'cordis'
 
 declare module 'cordis' {
   interface Context {
@@ -36,7 +37,7 @@ export class HelloService extends Service {
   constructor(ctx: Context, options: HelloOptions = {}) {
     super(ctx, 'hello')
     this.interval = options.interval ?? 15_000
-    this.greeting = options.greeting ?? 'hello from @agent-harness/plugin-hello'
+    this.greeting = options.greeting ?? 'hello from @resolve-studio/plugin-hello'
   }
 
   /** Emit a single greeting line. Callable from other plugins via `ctx.hello.say()`. */

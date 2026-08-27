@@ -7,12 +7,18 @@
  * per-model price table. A `llm/usage` event is emitted on each record so the
  * web bridge can stream the running tally to the UI.
  *
+ * Totals are tracked both globally (process lifetime) and per-session (when a
+ * `sessionId` is supplied to `record`). The web UI passes the current
+ * conversation id so each chat shows its own cost instead of a running total
+ * across every session.
+ *
  * Prices are estimates in CNY per 1K tokens (input / output) and can be
  * overridden via the `HARNESS_PRICES` env var (JSON map keyed by model id).
  * Models not in the table fall back to the `default` entry.
  */
 
-import { Context, Service } from 'cordis'
+import type { Context } from 'cordis'
+import { Service } from 'cordis'
 import type { RunEventBus } from '../types.js'
 
 declare module 'cordis' {
@@ -29,6 +35,8 @@ export interface UsageRecord {
   promptTokens: number
   completionTokens: number
   cost: number
+  /** Session id this record belongs to (undefined when untracked). */
+  sessionId?: string
 }
 
 export interface UsageSnapshot {
@@ -37,10 +45,21 @@ export interface UsageSnapshot {
   totalTokens: number
   totalCost: number
   requests: number
-  byModel: Record<string, { promptTokens: number; completionTokens: number; cost: number; requests: number }>
+  byModel: Record<
+    string,
+    { promptTokens: number; completionTokens: number; cost: number; requests: number }
+  >
 }
 
 type PriceTable = Record<string, { in: number; out: number }>
+
+interface SessionTotals {
+  totalPrompt: number
+  totalCompletion: number
+  totalCost: number
+  requests: number
+  byModel: UsageSnapshot['byModel']
+}
 
 const DEFAULT_PRICES: PriceTable = {
   'deepseek-chat': { in: 0.002, out: 0.008 },
@@ -64,13 +83,14 @@ function loadPrices(): PriceTable {
   }
 }
 
+function emptyTotals(): SessionTotals {
+  return { totalPrompt: 0, totalCompletion: 0, totalCost: 0, requests: 0, byModel: {} }
+}
+
 export class UsageService extends Service {
   private readonly prices: PriceTable = loadPrices()
-  private totalPrompt = 0
-  private totalCompletion = 0
-  private totalCost = 0
-  private requests = 0
-  private readonly byModel: UsageSnapshot['byModel'] = {}
+  private readonly global: SessionTotals = emptyTotals()
+  private readonly bySession = new Map<string, SessionTotals>()
 
   constructor(ctx: Context) {
     super(ctx, 'usage')
@@ -78,45 +98,85 @@ export class UsageService extends Service {
 
   /** Record a completed completion's token usage and emit an event.
    *  When `bus` is supplied the event is scoped to that run (so concurrent
-   *  runs don't cross-talk); otherwise it goes to the global bus. */
-  record(model: string, promptTokens: number, completionTokens: number, bus?: RunEventBus): UsageRecord {
+   *  runs don't cross-talk); otherwise it goes to the global bus.
+   *  When `sessionId` is supplied the totals are also attributed to that
+   *  session (retrievable via {@link snapshot}). */
+  record(
+    model: string,
+    promptTokens: number,
+    completionTokens: number,
+    bus?: RunEventBus,
+    sessionId?: string,
+  ): UsageRecord {
     const price = this.prices[model] ?? this.prices['default']
     const cost = (promptTokens / 1000) * price.in + (completionTokens / 1000) * price.out
 
-    this.totalPrompt += promptTokens
-    this.totalCompletion += completionTokens
-    this.totalCost += cost
-    this.requests += 1
+    this.addTo(this.global, model, promptTokens, completionTokens, cost)
 
-    const agg = (this.byModel[model] ??= { promptTokens: 0, completionTokens: 0, cost: 0, requests: 0 })
-    agg.promptTokens += promptTokens
-    agg.completionTokens += completionTokens
-    agg.cost += cost
-    agg.requests += 1
+    if (sessionId) {
+      let sess = this.bySession.get(sessionId)
+      if (!sess) {
+        sess = emptyTotals()
+        this.bySession.set(sessionId, sess)
+      }
+      this.addTo(sess, model, promptTokens, completionTokens, cost)
+    }
 
-    const record: UsageRecord = { model, promptTokens, completionTokens, cost }
+    const record: UsageRecord = { model, promptTokens, completionTokens, cost, sessionId }
     ;(bus ?? this.ctx.events).emit('llm/usage', record)
     return record
   }
 
-  /** Current cumulative totals. */
-  snapshot(): UsageSnapshot {
+  private addTo(
+    target: SessionTotals,
+    model: string,
+    promptTokens: number,
+    completionTokens: number,
+    cost: number,
+  ): void {
+    target.totalPrompt += promptTokens
+    target.totalCompletion += completionTokens
+    target.totalCost += cost
+    target.requests += 1
+    const agg = (target.byModel[model] ??= {
+      promptTokens: 0,
+      completionTokens: 0,
+      cost: 0,
+      requests: 0,
+    })
+    agg.promptTokens += promptTokens
+    agg.completionTokens += completionTokens
+    agg.cost += cost
+    agg.requests += 1
+  }
+
+  private toSnapshot(t: SessionTotals): UsageSnapshot {
     return {
-      totalPromptTokens: this.totalPrompt,
-      totalCompletionTokens: this.totalCompletion,
-      totalTokens: this.totalPrompt + this.totalCompletion,
-      totalCost: this.totalCost,
-      requests: this.requests,
-      byModel: this.byModel,
+      totalPromptTokens: t.totalPrompt,
+      totalCompletionTokens: t.totalCompletion,
+      totalTokens: t.totalPrompt + t.totalCompletion,
+      totalCost: t.totalCost,
+      requests: t.requests,
+      byModel: t.byModel,
     }
   }
 
-  /** Reset all counters (e.g. on a new session). */
-  reset(): void {
-    this.totalPrompt = 0
-    this.totalCompletion = 0
-    this.totalCost = 0
-    this.requests = 0
-    for (const k of Object.keys(this.byModel)) delete this.byModel[k]
+  /** Current cumulative totals. Pass a `sessionId` to get that session's
+   *  totals instead of the global ones; returns an empty snapshot for an
+   *  unknown session id. */
+  snapshot(sessionId?: string): UsageSnapshot {
+    if (!sessionId) return this.toSnapshot(this.global)
+    return this.toSnapshot(this.bySession.get(sessionId) ?? emptyTotals())
+  }
+
+  /** Reset counters. Pass a `sessionId` to reset only that session; without
+   *  an id both global and all per-session counters are cleared. */
+  reset(sessionId?: string): void {
+    if (sessionId) {
+      this.bySession.delete(sessionId)
+      return
+    }
+    Object.assign(this.global, emptyTotals())
+    this.bySession.clear()
   }
 }

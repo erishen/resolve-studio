@@ -12,7 +12,8 @@
  * "what is 3+4" class of queries without spinning up a model round-trip.
  */
 
-import { Context, Service } from 'cordis'
+import type { Context } from 'cordis'
+import { Service } from 'cordis'
 
 declare module 'cordis' {
   interface Context {
@@ -81,12 +82,19 @@ export class FastPathService extends Service {
    *
    * Returns the computed answer as a string, or `null` if the input is not a
    * pure arithmetic query we can handle offline.
+   *
+   * Note: a bare number (e.g. "5") is NOT treated as arithmetic — it could be
+   * a menu selection, an index, etc. Only expressions with at least one
+   * operator (+ - * /) are resolved here.
    */
   tryResolve(text: string): string | null {
     const trimmed = text.trim()
     if (!trimmed) return null
     // Must be entirely arithmetic characters; otherwise let the model decide.
     if (!SAFE_ARITHMETIC.test(trimmed)) return null
+    // Require at least one operator — bare numbers are likely menu selections
+    // or indices, not arithmetic queries.
+    if (!/[+\-*/]/.test(trimmed)) return null
     try {
       const value = evalArithmetic(trimmed)
       return String(value)

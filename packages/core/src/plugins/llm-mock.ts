@@ -50,7 +50,7 @@ class LlmMock extends LlmService {
   }
 
   async models(): Promise<ModelInfo[]> {
-    return [{ id: ID, ownedBy: 'agent-harness' }]
+    return [{ id: ID, ownedBy: 'resolve-studio' }]
   }
 
   /**

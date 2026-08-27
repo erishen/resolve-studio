@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { pickRandomPost } from '../src/plugins/tool-pick-post.js'
+import { pickRandomPost } from '../src/plugins/tools/tool-pick-post.js'
 
 function fakeFetch(json: unknown, ok = true): typeof fetch {
   return (async () => ({

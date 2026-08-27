@@ -1,7 +1,7 @@
 /**
  * Filesystem sandbox guards.
  *
- * The harness runs with the *agent-harness* directory as its working root.
+ * The harness runs with the *resolve-studio* directory as its working root.
  * File tools (read-file / write-file) must never escape that root, and the
  * shell tool must not be steered at paths outside it. These helpers enforce a
  * "stay inside the sandbox" boundary so a stray or adversarial tool call can't
@@ -67,7 +67,9 @@ export function assertShellWithinRoots(command: string, roots: string[]): void {
   }
   // 2) Reject parent-directory traversal unless explicitly relaxed.
   if (!process.env['HARNESS_SHELL_ALLOW_TRAVERSAL'] && command.includes('..')) {
-    throw new Error('shell command contains ".." path traversal; blocked for safety (set HARNESS_SHELL_ALLOW_TRAVERSAL=1 to allow)')
+    throw new Error(
+      'shell command contains ".." path traversal; blocked for safety (set HARNESS_SHELL_ALLOW_TRAVERSAL=1 to allow)',
+    )
   }
 }
 

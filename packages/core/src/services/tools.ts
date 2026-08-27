@@ -7,8 +7,9 @@
  * run a model-requested tool. Every invocation emits a `tools/call` event.
  */
 
-import { Context, Service } from 'cordis'
-import type { Tool, ToolSchema } from '../types.js'
+import type { Context } from 'cordis'
+import { Service } from 'cordis'
+import type { Tool, ToolSchema, ToolExecutionContext } from '../types.js'
 
 /** Options for {@link ToolRegistry.call}. */
 export interface ToolCallOptions {
@@ -21,6 +22,8 @@ export interface ToolCallOptions {
    * on the `tools/call` event so observers can distinguish delegated calls.
    */
   internal?: boolean
+  /** Progress callback for long-running tools. */
+  onProgress?: (chunk: string) => void
 }
 
 declare module 'cordis' {
@@ -28,7 +31,13 @@ declare module 'cordis' {
     tools: ToolRegistry
   }
   interface Events {
-    'tools/call'(payload: { name: string; args: unknown; ok: boolean; result: string; internal?: boolean }): void
+    'tools/call'(payload: {
+      name: string
+      args: unknown
+      ok: boolean
+      result: string
+      internal?: boolean
+    }): void
   }
 }
 
@@ -97,13 +106,26 @@ export class ToolRegistry extends Service {
       return result
     }
     try {
-      const out = await tool.execute(parsed)
+      const execCtx: ToolExecutionContext = opts.onProgress ? { onProgress: opts.onProgress } : {}
+      const out = await tool.execute(parsed, execCtx)
       const result = typeof out === 'string' ? out : JSON.stringify(out)
-      this.ctx.events.emit('tools/call', { name, args: parsed, ok: true, result, internal: opts.internal })
+      this.ctx.events.emit('tools/call', {
+        name,
+        args: parsed,
+        ok: true,
+        result,
+        internal: opts.internal,
+      })
       return result
     } catch (err) {
       const result = `error: ${tool.name} failed: ${(err as Error).message}`
-      this.ctx.events.emit('tools/call', { name, args: parsed, ok: false, result, internal: opts.internal })
+      this.ctx.events.emit('tools/call', {
+        name,
+        args: parsed,
+        ok: false,
+        result,
+        internal: opts.internal,
+      })
       return result
     }
   }

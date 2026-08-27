@@ -10,20 +10,12 @@ import { z } from 'zod'
 
 const server = new McpServer({ name: 'demo-mcp', version: '1.0.0' })
 
-server.tool(
-  'greet',
-  { name: z.string().describe('who to greet') },
-  async ({ name }) => ({
-    content: [{ type: 'text', text: `hello ${name}` }],
-  }),
-)
+server.tool('greet', { name: z.string().describe('who to greet') }, async ({ name }) => ({
+  content: [{ type: 'text', text: `hello ${name}` }],
+}))
 
-server.tool(
-  'add',
-  { a: z.number(), b: z.number() },
-  async ({ a, b }) => ({
-    content: [{ type: 'text', text: String(a + b) }],
-  }),
-)
+server.tool('add', { a: z.number(), b: z.number() }, async ({ a, b }) => ({
+  content: [{ type: 'text', text: String(a + b) }],
+}))
 
 await server.connect(new StdioServerTransport())

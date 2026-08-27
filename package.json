@@ -1,5 +1,5 @@
 {
-  "name": "agent-harness",
+  "name": "resolve-studio",
   "version": "0.1.0",
   "private": true,
   "description": "Agent harness monorepo (pnpm workspace): a Cordis-powered agent runtime where everything is a plugin",
@@ -9,13 +9,26 @@
   },
   "scripts": {
     "install:all": "pnpm install",
-    "typecheck": "pnpm -C packages/core run typecheck",
+    "typecheck": "pnpm -C packages/core run typecheck && pnpm -C apps/web run typecheck",
     "test": "pnpm -C packages/core run test",
     "check": "pnpm -C packages/core run check",
     "build": "pnpm -C packages/core run build",
-    "build-web": "pnpm -C apps/web run build"
+    "build-web": "pnpm -C apps/web run build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
-    "tsx": "^4.20.0"
+    "@eslint/js": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-react": "^7.0.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.20.0",
+    "typescript-eslint": "^8.0.0"
   }
 }

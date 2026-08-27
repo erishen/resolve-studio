@@ -1,7 +1,7 @@
 {
-  "name": "@agent-harness/plugin-hello",
+  "name": "@resolve-studio/plugin-hello",
   "version": "0.1.0",
-  "description": "Sample first-party Cordis plugin for agent-harness (heartbeat logger)",
+  "description": "Sample first-party Cordis plugin for resolve-studio (heartbeat logger)",
   "type": "module",
   "license": "MIT",
   "main": "src/index.ts",

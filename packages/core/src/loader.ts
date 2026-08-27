@@ -96,7 +96,7 @@ async function resolvePlugin(name: string): Promise<Plugin | null> {
         return value as Plugin
       }
     }
-  } catch (err) {
+  } catch {
     return null
   }
   return null

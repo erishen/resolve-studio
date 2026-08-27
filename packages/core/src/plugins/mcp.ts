@@ -24,7 +24,8 @@ import { dirname, join } from 'node:path'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { Context, Service } from 'cordis'
+import type { Context } from 'cordis'
+import { Service } from 'cordis'
 import type { Tool, ToolParameter } from '../types.js'
 import { definePlugin } from './util.js'
 
@@ -87,7 +88,7 @@ declare module 'cordis' {
 const PERSISTED_FILE = join(process.cwd(), '.data', 'mcp-servers.json')
 
 async function connectServer(s: McpServerConfig): Promise<ConnectedServer> {
-  const client = new Client({ name: 'agent-harness', version: '0.1.0' })
+  const client = new Client({ name: 'resolve-studio', version: '0.1.0' })
   if (s.transport === 'http') {
     if (!s.url) throw new Error(`mcp server "${s.id}" (http) needs a url`)
     const transport = new StreamableHTTPClientTransport(new URL(s.url))
@@ -115,7 +116,10 @@ function formatMcpResult(raw: unknown): string {
     return `error: ${text || 'mcp tool failed'}`
   }
   if (res.structuredContent !== undefined) return JSON.stringify(res.structuredContent)
-  return (res.content ?? []).map((c) => c.text ?? '').filter(Boolean).join('\n')
+  return (res.content ?? [])
+    .map((c) => c.text ?? '')
+    .filter(Boolean)
+    .join('\n')
 }
 
 /**
@@ -169,9 +173,11 @@ export class McpService extends Service {
     try {
       const raw = await readFile(this.persistedFile, { encoding: 'utf8' })
       const list = JSON.parse(raw) as McpServerConfig[]
-      this.persisted.push(...Array.isArray(list) ? list : [])
+      this.persisted.push(...(Array.isArray(list) ? list : []))
       if (list.length) {
-        this.ctx.logger('mcp').info('restored %d server(s) from %s', list.length, this.persistedFile)
+        this.ctx
+          .logger('mcp')
+          .info('restored %d server(s) from %s', list.length, this.persistedFile)
       }
     } catch (err) {
       // ENOENT is fine (first run); anything else is worth logging.

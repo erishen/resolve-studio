@@ -8,7 +8,7 @@
  * CLI REPL) are active — exactly the "everything is a plugin" model DeepSeek
  * Harness uses.
  *
- * @module agent-harness
+ * @module resolve-studio
  */
 
 import 'dotenv/config'

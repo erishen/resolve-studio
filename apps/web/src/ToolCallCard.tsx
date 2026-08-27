@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 interface ToolCallCardProps {
   name: string
   args: string | Record<string, unknown>
@@ -9,7 +11,12 @@ interface ToolCallCardProps {
   awaitingApproval?: boolean
   /** The human's decision, once made. */
   decision?: 'approve' | 'reject'
+  /** Execution time in milliseconds. */
+  durationMs?: number
+  /** Streaming progress log for long-running tools. */
+  progress?: string
   onDecide?: (decision: 'approve' | 'reject') => void
+  onPreview?: (path: string) => void
 }
 
 function renderArgs(args: string | Record<string, unknown>): string {
@@ -21,6 +28,27 @@ function renderArgs(args: string | Record<string, unknown>): string {
   }
 }
 
+/** Collapsible <pre>: shows first MAX_LINES by default, toggle to expand. */
+function CollapsiblePre({ text, maxLines = 8 }: { text: string; maxLines?: number }) {
+  const [expanded, setExpanded] = useState(false)
+  const lines = text.split('\n')
+  const needsCollapse = lines.length > maxLines
+  const display = expanded ? text : lines.slice(0, maxLines).join('\n')
+  return (
+    <div className="collapsible-pre">
+      <pre className={expanded ? '' : 'pre-collapsed'}>{display}</pre>
+      {needsCollapse && (
+        <button
+          className="btn btn-sm btn-toggle"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? '收起 ▲' : `展开全部 (${lines.length} 行) ▼`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 /** If `result` is a saved screenshot path, return its serving URL; else null. */
 function screenshotUrl(result?: string): string | null {
   if (!result) return null
@@ -29,6 +57,20 @@ function screenshotUrl(result?: string): string | null {
   const file = m[1].split(/[\\/]/).pop()
   if (!file) return null
   return `/api/screenshots/${encodeURIComponent(file)}`
+}
+
+/** Extract absolute .md file paths from a tool result for preview. */
+function extractMarkdownPaths(result?: string): string[] {
+  if (!result) return []
+  const paths = new Set<string>()
+  // Match absolute paths ending in .md. Require at least 3 path segments
+  // (e.g. /Users/.../file.md) to avoid matching URL fragments like /foo.md.
+  const re = /(\/(?:Users|home|tmp|var|opt|usr|etc)[^\s'"<>]+\.md)/g
+  let m
+  while ((m = re.exec(result)) !== null) {
+    paths.add(m[1])
+  }
+  return [...paths]
 }
 
 /**
@@ -62,17 +104,33 @@ export function ToolCallCard({
   gated,
   awaitingApproval,
   decision,
+  durationMs,
+  progress,
   onDecide,
+  onPreview,
 }: ToolCallCardProps) {
   const resolved = ok === undefined ? 'pending' : ok ? 'ok' : 'error'
   const shot = screenshotUrl(result)
   const engineInfo = parseEngineInfo(result)
+  const mdPaths = extractMarkdownPaths(result)
+  const durationLabel =
+    durationMs !== undefined
+      ? durationMs < 1000
+        ? `${Math.round(durationMs)}ms`
+        : `${(durationMs / 1000).toFixed(1)}s`
+      : null
   return (
     <div className={`tool-card tool-${resolved}${gated ? ' tool-card-gated' : ''}`}>
       <div className="tool-head">
-        <span className="tool-name">{name}{gated ? ' ⚠' : ''}</span>
-        <span className={`tool-badge tool-badge-${resolved}`}>
-          {awaitingApproval ? 'awaiting approval' : decision ?? resolved}
+        <span className="tool-name">
+          {name}
+          {gated ? ' ⚠' : ''}
+        </span>
+        <span className="tool-head-right">
+          {durationLabel && <span className="tool-duration">{durationLabel}</span>}
+          <span className={`tool-badge tool-badge-${resolved}`}>
+            {awaitingApproval ? 'awaiting approval' : (decision ?? resolved)}
+          </span>
         </span>
       </div>
       {gated && !awaitingApproval && !decision && (
@@ -96,11 +154,19 @@ export function ToolCallCard({
       )}
       <div className="tool-args">
         <div className="tool-label">arguments</div>
-        <pre>{renderArgs(args)}</pre>
+        <CollapsiblePre text={renderArgs(args)} maxLines={6} />
       </div>
+      {progress && resolved === 'pending' && (
+        <details className="tool-progress" open>
+          <summary>running… ({progress.trim().split('\n').length} lines)</summary>
+          <pre className="tool-progress-log">{progress}</pre>
+        </details>
+      )}
       {engineInfo && (
         <div className="tool-engine">
-          {engineInfo.engine && <span className="tool-engine-badge">引擎 · {engineInfo.engine}</span>}
+          {engineInfo.engine && (
+            <span className="tool-engine-badge">引擎 · {engineInfo.engine}</span>
+          )}
           {engineInfo.usedTools && engineInfo.usedTools.length > 0 && (
             <span className="tool-engine-tools">
               内部调用：{[...new Set(engineInfo.usedTools)].join(' · ')}
@@ -111,7 +177,21 @@ export function ToolCallCard({
       {result !== undefined && (
         <div className="tool-result">
           <div className="tool-label">result</div>
-          <pre>{result}</pre>
+          {mdPaths.length > 0 && onPreview && (
+            <div className="tool-file-links">
+              {mdPaths.map((p) => (
+                <button
+                  key={p}
+                  className="btn btn-sm btn-preview"
+                  onClick={() => onPreview(p)}
+                  title="预览文件内容"
+                >
+                  📄 {p.split('/').pop()}
+                </button>
+              ))}
+            </div>
+          )}
+          <CollapsiblePre text={result} maxLines={12} />
           {shot && (
             <a href={shot} target="_blank" rel="noreferrer">
               <img className="tool-screenshot" src={shot} alt="screenshot" />

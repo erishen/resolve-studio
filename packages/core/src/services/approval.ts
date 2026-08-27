@@ -9,7 +9,8 @@
  * hang forever waiting on a human that isn't there.
  */
 
-import { Context, Service } from 'cordis'
+import type { Context } from 'cordis'
+import { Service } from 'cordis'
 import type { RunEventBus, ToolCall } from '../types.js'
 
 export type ApprovalDecision = 'approve' | 'reject'
@@ -54,8 +55,16 @@ export class ApprovalService extends Service {
   request(call: ToolCall, bus?: RunEventBus): Promise<ApprovalDecision> {
     const existing = this.waiters.get(call.id)
     if (existing) {
+      // A previous request with the same id was never resolved (e.g. a retried
+      // or re-requested call). Resolve it as 'reject' so its promise doesn't
+      // hang forever — a leaked pending promise would keep the event loop
+      // alive and memory growing.
       clearTimeout(existing.timer)
       this.waiters.delete(call.id)
+      existing.resolve('reject')
+      this.ctx
+        .logger('approval')
+        .warn('superseded pending approval for "%s" (auto-rejected)', call.id)
     }
 
     return new Promise<ApprovalDecision>((resolve) => {
@@ -63,7 +72,9 @@ export class ApprovalService extends Service {
 
       const timer = setTimeout(() => {
         this.waiters.delete(call.id)
-        this.ctx.logger('approval').warn('approval for tool "%s" timed out, auto-rejecting', call.name)
+        this.ctx
+          .logger('approval')
+          .warn('approval for tool "%s" timed out, auto-rejecting', call.name)
         resolve('reject')
       }, this.timeout)
 

@@ -27,16 +27,37 @@ export interface ChatMessage {
   tool_call_id?: string
 }
 
-/** JSON-Schema-ish parameter description for a tool. */
+/** JSON-Schema-ish parameter description for a tool.
+ *
+ *  Covers the common subset of JSON Schema used by OpenAI function tools and
+ *  MCP `inputSchema`. Extra fields (e.g. `anyOf`, `$ref`) are tolerated at
+ *  runtime via the MCP adapter's cast; the explicitly-typed fields here cover
+ *  what built-in tools and the LLM schema round-trip need. */
 export interface ToolParameter {
-  type: 'string' | 'number' | 'boolean' | 'object' | 'array'
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array' | 'null'
   description?: string
   properties?: Record<string, ToolParameter>
   items?: ToolParameter
   required?: string[]
+  enum?: unknown[]
+  format?: string
+  pattern?: string
+  minimum?: number
+  maximum?: number
+  minLength?: number
+  maxLength?: number
+  minItems?: number
+  maxItems?: number
+  additionalProperties?: boolean | ToolParameter
+  default?: unknown
 }
 
 /** A tool the agent can call. Mirrors an OpenAI function tool. */
+export interface ToolExecutionContext {
+  /** Emit a progress chunk during long-running tool execution. */
+  onProgress?: (chunk: string) => void
+}
+
 export interface Tool {
   name: string
   description: string
@@ -45,7 +66,7 @@ export interface Tool {
    *  a future human-in-the-loop flow; the scaffold flags it in the UI today. */
   needsApproval?: boolean
   /** Execute the tool. May return a string or structured JSON. */
-  execute(args: Record<string, unknown>): Promise<string | object>
+  execute(args: Record<string, unknown>, ctx?: ToolExecutionContext): Promise<string | object>
 }
 
 /** Normalized tool definition passed to the LLM. */
@@ -91,6 +112,9 @@ export interface ChatOptions {
   /** Per-run event sink; when set, `llm/usage` is emitted here instead of the
    *  global bus so concurrent runs stay isolated. */
   bus?: RunEventBus
+  /** Optional session id for usage attribution. When set, token/cost totals
+   *  are also tracked per-session so the UI can show per-conversation usage. */
+  sessionId?: string
 }
 
 /** A normalized chat completion response. */
@@ -155,4 +179,10 @@ export interface AgentRunOptions {
    *  event is emitted here (not the global `ctx.events` bus) so concurrent
    *  runs in the web bridge don't cross-talk. Omit for the CLI / tests. */
   bus?: RunEventBus
+  /** Optional session id for usage attribution. Forwarded to the LLM adapter
+   *  so token/cost totals can be tracked per-conversation. */
+  sessionId?: string
+  /** Extra system prompt injected at the top of the conversation (after the
+   *  skills index). Useful for role presets / task-specific instructions. */
+  systemPrompt?: string
 }

@@ -12,7 +12,7 @@ import { FastPathService } from '../src/services/fastpath.js'
 import { ApprovalService } from '../src/services/approval.js'
 import { skills } from '../src/plugins/skills.js'
 import { llmMock } from '../src/plugins/llm-mock.js'
-import { toolCalculator } from '../src/plugins/tool-calculator.js'
+import { toolCalculator } from '../src/plugins/tools/tool-calculator.js'
 
 test('pending approval times out and auto-rejects (loop never hangs)', async () => {
   const root = new Context()

@@ -1,4 +1,4 @@
-# TODO — agent-harness 后续路线
+# TODO — resolve-studio 后续路线
 
 > 状态标注：`[ ]` 待办 · `[x]` 已完成 · `[?]` 待用户决策
 

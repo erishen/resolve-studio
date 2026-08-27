@@ -42,8 +42,11 @@ const BASE_PLUGINS = [
   { id: 'approval', name: 'approval' },
   { id: 'usage', name: 'usage' },
   { id: 'skills', name: 'skills' },
+  { id: 'pse', name: '@resolve-studio/plugin-pse' },
+  { id: 'sandbox', name: 'sandbox' },
   { id: 'mcp', name: 'mcp', config: { servers: [] } },
-  { id: 'hello', name: '@agent-harness/plugin-hello', config: { interval: 15000 } },
+  { id: 'hello', name: '@resolve-studio/plugin-hello', config: { interval: 15000 } },
+  { id: 'system-info', name: '@resolve-studio/plugin-system-info', config: { interval: 30000 } },
   { id: 'tool-hello', name: 'tool-hello' },
   { id: 'tool-echo', name: 'tool-echo' },
   { id: 'tool-calculator', name: 'tool-calculator' },
@@ -57,11 +60,22 @@ const BASE_PLUGINS = [
   { id: 'tool-skill-run', name: 'tool-skill-run' },
   { id: 'tool-portfolio-summary', name: 'tool-portfolio-summary' },
   { id: 'tool-pse-review', name: 'tool-pse-review' },
+  { id: 'tool-article-write', name: 'tool-article-write' },
+  { id: 'tool-resume-tailor', name: 'tool-resume-tailor' },
+  { id: 'tool-interview-questions', name: 'tool-interview-questions' },
+  { id: 'tool-crm-task', name: 'tool-crm-task' },
+  { id: 'tool-wp-publish', name: 'tool-wp-publish' },
+  { id: 'tool-crewai-publish', name: 'tool-crewai-publish' },
+  { id: 'tool-system-info', name: 'tool-system-info' },
 ]
 
 // LLM adapter variants.
 const LLM_MOCK = { id: 'llm', name: 'llm-mock', config: { tool: 'echo' } }
-const LLM_OPENAI = { id: 'llm', name: 'llm-openai', config: { model: 'deepseek-chat', temperature: 0.7 } }
+const LLM_OPENAI = {
+  id: 'llm',
+  name: 'llm-openai',
+  config: { model: process.env.OPENAI_MODEL || 'agnes-2.0-flash', temperature: 0.7 },
+}
 
 // Interface variant — `cli` and `web` are mutually exclusive.
 const CLI = { id: 'cli', name: 'cli-chat' }
@@ -100,8 +114,8 @@ const VARIANTS = {
     // reach sibling projects; writes/shell stay pinned to this repo for safety.
     fs: {
       readRoots: ['WORKSPACE'],
-      writeRoots: ['WORKSPACE/agent-harness'],
-      shellRoots: ['WORKSPACE/agent-harness'],
+      writeRoots: ['WORKSPACE/resolve-studio'],
+      shellRoots: ['WORKSPACE/resolve-studio'],
     },
   }),
 }

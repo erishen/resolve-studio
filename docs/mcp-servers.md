@@ -1,6 +1,6 @@
 # 接入常用 MCP Server 指南
 
-本指南说明如何给 agent-harness 接入 Model Context Protocol（MCP）服务器，
+本指南说明如何给 resolve-studio 接入 Model Context Protocol（MCP）服务器，
 把外部能力（文件系统、GitHub、数据库、浏览器、搜索等）以「工具」的形式暴露给 Agent。
 
 > 适用版本：当前 `packages/core` 的 `McpService`。所有 MCP 工具的调用默认需要人工审批（approval 门控），失败不会拖垮整个运行时。
@@ -35,15 +35,15 @@
 
 ## 二、配置字段
 
-| 字段 | 必填 | 说明 |
-|------|------|------|
-| `id` | 是 | 唯一标识，正则 `[a-zA-Z0-9_-]`；作为工具名前缀 |
-| `transport` | 是 | `stdio` 或 `http`（UI/POST 不填默认 `stdio`） |
-| `command` | stdio 必填 | 启动命令，如 `npx` |
-| `args` | 否 | 命令参数数组，如 `["-y","@modelcontextprotocol/server-filesystem","/tmp"]` |
-| `env` | 否 | 额外环境变量，如 `{"GITHUB_TOKEN":"ghp_xxx"}` |
-| `url` | http 必填 | 远程端点，如 `https://example.com/mcp` |
-| `approval` | 否 | 默认 `true`（调用需审批）；只读服务器可设 `false` |
+| 字段        | 必填       | 说明                                                                       |
+| ----------- | ---------- | -------------------------------------------------------------------------- |
+| `id`        | 是         | 唯一标识，正则 `[a-zA-Z0-9_-]`；作为工具名前缀                             |
+| `transport` | 是         | `stdio` 或 `http`（UI/POST 不填默认 `stdio`）                              |
+| `command`   | stdio 必填 | 启动命令，如 `npx`                                                         |
+| `args`      | 否         | 命令参数数组，如 `["-y","@modelcontextprotocol/server-filesystem","/tmp"]` |
+| `env`       | 否         | 额外环境变量，如 `{"GITHUB_TOKEN":"ghp_xxx"}`                              |
+| `url`       | http 必填  | 远程端点，如 `https://example.com/mcp`                                     |
+| `approval`  | 否         | 默认 `true`（调用需审批）；只读服务器可设 `false`                          |
 
 ---
 
@@ -63,7 +63,11 @@ stdio 类多数用 `npx` 拉取官方 `@modelcontextprotocol/server-*` 包。
   "id": "fs",
   "transport": "stdio",
   "command": "npx",
-  "args": ["-y", "@modelcontextprotocol/server-filesystem", "WORKSPACE"],
+  "args": [
+    "-y",
+    "@modelcontextprotocol/server-filesystem",
+    "WORKSPACE"
+  ],
   "approval": true
 }
 ```
@@ -71,7 +75,6 @@ stdio 类多数用 `npx` 拉取官方 `@modelcontextprotocol/server-*` 包。
 > ⚠️ **allowed directory 必须覆盖实际访问路径**：`@modelcontextprotocol/server-filesystem` 只允许访问启动参数里列出的根目录（可传多个，如 `"...filesystem", "/path/A", "/path/B"`）。若 Agent 要访问的路径不在其中，会报 `Access denied - path outside allowed directories`。上面示例用 invest 工作区根目录，已覆盖 `frameworks/`、`work/` 等子目录；只写 `Desktop` 这类单一目录是常见踩坑点。
 
 > ⚠️ **`directory_tree` 对大仓库会撑爆上下文**：该 MCP 的 `directory_tree` / `list_directory` 会**无限制**返回整棵递归目录树，对含 `.venv` / `node_modules` 的大仓库（数万文件）会产出几十万 token，直接触发 `400 ... exceeds the model's maximum context length`。**分析大型目录请用 harness 自带的 `analyze_directory` 工具**——它的输出有硬上限（树行数 / 文件数 / 总字节都封顶），安全且更有用。
-
 
 ### 2. GitHub（issues/PR/仓库操作，需 token）
 
@@ -107,7 +110,12 @@ stdio 类多数用 `npx` 拉取官方 `@modelcontextprotocol/server-*` 包。
   "id": "git",
   "transport": "stdio",
   "command": "npx",
-  "args": ["-y", "@modelcontextprotocol/server-git", "--repository", "WORKSPACE"],
+  "args": [
+    "-y",
+    "@modelcontextprotocol/server-git",
+    "--repository",
+    "WORKSPACE"
+  ],
   "approval": true
 }
 ```

@@ -25,11 +25,15 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 const NAME = process.argv[2]
 if (!NAME) {
-  console.error('usage: node scripts/new-plugin.mjs <name>   (e.g. weather → @agent-harness/plugin-weather)')
+  console.error(
+    'usage: node scripts/new-plugin.mjs <name>   (e.g. weather → @agent-harness/plugin-weather)',
+  )
   process.exit(1)
 }
 if (!/^[a-z0-9][a-z0-9-]*$/.test(NAME)) {
-  console.error(`invalid plugin name "${NAME}": use lowercase letters, digits and dashes only (start with a letter/digit)`)
+  console.error(
+    `invalid plugin name "${NAME}": use lowercase letters, digits and dashes only (start with a letter/digit)`,
+  )
   process.exit(1)
 }
 
@@ -89,48 +93,50 @@ export default (ctx: Context, options: ${NAME[0].toUpperCase()}${NAME.slice(1)}O
 }
 `
 
-const pkgJson = JSON.stringify(
-  {
-    name: pkgName,
-    version: '0.1.0',
-    description: `First-party Cordis plugin for agent-harness (${NAME})`,
-    type: 'module',
-    license: 'MIT',
-    main: 'src/index.ts',
-    types: 'src/index.ts',
-    exports: { '.': './src/index.ts' },
-    scripts: { typecheck: 'tsc --noEmit' },
-    dependencies: { cordis: '^4.0.0-rc.8' },
-    devDependencies: {
-      '@types/node': '^22.0.0',
-      typescript: '^5.9.0',
-      tsx: '^4.20.0',
+const pkgJson =
+  JSON.stringify(
+    {
+      name: pkgName,
+      version: '0.1.0',
+      description: `First-party Cordis plugin for agent-harness (${NAME})`,
+      type: 'module',
+      license: 'MIT',
+      main: 'src/index.ts',
+      types: 'src/index.ts',
+      exports: { '.': './src/index.ts' },
+      scripts: { typecheck: 'tsc --noEmit' },
+      dependencies: { cordis: '^4.0.0-rc.8' },
+      devDependencies: {
+        '@types/node': '^22.0.0',
+        typescript: '^5.9.0',
+        tsx: '^4.20.0',
+      },
     },
-  },
-  null,
-  2,
-) + '\n'
+    null,
+    2,
+  ) + '\n'
 
-const tsconfig = JSON.stringify(
-  {
-    compilerOptions: {
-      target: 'ES2022',
-      module: 'ESNext',
-      moduleResolution: 'Bundler',
-      lib: ['ES2022'],
-      types: ['node'],
-      strict: true,
-      esModuleInterop: true,
-      skipLibCheck: true,
-      forceConsistentCasingInFileNames: true,
-      resolveJsonModule: true,
-      noEmit: true,
+const tsconfig =
+  JSON.stringify(
+    {
+      compilerOptions: {
+        target: 'ES2022',
+        module: 'ESNext',
+        moduleResolution: 'Bundler',
+        lib: ['ES2022'],
+        types: ['node'],
+        strict: true,
+        esModuleInterop: true,
+        skipLibCheck: true,
+        forceConsistentCasingInFileNames: true,
+        resolveJsonModule: true,
+        noEmit: true,
+      },
+      include: ['src/**/*'],
     },
-    include: ['src/**/*'],
-  },
-  null,
-  2,
-) + '\n'
+    null,
+    2,
+  ) + '\n'
 
 writeFileSync(join(dir, 'src', 'index.ts'), indexTs)
 writeFileSync(join(dir, 'package.json'), pkgJson)
@@ -152,7 +158,10 @@ if (corePkg.dependencies?.[pkgName]) {
 const patchPath = join(ROOT, 'cordis.patch.yml')
 if (existsSync(patchPath)) {
   const patch = readFileSync(patchPath, 'utf8')
-  if (patch.includes(`'@agent-harness/plugin-${NAME}'`) || patch.includes(`name: '@agent-harness/plugin-${NAME}'`)) {
+  if (
+    patch.includes(`'@agent-harness/plugin-${NAME}'`) ||
+    patch.includes(`name: '@agent-harness/plugin-${NAME}'`)
+  ) {
     console.log('cordis.patch.yml already references this plugin — skipping')
   } else {
     const entry = `\n- insert:\n    - id: ${NAME}\n      name: '${pkgName}'\n      config: {}\n`

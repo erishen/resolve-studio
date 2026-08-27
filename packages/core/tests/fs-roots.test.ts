@@ -17,7 +17,11 @@ const ROOT_B = '/tmp/fs-roots-b'
 
 test('explicit roots override the cwd-based defaults', async () => {
   const root = new Context()
-  await root.plugin(FsRootsService, { readRoots: [ROOT_A], writeRoots: [ROOT_B], shellRoots: [ROOT_A] })
+  await root.plugin(FsRootsService, {
+    readRoots: [ROOT_A],
+    writeRoots: [ROOT_B],
+    shellRoots: [ROOT_A],
+  })
 
   assert.deepEqual(root.fsRoots.read, [resolve(ROOT_A)])
   assert.deepEqual(root.fsRoots.write, [resolve(ROOT_B)])
@@ -28,7 +32,11 @@ test('explicit roots override the cwd-based defaults', async () => {
 
 test('assertWithin / assertShellWithin enforce the configured sandbox', async () => {
   const root = new Context()
-  await root.plugin(FsRootsService, { readRoots: [ROOT_A], writeRoots: [ROOT_A], shellRoots: [ROOT_A] })
+  await root.plugin(FsRootsService, {
+    readRoots: [ROOT_A],
+    writeRoots: [ROOT_A],
+    shellRoots: [ROOT_A],
+  })
 
   // Inside the sandbox: no throw.
   root.fsRoots.assertWithin(`${ROOT_A}/file.txt`, 'read')

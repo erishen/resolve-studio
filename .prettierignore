@@ -1,0 +1,8 @@
+node_modules
+dist
+*.lock
+pnpm-lock.yaml
+workspace-analysis
+.data
+.serena
+.run

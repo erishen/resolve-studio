@@ -1,4 +1,11 @@
-import type { ChatEvent, ModelInfo, ModelsResponse, SessionMeta, SessionRecord, ToolSchema } from './types'
+import type {
+  ChatEvent,
+  ModelInfo,
+  ModelsResponse,
+  SessionMeta,
+  SessionRecord,
+  ToolSchema,
+} from './types'
 
 /** A skill exposed by the runtime. */
 export interface SkillInfo {
@@ -12,6 +19,37 @@ export async function fetchSkills(): Promise<SkillInfo[]> {
   if (!res.ok) return []
   const data = (await res.json()) as { skills: SkillInfo[] }
   return data.skills ?? []
+}
+
+/** PSE role info. */
+export interface PseRoleInfo {
+  name: string
+  description: string
+}
+
+/** PSE status: whether three-role mode is enabled and the role list. */
+export interface PseStatus {
+  enabled: boolean
+  roles: PseRoleInfo[]
+}
+
+/** Fetch current PSE status. */
+export async function fetchPseStatus(): Promise<PseStatus> {
+  const res = await fetch('/api/pse')
+  if (!res.ok) return { enabled: false, roles: [] }
+  return (await res.json()) as PseStatus
+}
+
+/** Toggle PSE mode on/off. */
+export async function setPseEnabled(enabled: boolean): Promise<boolean> {
+  const res = await fetch('/api/pse', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  })
+  if (!res.ok) return false
+  const data = (await res.json()) as { enabled: boolean }
+  return data.enabled ?? enabled
 }
 
 // ---- Filesystem browser (sandboxed to the backend's read roots) ----
@@ -174,11 +212,13 @@ export async function streamChat(
   model: string | undefined,
   onEvent: (ev: ChatEvent) => void,
   signal?: AbortSignal,
+  sessionId?: string,
+  systemPrompt?: string,
 ): Promise<void> {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, model }),
+    body: JSON.stringify({ messages, model, sessionId, systemPrompt }),
     signal,
   })
   if (!res.ok || !res.body) {
@@ -233,6 +273,98 @@ export async function fetchUsage(): Promise<{
   return (data.usage as never) ?? null
 }
 
+// ---- workspace analysis (projects under ***REMOVED***) ----
+
+export interface WorkspaceProject {
+  key: string
+  repo: string
+  github: string
+  article: { zh?: { link: string; title?: string }; en?: { link: string; title?: string } }
+  sourceDir: string
+  desc: string
+  highlights: string
+  status: string
+  lspStatus: string
+  cached: boolean
+  mixed: boolean
+  languages: string[]
+  symbolCount: number
+  diagCount: number
+  fileCount: number
+  note: string
+  units: {
+    lang: string
+    dir: string
+    lspStatus: string
+    symbolCount: number
+    diagCount: number
+    fileCount: number
+    error: string
+  }[]
+}
+
+export interface WorkspaceData {
+  generatedAt: string | null
+  projects: WorkspaceProject[]
+}
+
+export interface WorkspaceStatus {
+  status: 'idle' | 'running' | 'done' | 'terminated' | 'error'
+  startedAt?: string
+  finishedAt?: string
+  total?: number
+  current?: number
+  currentKey?: string
+  processed?: string[]
+  skipped?: number
+  note?: string
+  pid?: number
+}
+
+/** List the analyzed projects (or an empty list before the first scan). */
+export async function fetchWorkspace(): Promise<WorkspaceData> {
+  const res = await fetch('/api/workspace')
+  if (!res.ok) return { generatedAt: null, projects: [] }
+  const raw = (await res.json()) as unknown as
+    | WorkspaceData
+    | WorkspaceProject[]
+    | { generatedAt?: string | null; projects?: WorkspaceProject[] }
+  // Normalize whatever the backend returns into the expected shape so a
+  // mismatched payload can never crash the view.
+  if (Array.isArray(raw)) return { generatedAt: null, projects: raw }
+  if (raw && Array.isArray(raw.projects)) {
+    return { generatedAt: raw.generatedAt ?? null, projects: raw.projects }
+  }
+  return { generatedAt: null, projects: [] }
+}
+
+/** Poll scan progress. `idle` means no scan has ever run / is in progress. */
+export async function fetchWorkspaceStatus(): Promise<WorkspaceStatus> {
+  const res = await fetch('/api/workspace/status')
+  if (!res.ok) return { status: 'idle' }
+  return (await res.json()) as WorkspaceStatus
+}
+
+/** Kick off a background re-scan. `force` bypasses the cache and re-analyzes
+ *  every project. Returns `{ started }` or `{ error }`. */
+export async function rescanWorkspace(
+  force = false,
+): Promise<{ started: boolean; pid?: number } | { error: string }> {
+  const res = await fetch(`/api/workspace/rescan${force ? '?force=1' : ''}`, { method: 'POST' })
+  if (res.ok) return (await res.json()) as { started: boolean; pid?: number }
+  const data = (await res.json().catch(() => null)) as { error?: string } | null
+  return { error: data?.error ?? `rescan failed (${res.status})` }
+}
+
+/** Interrupt a running background scan. Forwards SIGTERM to the scan process;
+ *  partial results already on disk are preserved. Returns `{ stopped }`. */
+export async function stopWorkspace(): Promise<{ stopped: boolean } | { error: string }> {
+  const res = await fetch('/api/workspace/stop', { method: 'POST' })
+  if (res.ok) return (await res.json()) as { stopped: boolean }
+  const data = (await res.json().catch(() => null)) as { error?: string } | null
+  return { error: data?.error ?? `stop failed (${res.status})` }
+}
+
 function parseFrame(frame: string): ChatEvent | null {
   let type = ''
   const dataLines: string[] = []
@@ -253,4 +385,14 @@ function parseFrame(frame: string): ChatEvent | null {
   } catch {
     return { type: 'error', message: `malformed frame: ${payload}` }
   }
+}
+
+/** Fetch a file's content for preview (sandboxed to read roots). */
+export async function fetchFile(path: string): Promise<{ content: string; size: number }> {
+  const res = await fetch(`/api/file?path=${encodeURIComponent(path)}`)
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(data.error ?? `HTTP ${res.status}`)
+  }
+  return (await res.json()) as { content: string; size: number }
 }

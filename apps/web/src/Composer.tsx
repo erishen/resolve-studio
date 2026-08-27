@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
+import { useSpeechToText } from './hooks/useSpeechToText'
 
 interface ComposerProps {
   value: string
@@ -17,6 +18,15 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
   ref,
 ) {
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const { listening, supported, toggle, transcript, setTranscript } = useSpeechToText()
+
+  // Append recognized speech to the composer value.
+  useEffect(() => {
+    if (transcript) {
+      onChange(value ? `${value} ${transcript}` : transcript)
+      setTranscript('')
+    }
+  }, [transcript, value, onChange, setTranscript])
 
   // Expose `focus()` so example chips can drop text in and focus the input.
   useImperativeHandle(ref, () => ({
@@ -69,8 +79,11 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </button>
         <textarea
           ref={taRef}
-          className="composer-input"
-          placeholder={disabled ? 'Agent is thinking…' : 'Message the agent…'}
+          rows={1}
+          className={`composer-input${listening ? ' composer-input-listening' : ''}`}
+          placeholder={
+            listening ? 'Listening…' : disabled ? 'Agent is thinking…' : 'Message the agent…'
+          }
           value={value}
           disabled={disabled}
           onChange={(e) => {
@@ -78,12 +91,24 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
             autoGrow(e.target)
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
+            if (e.key === 'Enter' && (!e.shiftKey || e.metaKey || e.ctrlKey)) {
               e.preventDefault()
               submit()
             }
           }}
         />
+        {supported && (
+          <button
+            type="button"
+            className={`composer-mic${listening ? ' composer-mic-active' : ''}`}
+            onClick={toggle}
+            disabled={disabled}
+            title={listening ? 'Stop recording' : 'Voice input'}
+            aria-label="Voice input"
+          >
+            {listening ? '🔴' : '🎤'}
+          </button>
+        )}
         <button
           type="button"
           className="composer-send"
@@ -108,7 +133,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
         </button>
       </div>
       <div className="composer-hint">
-        <kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line
+        <kbd>Enter</kbd> send · <kbd>Shift</kbd>+<kbd>Enter</kbd> new line · <kbd>⌘</kbd>+
+        <kbd>K</kbd> focus · <kbd>Esc</kbd> stop
       </div>
     </div>
   )

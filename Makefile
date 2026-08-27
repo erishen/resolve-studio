@@ -1,9 +1,9 @@
-# agent-harness — pnpm workspace monorepo
+# resolve-studio — pnpm workspace monorepo
 #
 # 结构：
-#   packages/core      → @agent-harness/core（运行时：loader/services/plugins），tsx 源码直跑
-#   packages/plugin-*  → 自写 Cordis 插件（如 @agent-harness/plugin-hello）
-#   apps/web           → @agent-harness/web（Vite+React 前端，/api 代理到后端 :8787）
+#   packages/core      → @resolve-studio/core（运行时：loader/services/plugins），tsx 源码直跑
+#   packages/plugin-*  → 自写 Cordis 插件（如 @resolve-studio/plugin-hello）
+#   apps/web           → @resolve-studio/web（Vite+React 前端，/api 代理到后端 :8787）
 #
 # 设计约定：
 #   - 包管理器固定用 pnpm workspace。
@@ -42,7 +42,8 @@ BACKEND_MATCH := $(BACKEND_BIN) --config
 WEB_MATCH     := vite --host 127.0.0.1 --port $(WEB_PORT)
 
 .PHONY: all install typecheck test check build build-web \
-        chat chat-real dev dev-mock stop clean help new-plugin manifests
+        chat chat-real dev dev-mock stop clean help new-plugin manifests \
+        lint lint-fix format format-check docker-build docker-up docker-down
 
 all: install
 
@@ -105,6 +106,27 @@ stop:              ## 若用 nohup 分离启动过，可手动停（dev 用 Ctrl
 clean:             ## 清构建产物
 	rm -rf $(CORE)/dist $(WEB)/dist $(WEB)/node_modules $(PID_DIR)
 	@echo "cleaned"
+
+lint:              ## ESLint 检查
+	pnpm run lint
+
+lint-fix:          ## ESLint 自动修复
+	pnpm run lint:fix
+
+format:            ## Prettier 格式化
+	pnpm run format
+
+format-check:      ## Prettier 格式检查
+	pnpm run format:check
+
+docker-build:      ## 构建 Docker 镜像
+	docker compose build
+
+docker-up:         ## 启动 Docker 容器（后端+前端）
+	docker compose up -d
+
+docker-down:       ## 停止 Docker 容器
+	docker compose down
 
 help:              ## 显示本帮助
 	@echo "可用目标（make <目标>）："

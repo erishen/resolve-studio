@@ -15,14 +15,22 @@ plugins:
     name: usage
   - id: skills
     name: skills
+  - id: pse
+    name: '@resolve-studio/plugin-pse'
+  - id: sandbox
+    name: sandbox
   - id: mcp
     name: mcp
     config:
       servers: []
   - id: hello
-    name: '@agent-harness/plugin-hello'
+    name: '@resolve-studio/plugin-hello'
     config:
       interval: 15000
+  - id: system-info
+    name: '@resolve-studio/plugin-system-info'
+    config:
+      interval: 30000
   - id: tool-hello
     name: tool-hello
   - id: llm
@@ -53,6 +61,20 @@ plugins:
     name: tool-portfolio-summary
   - id: tool-pse-review
     name: tool-pse-review
+  - id: tool-article-write
+    name: tool-article-write
+  - id: tool-resume-tailor
+    name: tool-resume-tailor
+  - id: tool-interview-questions
+    name: tool-interview-questions
+  - id: tool-crm-task
+    name: tool-crm-task
+  - id: tool-wp-publish
+    name: tool-wp-publish
+  - id: tool-crewai-publish
+    name: tool-crewai-publish
+  - id: tool-system-info
+    name: tool-system-info
   - id: web
     name: web-server
     config:

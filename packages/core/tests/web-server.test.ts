@@ -5,6 +5,9 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Context } from 'cordis'
 import { ToolRegistry } from '../src/services/tools.js'
 import { AgentService } from '../src/services/agent.js'
@@ -15,12 +18,20 @@ import { FsRootsService } from '../src/services/fs-roots.js'
 import { skills } from '../src/plugins/skills.js'
 import { mcpPlugin } from '../src/plugins/mcp.js'
 import { llmMock } from '../src/plugins/llm-mock.js'
-import { toolEcho } from '../src/plugins/tool-echo.js'
-import { toolCalculator } from '../src/plugins/tool-calculator.js'
+import { toolEcho } from '../src/plugins/tools/tool-echo.js'
+import { toolCalculator } from '../src/plugins/tools/tool-calculator.js'
 import { webServer } from '../src/plugins/web-server.js'
 
 const PORT = 8899
 const BASE = `http://127.0.0.1:${PORT}`
+
+// Create a temp skills dir with a code-review skill for testing
+const TMP_SKILLS = mkdtempSync(join(tmpdir(), 'resolve-studio-skills-'))
+mkdirSync(join(TMP_SKILLS, 'code-review'), { recursive: true })
+writeFileSync(
+  join(TMP_SKILLS, 'code-review', 'SKILL.md'),
+  '---\nname: code-review\ndescription: 审查代码改动并输出结构化报告\n---\n# Code Review\n步骤...\n',
+)
 
 async function buildServer(): Promise<Context> {
   const root = new Context()
@@ -30,7 +41,7 @@ async function buildServer(): Promise<Context> {
   await root.plugin(ApprovalService)
   await root.plugin(UsageService)
   await root.plugin(FsRootsService)
-  await root.plugin(skills, { dir: '../../skills' })
+  await root.plugin(skills, { dir: TMP_SKILLS })
   await root.plugin(mcpPlugin)
   await root.plugin(llmMock)
   await root.plugin(toolEcho)
@@ -70,21 +81,31 @@ test('GET /api/fs lists the read roots, then a directory', async () => {
   assert.equal(roots.dir, '')
   assert.equal(roots.parent, null)
   assert.ok(roots.entries.length >= 1, 'at least one read root')
-  assert.ok(roots.entries.every((e) => e.isDir), 'root entries are directories')
+  assert.ok(
+    roots.entries.every((e) => e.isDir),
+    'root entries are directories',
+  )
 
   // Drill into the cwd root (the first entry) and expect to see its contents.
   const cwdEntry = roots.entries[0]
-  const listing = (await (await fetch(`${BASE}/api/fs?path=${encodeURIComponent(cwdEntry.path)}`)).json()) as {
+  const listing = (await (
+    await fetch(`${BASE}/api/fs?path=${encodeURIComponent(cwdEntry.path)}`)
+  ).json()) as {
     dir: string
     entries: { name: string }[]
   }
   assert.equal(listing.dir, cwdEntry.path)
   // The project directory should contain at least its package.json.
-  assert.ok(listing.entries.some((e) => e.name === 'package.json'), 'cwd should list package.json')
+  assert.ok(
+    listing.entries.some((e) => e.name === 'package.json'),
+    'cwd should list package.json',
+  )
 
   // A read root must report atRoot:true with a null parent (its filesystem
   // parent is outside the sandbox, so "up" returns to the root list instead).
-  const rootView = (await (await fetch(`${BASE}/api/fs?path=${encodeURIComponent(cwdEntry.path)}`)).json()) as {
+  const rootView = (await (
+    await fetch(`${BASE}/api/fs?path=${encodeURIComponent(cwdEntry.path)}`)
+  ).json()) as {
     atRoot: boolean
     parent: string | null
   }
@@ -95,7 +116,9 @@ test('GET /api/fs lists the read roots, then a directory', async () => {
   // "up" button can navigate back out.
   const sub = listing.entries.find((e) => e.name === 'packages' || e.name === 'apps')
   if (sub) {
-    const subListing = (await (await fetch(`${BASE}/api/fs?path=${encodeURIComponent(sub.path)}`)).json()) as {
+    const subListing = (await (
+      await fetch(`${BASE}/api/fs?path=${encodeURIComponent(sub.path)}`)
+    ).json()) as {
       parent: string | null
     }
     assert.ok(subListing.parent, 'subdirectory should have a navigable parent')

@@ -20,30 +20,58 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, join, resolve } from 'node:path'
-import { Context } from 'cordis'
+import { readFile, readdir, stat } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
+import type { Context } from 'cordis'
 import { definePlugin } from './util.js'
 import { assertWithinRoots } from './fs-guard.js'
+import { SessionStore, type SessionRecord } from './session-store.js'
+import { WorkspaceManager } from './workspace-manager.js'
 import type { ApprovalDecision } from '../services/approval.js'
-import type {
-  ChatMessage,
-  ModelInfo,
-  RunEventBus,
-} from '../types.js'
+import type { ChatMessage, ModelInfo, RunEventBus } from '../types.js'
 
 interface WebServerConfig {
   port?: number
   host?: string
+  /** Directory where workspace-scan.mjs writes its report (projects.json, index.html, .scan-status.json). */
+  workspaceOut?: string
+  /** Path to the `uv` binary used by workspace-scan.mjs to run serena. */
+  serenaUv?: string
 }
 
 const PORT = 8787
 const HOST = '127.0.0.1'
 
+// Workspace analysis: the `workspace-scan.mjs` generator writes its report and
+// a structured `projects.json` (+ a `.scan-status.json` progress file) into
+// this directory. Both paths are configurable via env / plugin config so the
+// harness is portable across machines (no hardcoded user paths).
+function resolveWorkspaceOut(config: WebServerConfig): string {
+  return (
+    config.workspaceOut ?? process.env['WORKSPACE_OUT'] ?? join(process.cwd(), 'workspace-analysis')
+  )
+}
+function resolveSerenaUv(config: WebServerConfig): string {
+  return config.serenaUv ?? process.env['SERENA_UV'] ?? 'uv'
+}
+
 const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
   const log = ctx.logger('web')
   const port = config.port ?? PORT
   const host = config.host ?? HOST
+  const workspaceOut = resolveWorkspaceOut(config)
+  const serenaUv = resolveSerenaUv(config)
+  const workspaceScript = join(process.cwd(), 'packages/core', 'workspace-scan.mjs')
+  const sessions = new SessionStore(join(process.cwd(), '.data', 'sessions'))
+  const workspace = new WorkspaceManager(
+    {
+      outDir: workspaceOut,
+      scriptPath: workspaceScript,
+      serenaUv,
+      cwd: join(process.cwd(), 'packages/core'),
+    },
+    (level, msg, ...args) => log[level as 'info' | 'warn' | 'error']?.(msg, ...args),
+  )
 
   const server = createServer((req, res) => {
     void handle(req, res).catch((err) => {
@@ -59,6 +87,18 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
     const path = url.pathname
 
+    // ---- health check (no auth, lightweight) ----
+    if (path === '/health' && req.method === 'GET') {
+      sendJson(res, 200, {
+        status: 'ok',
+        uptime: process.uptime(),
+        memory: process.memoryUsage().heapUsed,
+        tools: ctx.tools?.schemas().length ?? 0,
+        mcpServers: ctx.mcp ? (await ctx.mcp.list()).length : 0,
+      })
+      return
+    }
+
     if (path === '/api/tools' && req.method === 'GET') {
       const tools = ctx.tools.schemas()
       sendJson(res, 200, { tools })
@@ -71,6 +111,27 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       return
     }
 
+    // ---- PSE three-role mode status & toggle ----
+    if (path === '/api/pse' && req.method === 'GET') {
+      const enabled = ctx.pse?.enabled ?? false
+      const roles = ctx.pse ? await ctx.pse.list() : []
+      sendJson(res, 200, { enabled, roles })
+      return
+    }
+    if (path === '/api/pse' && req.method === 'POST') {
+      const body = await readBody(req)
+      try {
+        const parsed = JSON.parse(body || '{}')
+        if (typeof parsed.enabled === 'boolean' && ctx.pse) {
+          ctx.pse.setEnabled(parsed.enabled)
+        }
+        sendJson(res, 200, { enabled: ctx.pse?.enabled ?? false })
+      } catch {
+        sendJson(res, 400, { error: 'invalid JSON body' })
+      }
+      return
+    }
+
     // ---- filesystem browser (sandboxed to the read roots) ----
     if (path === '/api/fs' && req.method === 'GET') {
       try {
@@ -79,6 +140,38 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
         sendJson(res, 200, listing)
       } catch (err) {
         sendJson(res, 400, { error: (err as Error).message })
+      }
+      return
+    }
+
+    // ---- file content preview (sandboxed to read roots) ----
+    if (path === '/api/file' && req.method === 'GET') {
+      const filePath = url.searchParams.get('path')
+      if (!filePath) {
+        sendJson(res, 400, { error: 'missing ?path=' })
+        return
+      }
+      try {
+        const abs = resolve(filePath)
+        ctx.fsRoots.assertWithin(abs, 'read')
+        const fileStat = await stat(abs)
+        if (!fileStat.isFile()) {
+          sendJson(res, 400, { error: 'not a file' })
+          return
+        }
+        if (fileStat.size > 2 * 1024 * 1024) {
+          sendJson(res, 413, {
+            error: `file too large (${(fileStat.size / 1024).toFixed(0)}KB > 2MB)`,
+          })
+          return
+        }
+        const content = await readFile(abs, { encoding: 'utf8' })
+        sendJson(res, 200, { path: abs, size: fileStat.size, content })
+      } catch (err) {
+        const e = err as Error
+        sendJson(res, e.message.includes('outside') || e.message.includes('sandbox') ? 403 : 400, {
+          error: e.message,
+        })
       }
       return
     }
@@ -104,15 +197,18 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
         return
       }
       const transport = cfg['transport'] === 'http' ? 'http' : 'stdio'
-      const server = await ctx.mcp.connect({
-        id,
-        transport,
-        command: typeof cfg['command'] === 'string' ? cfg['command'] : undefined,
-        args: Array.isArray(cfg['args']) ? cfg['args'].map(String) : undefined,
-        url: typeof cfg['url'] === 'string' ? cfg['url'] : undefined,
-        approval: typeof cfg['approval'] === 'boolean' ? cfg['approval'] : undefined,
-      }, { persist: true })
-      sendJson(res, server.status === 'connected' ? 200 : 200, { server })
+      const server = await ctx.mcp.connect(
+        {
+          id,
+          transport,
+          command: typeof cfg['command'] === 'string' ? cfg['command'] : undefined,
+          args: Array.isArray(cfg['args']) ? cfg['args'].map(String) : undefined,
+          url: typeof cfg['url'] === 'string' ? cfg['url'] : undefined,
+          approval: typeof cfg['approval'] === 'boolean' ? cfg['approval'] : undefined,
+        },
+        { persist: true },
+      )
+      sendJson(res, server.status === 'connected' ? 200 : 502, { server })
       return
     }
     if (path.startsWith('/api/mcp/') && req.method === 'DELETE') {
@@ -144,8 +240,59 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
     if (path === '/api/usage' && req.method === 'GET') {
       // `usage` is declared in this plugin's inject list (see `webServer` below),
       // so `ctx.usage` resolves here without Cordis' "without inject" guard.
-      const snapshot = ctx.usage ? ctx.usage.snapshot() : null
+      // Pass ?sessionId=<id> to get that conversation's totals instead of the
+      // global process-wide tally.
+      const sessionId = url.searchParams.get('sessionId') ?? undefined
+      const snapshot = ctx.usage ? ctx.usage.snapshot(sessionId) : null
       sendJson(res, 200, { usage: snapshot })
+      return
+    }
+
+    // ---- workspace analysis (projects under ***REMOVED***) ----
+    if (path === '/api/workspace' && req.method === 'GET') {
+      const data = await workspace.getProjects()
+      sendJson(res, 200, data)
+      return
+    }
+    if (path === '/api/workspace/status' && req.method === 'GET') {
+      sendJson(res, 200, await workspace.getStatus())
+      return
+    }
+    if (path === '/api/workspace/rescan' && req.method === 'POST') {
+      const force = url.searchParams.get('force') === '1'
+      const result = await workspace.rescan(force)
+      sendJson(res, result.conflict ? 409 : result.started ? 200 : 500, result)
+      return
+    }
+    if (path === '/api/workspace/stop' && req.method === 'POST') {
+      sendJson(res, 200, await workspace.stop())
+      return
+    }
+    if (path.startsWith('/api/workspace/rescan/') && req.method === 'POST') {
+      const key = decodeURIComponent(path.slice('/api/workspace/rescan/'.length))
+      const result = await workspace.rescanProject(key)
+      const status =
+        result.error === 'invalid project key'
+          ? 400
+          : result.conflict
+            ? 409
+            : result.started
+              ? 200
+              : 500
+      sendJson(res, status, result)
+      return
+    }
+    if (path === '/api/workspace/report' && req.method === 'GET') {
+      const buf = await workspace.getReport()
+      if (!buf) {
+        sendJson(res, 404, { error: 'report not found — run a scan first' })
+        return
+      }
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      })
+      res.end(buf)
       return
     }
 
@@ -188,14 +335,18 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
         return
       }
       const ok = ctx.approval.resolve(callId, decision as ApprovalDecision)
-      sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: `no pending approval for ${callId}` })
+      sendJson(
+        res,
+        ok ? 200 : 404,
+        ok ? { ok: true } : { error: `no pending approval for ${callId}` },
+      )
       return
     }
 
     // ---- session persistence ----
     if (path === '/api/sessions' && req.method === 'GET') {
-      const sessions = await listSessions()
-      sendJson(res, 200, { sessions })
+      const list = await sessions.list()
+      sendJson(res, 200, { sessions: list })
       return
     }
     if (path === '/api/sessions' && req.method === 'POST') {
@@ -207,32 +358,35 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
         sendJson(res, 400, { error: 'invalid JSON body' })
         return
       }
-      const id = sanitizeId(typeof rec.id === 'string' ? rec.id : '')
-      if (!id) {
+      const id = typeof rec.id === 'string' ? rec.id : ''
+      if (!id || !/^[a-zA-Z0-9_-]+$/.test(id)) {
         sendJson(res, 400, { error: 'session id is required and must be [a-zA-Z0-9_-]' })
         return
       }
       const now = new Date().toISOString()
-      const existing = await readSession(id)
+      const existing = await sessions.get(id)
       const record: SessionRecord = {
         id,
-        title: typeof rec.title === 'string' && rec.title ? rec.title.slice(0, 80) : existing?.title ?? 'Untitled',
+        title:
+          typeof rec.title === 'string' && rec.title
+            ? rec.title.slice(0, 80)
+            : (existing?.title ?? 'Untitled'),
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,
-        messages: Array.isArray(rec.messages) ? rec.messages : existing?.messages ?? [],
+        messages: Array.isArray(rec.messages) ? rec.messages : (existing?.messages ?? []),
       }
-      await writeSession(record)
+      await sessions.set(record)
       sendJson(res, 200, { ok: true, session: { ...record } })
       return
     }
     if (path === '/api/sessions' && req.method === 'DELETE') {
-      const removed = await clearAllSessions()
+      const removed = await sessions.clear()
       sendJson(res, 200, { ok: true, removed })
       return
     }
     if (path.startsWith('/api/sessions/') && req.method === 'GET') {
       const id = decodeURIComponent(path.slice('/api/sessions/'.length))
-      const rec = await readSession(id)
+      const rec = await sessions.get(id)
       if (!rec) {
         sendJson(res, 404, { error: 'session not found' })
         return
@@ -242,7 +396,7 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
     }
     if (path.startsWith('/api/sessions/') && req.method === 'DELETE') {
       const id = decodeURIComponent(path.slice('/api/sessions/'.length))
-      const ok = await deleteSession(id)
+      const ok = await sessions.remove(id)
       sendJson(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'session not found' })
       return
     }
@@ -257,7 +411,12 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
 
   async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const body = await readBody(req)
-    let parsed: { messages?: ChatMessage[]; model?: string }
+    let parsed: {
+      messages?: ChatMessage[]
+      model?: string
+      sessionId?: string
+      systemPrompt?: string
+    }
     try {
       parsed = JSON.parse(body || '{}')
     } catch {
@@ -305,6 +464,9 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
           case 'agent/tool-result':
             send('tool-result', { payload })
             return
+          case 'agent/tool-progress':
+            send('tool-progress', { payload })
+            return
           case 'agent/step':
             send('step', { step: payload })
             return
@@ -330,6 +492,8 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
         model: parsed.model,
         signal: ac.signal,
         runId: `run-${Math.random().toString(36).slice(2, 10)}`,
+        sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
+        systemPrompt: typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt : undefined,
         bus,
       })
       send('done', { answer })
@@ -346,16 +510,21 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
 
   // Cordis disposes the root context on process exit via its own fiber; the
   // HTTP server is closed by Node when the process tears down. We additionally
-  // close it on SIGINT so the port is freed promptly during dev.
-  process.on('SIGINT', () => server.close())
+  // close it on SIGINT so the port is freed promptly during dev. The listener
+  // is tracked and removed in the disposer so repeated start/stop cycles (e.g.
+  // in tests) don't leak listeners and trigger MaxListenersExceededWarning.
+  const onSigint = () => server.close()
+  process.on('SIGINT', onSigint)
 
   // Disposer: close the HTTP server when the composition is disposed (used by
   // tests and graceful shutdown paths) so the port is released. Await the
   // close callback so a subsequent server on the same port can't EADDRINUSE.
-  return () =>
-    new Promise<void>((resolve) => {
+  return () => {
+    process.off('SIGINT', onSigint)
+    return new Promise<void>((resolve) => {
       server.close(() => resolve())
     })
+  }
 }
 
 interface FsEntry {
@@ -370,7 +539,10 @@ interface FsEntry {
  * for the frontend file picker. Every path is validated against `roots`
  * so the picker can never surface or navigate outside the sandbox.
  */
-async function listFs(dirParam: string | null, roots: string[]): Promise<{
+async function listFs(
+  dirParam: string | null,
+  roots: string[],
+): Promise<{
   dir: string
   parent: string | null
   atRoot: boolean
@@ -453,121 +625,13 @@ function readBody(req: IncomingMessage): Promise<string> {
   })
 }
 
-// ---------------------------------------------------------------------------
-// Session persistence — plain JSON files under `<cwd>/.data/sessions/`.
-// A session is the web UI's conversation history; the frontend auto-saves it
-// (debounced) via POST /api/sessions.
-// ---------------------------------------------------------------------------
-
-interface SessionMeta {
-  id: string
-  title: string
-  createdAt: string
-  updatedAt: string
-  messageCount: number
-}
-
-interface SessionRecord extends Omit<SessionMeta, 'messageCount'> {
-  messages: {
-    role: string
-    content: string
-    toolCalls?: { id?: string; name: string; arguments: unknown; result?: string; ok?: boolean; gated?: boolean; decision?: string }[]
-  }[]
-}
-
-const SESSIONS_DIR = join(process.cwd(), '.data', 'sessions')
-
-function sanitizeId(id: string): string {
-  // Guard against path traversal: ids are client-generated but must not
-  // escape the sessions directory.
-  return id.replace(/[^a-zA-Z0-9_-]/g, '')
-}
-
-async function ensureSessionsDir(): Promise<void> {
-  await mkdir(SESSIONS_DIR, { recursive: true })
-}
-
-async function listSessions(): Promise<SessionMeta[]> {
-  await ensureSessionsDir()
-  let files: string[]
-  try {
-    files = await readdir(SESSIONS_DIR)
-  } catch {
-    return []
-  }
-  const metas: SessionMeta[] = []
-  for (const f of files) {
-    if (!f.endsWith('.json')) continue
-    try {
-      const raw = await readFile(join(SESSIONS_DIR, f), 'utf8')
-      const rec = JSON.parse(raw) as SessionRecord
-      metas.push({
-        id: rec.id,
-        title: rec.title,
-        createdAt: rec.createdAt,
-        updatedAt: rec.updatedAt,
-        messageCount: rec.messages?.length ?? 0,
-      })
-    } catch {
-      // skip corrupt files
-    }
-  }
-  return metas.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
-}
-
-async function readSession(id: string): Promise<SessionRecord | null> {
-  const safe = sanitizeId(id)
-  if (!safe) return null
-  try {
-    const raw = await readFile(join(SESSIONS_DIR, `${safe}.json`), 'utf8')
-    return JSON.parse(raw) as SessionRecord
-  } catch {
-    return null
-  }
-}
-
-async function writeSession(rec: SessionRecord): Promise<void> {
-  await ensureSessionsDir()
-  const safe = sanitizeId(rec.id)
-  if (!safe) throw new Error('invalid session id')
-  await writeFile(join(SESSIONS_DIR, `${safe}.json`), JSON.stringify(rec, null, 2))
-}
-
-async function deleteSession(id: string): Promise<boolean> {
-  const safe = sanitizeId(id)
-  if (!safe) return false
-  try {
-    await rm(join(SESSIONS_DIR, `${safe}.json`))
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * Delete every stored session file (all `*.json` under SESSIONS_DIR). Used by
- * the "clear all sessions" action in the web sidebar. Only `.json` entries are
- * touched, so a stray non-session file can't be removed.
- */
-async function clearAllSessions(): Promise<number> {
-  await ensureSessionsDir()
-  let files: string[]
-  try {
-    files = await readdir(SESSIONS_DIR)
-  } catch {
-    return 0
-  }
-  let removed = 0
-  for (const f of files) {
-    if (!f.endsWith('.json')) continue
-    try {
-      await rm(join(SESSIONS_DIR, f))
-      removed += 1
-    } catch {
-      // ignore individual failures (e.g. already gone)
-    }
-  }
-  return removed
-}
-
-export const webServer = definePlugin(startWebServer, 'web-server', ['agent', 'tools', 'llm', 'approval', 'skills', 'mcp', 'usage', 'fsRoots'])
+export const webServer = definePlugin(startWebServer, 'web-server', [
+  'agent',
+  'tools',
+  'llm',
+  'approval',
+  'skills',
+  'mcp',
+  'usage',
+  'fsRoots',
+])

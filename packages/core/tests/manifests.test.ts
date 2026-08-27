@@ -59,15 +59,18 @@ test('committed cordis*.yml files match the generator (no drift)', () => {
   )
 })
 
-test('every variant registers 23 plugins incl. the interface entry (cli|web)', () => {
+test('every variant registers 33 plugins incl. the interface entry (cli|web)', () => {
   const generated = generateAll()
   for (const [file, content] of Object.entries(generated)) {
     const doc = parseYaml(content) as { plugins: { id: string }[] }
     const ids = doc.plugins.map((p) => p.id)
-    assert.equal(ids.length, 23, `${file} should have 23 plugins, got ${ids.length}`)
+    assert.equal(ids.length, 33, `${file} should have 33 plugins, got ${ids.length}`)
     // cli-chat for CLI builds, web-server for Web builds — never both, never neither.
     const hasCli = ids.includes('cli')
     const hasWeb = ids.includes('web')
-    assert.ok(hasCli !== hasWeb, `${file} must have exactly one of {cli, web} (cli=${hasCli}, web=${hasWeb})`)
+    assert.ok(
+      hasCli !== hasWeb,
+      `${file} must have exactly one of {cli, web} (cli=${hasCli}, web=${hasWeb})`,
+    )
   }
 })

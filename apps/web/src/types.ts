@@ -1,5 +1,5 @@
 // Shared protocol between the web-server plugin (Node) and the React UI.
-// These mirror the agent-harness `src/types.ts` shapes that matter to the UI.
+// These mirror the resolve-studio `src/types.ts` shapes that matter to the UI.
 
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool'
 
@@ -37,7 +37,8 @@ export interface UsageRecord {
 export type ChatEvent =
   | { type: 'step'; step: AgentStep }
   | { type: 'tool-call'; call: ToolCall }
-  | { type: 'tool-result'; payload: ToolResult }
+  | { type: 'tool-result'; payload: ToolResult & { durationMs?: number } }
+  | { type: 'tool-progress'; payload: { id: string; chunk: string } }
   | { type: 'approval-request'; call: ToolCall }
   | { type: 'delta'; text: string }
   | { type: 'reasoning'; text: string }
@@ -88,4 +89,30 @@ export interface ModelsResponse {
   models: ModelInfo[]
   /** The model the backend defaults to (config.model or OPENAI_MODEL). */
   defaultModel?: string
+}
+
+/** A message in the web UI's conversation state. */
+export interface UIMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  /** Model's thinking/judgement stream (DeepSeek reasoning_content). */
+  reasoning?: string
+  /** Tool calls issued by the assistant while producing this message. */
+  toolCalls?: {
+    /** The backend tool-call id (used to route approval decisions). */
+    id?: string
+    name: string
+    arguments: string | Record<string, unknown>
+    result?: string
+    ok?: boolean
+    gated?: boolean
+    awaitingApproval?: boolean
+    decision?: 'approve' | 'reject'
+    /** Execution time in milliseconds (set when the tool result arrives). */
+    durationMs?: number
+    /** Streaming progress log for long-running tools. */
+    progress?: string
+  }[]
+  pending?: boolean
 }

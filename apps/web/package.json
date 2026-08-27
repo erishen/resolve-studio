@@ -1,9 +1,9 @@
 {
-  "name": "@agent-harness/web",
+  "name": "@resolve-studio/web",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "React + Vite frontend for the agent-harness runtime",
+  "description": "React + Vite frontend for the resolve-studio runtime",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

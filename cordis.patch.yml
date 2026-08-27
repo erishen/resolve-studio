@@ -16,7 +16,7 @@
         # timer plugin accepts an optional `root` path; default is fine here.
         root: ['.']
     - id: hello
-      name: '@agent-harness/plugin-hello'
+      name: '@resolve-studio/plugin-hello'
       config:
         interval: 15000
-        greeting: 'heartbeat: agent-harness monorepo is alive'
+        greeting: 'heartbeat: resolve-studio monorepo is alive'

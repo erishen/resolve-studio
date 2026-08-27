@@ -8,7 +8,8 @@
  * `llm-deepseek` / `llm-pi-ai` backends.
  */
 
-import { Context, Service } from 'cordis'
+import type { Context } from 'cordis'
+import { Service } from 'cordis'
 import type {
   ChatMessage,
   ChatOptions,
@@ -43,7 +44,10 @@ export abstract class LlmService extends Service implements Llm {
   abstract models(): Promise<ModelInfo[]>
 
   /** Default streaming adapter: delegate to {@link chat} and yield once. */
-  async *chatStream(messages: ChatMessage[], options?: ChatOptions): AsyncIterable<ChatStreamChunk> {
+  async *chatStream(
+    messages: ChatMessage[],
+    options?: ChatOptions,
+  ): AsyncIterable<ChatStreamChunk> {
     const response = await this.chat(messages, options)
     if (response.content) yield { content: response.content }
     if (response.toolCalls?.length) {
@@ -52,7 +56,8 @@ export abstract class LlmService extends Service implements Llm {
           index,
           id: call.id,
           name: call.name,
-          arguments: typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments),
+          arguments:
+            typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments),
         })),
       }
     }

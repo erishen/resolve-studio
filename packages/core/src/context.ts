@@ -63,6 +63,11 @@ function summarizeDroppedMessages(msgs: ChatMessage[]): string {
  *  - if already within budget, returns it unchanged;
  *  - otherwise keeps the first `system` message and a contiguous recent tail,
  *    dropping the middle and inserting a system note at the boundary.
+ *
+ * The trimming scan is O(n): it walks `rest` from the tail backward,
+ * accumulating per-message char counts, instead of re-estimating the whole
+ * candidate array on every iteration (the previous O(n²) approach got slow on
+ * hundred-message conversations).
  */
 export function fitContext(messages: ChatMessage[], opts: FitOptions = {}): ChatMessage[] {
   const maxChars = opts.maxChars ?? 60_000
@@ -77,12 +82,23 @@ export function fitContext(messages: ChatMessage[], opts: FitOptions = {}): Chat
   // Keep a contiguous tail of `rest`, shrinking from the front, until we fit.
   // Reserve room for the system note we may insert when something is dropped.
   const NOTE_RESERVE = 200
-  let start = 0
-  while (start < rest.length) {
-    const candidate = [...head, ...rest.slice(start)]
-    const budget = start > 0 ? maxChars - NOTE_RESERVE : maxChars
-    if (estimateChars(candidate) <= budget) break
-    start += 1
+  const headChars = estimateChars(head)
+  const budget = maxChars - NOTE_RESERVE
+
+  // Walk backward from the end: keep adding messages to the retained tail
+  // until the next one would blow the budget. Because we already know the
+  // whole conversation is over budget (early return above), `start` will
+  // always end up > 0 — i.e. something is always dropped here.
+  let tailChars = 0
+  let start = rest.length
+  while (start > 0) {
+    const msgChars = estimateChars([rest[start - 1]])
+    if (headChars + tailChars + msgChars <= budget) {
+      start--
+      tailChars += msgChars
+    } else {
+      break
+    }
   }
 
   const dropped = start

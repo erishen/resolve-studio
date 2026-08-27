@@ -1,0 +1,23 @@
+{
+  "name": "@resolve-studio/plugin-pse",
+  "version": "0.1.0",
+  "description": "PSE (Planner-Specialist-Evaluator) three-role mode for resolve-studio",
+  "type": "module",
+  "license": "MIT",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "cordis": "^4.0.0-rc.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0",
+    "tsx": "^4.20.0"
+  }
+}
