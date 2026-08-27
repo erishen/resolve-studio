@@ -43,7 +43,7 @@ WEB_MATCH     := vite --host 127.0.0.1 --port $(WEB_PORT)
 
 .PHONY: all install typecheck test check build build-web \
         chat chat-real dev dev-mock stop clean help new-plugin manifests \
-        lint lint-fix format format-check docker-build docker-up docker-down
+        lint lint-fix format format-check docker-build docker-up docker-down logs
 
 all: install
 
@@ -94,10 +94,11 @@ dev: $(PID_DIR)    ## 后端(真实模型)+前端 dev（前台常驻，Ctrl-C �
 	$(call kill_port,$(BACKEND_PORT))
 	$(call kill_port,$(WEB_PORT))
 	@echo "starting backend (real model) on :$(BACKEND_PORT) && web dev on :$(WEB_PORT) ..."; \
-	node --import tsx $(CORE)/src/index.ts --config $(DEV_CONFIG) > $(PID_DIR)/backend.log 2>&1 & BACKEND_PID=$$!; \
+	echo "--- backend log (live) ---"; \
+	node --import tsx $(CORE)/src/index.ts --config $(DEV_CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & BACKEND_PID=$$!; \
 	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & WEB_PID=$$!; \
 	echo "ready: http://127.0.0.1:$(WEB_PORT)  (backend :$(BACKEND_PORT), real model)"; \
-	echo "Ctrl-C to stop. logs: $(PID_DIR)/backend.log $(PID_DIR)/web.log"; \
+	echo "Ctrl-C to stop. web log: $(PID_DIR)/web.log"; \
 	trap 'kill $$BACKEND_PID $$WEB_PID 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
 	wait
 
@@ -105,12 +106,17 @@ dev-mock: $(PID_DIR)  ## 后端(mock)+前端 dev（离线，无需密钥，Ctrl-
 	$(call kill_port,$(BACKEND_PORT))
 	$(call kill_port,$(WEB_PORT))
 	@echo "starting backend (mock) on :$(BACKEND_PORT) && web dev on :$(WEB_PORT) ..."; \
-	node --import tsx $(CORE)/src/index.ts --config $(CONFIG) > $(PID_DIR)/backend.log 2>&1 & BACKEND_PID=$$!; \
+	echo "--- backend log (live) ---"; \
+	node --import tsx $(CORE)/src/index.ts --config $(CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & BACKEND_PID=$$!; \
 	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & WEB_PID=$$!; \
 	echo "ready: http://127.0.0.1:$(WEB_PORT)  (backend :$(BACKEND_PORT), mock)"; \
-	echo "Ctrl-C to stop. logs: $(PID_DIR)/backend.log $(PID_DIR)/web.log"; \
+	echo "Ctrl-C to stop. web log: $(PID_DIR)/web.log"; \
 	trap 'kill $$BACKEND_PID $$WEB_PID 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
 	wait
+
+logs:              ## 实时查看后端和前端日志
+	@echo "=== backend log ===" && tail -f $(PID_DIR)/backend.log & \
+	echo "=== web log ===" && tail -f $(PID_DIR)/web.log
 
 stop:              ## 若用 nohup 分离启动过，可手动停（dev 用 Ctrl-C 即可）
 	-@pkill -f "$(BACKEND_MATCH)" && echo "stopped backend" || echo "no backend running"
