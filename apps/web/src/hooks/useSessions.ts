@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { clearAllSessions, deleteSession, fetchSessions, loadSession, saveSession } from '../api'
 import type { SessionMeta, UIMessage } from '../types'
 
@@ -110,15 +110,18 @@ export function useSessions() {
     setSessionId(null)
   }, [])
 
-  return {
-    sessions,
-    sessionId,
-    setSessionId,
-    refresh,
-    save,
-    ensureSession,
-    select,
-    remove,
-    clearAll,
-  }
+  return useMemo(
+    () => ({
+      sessions,
+      sessionId,
+      setSessionId,
+      refresh,
+      save,
+      ensureSession,
+      select,
+      remove,
+      clearAll,
+    }),
+    [sessions, sessionId, refresh, save, ensureSession, select, remove, clearAll],
+  )
 }

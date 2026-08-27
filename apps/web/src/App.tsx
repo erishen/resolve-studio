@@ -123,7 +123,7 @@ export function App() {
       })
     }, 800)
     return () => clearTimeout(t)
-  }, [chat.messages, sessions.sessionId, sessions])
+  }, [chat.messages, sessions.sessionId, sessions.save])
 
   // ---- example prompts (grouped by category) ----
   const examples = useMemo(() => {
