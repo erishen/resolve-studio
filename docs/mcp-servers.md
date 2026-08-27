@@ -66,7 +66,7 @@ stdio 类多数用 `npx` 拉取官方 `@modelcontextprotocol/server-*` 包。
   "args": [
     "-y",
     "@modelcontextprotocol/server-filesystem",
-    "WORKSPACE"
+    "/path/to/your/workspace"
   ],
   "approval": true
 }
@@ -114,7 +114,7 @@ stdio 类多数用 `npx` 拉取官方 `@modelcontextprotocol/server-*` 包。
     "-y",
     "@modelcontextprotocol/server-git",
     "--repository",
-    "WORKSPACE"
+    "/path/to/your/workspace"
   ],
   "approval": true
 }

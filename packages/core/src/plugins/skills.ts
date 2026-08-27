@@ -6,7 +6,7 @@
  *
  * Supports multiple skill directories merged together:
  *   1. local `<cwd>/skills/` (project-specific skills)
- *   2. `HARNESS_SKILLS_DIR` env var (shared harness-skills repo, same var as
+ *   2. `HARNESS_SKILLS_DIR` env var (shared resolve-skills repo, same var as
  *      resolve-tui / resolve-harness)
  *   3. `config.dirs` (explicit extra directories)
  *
@@ -16,7 +16,7 @@
  *   - exposes the index as prompt text the agent loop injects into system msg;
  *   - lets the model fetch a skill's full instructions via `read`.
  *
- * SKILL.md format (aligns with Agent Skills / harness-skills SKILL_SPEC):
+ * SKILL.md format (aligns with Agent Skills / resolve-skills SKILL_SPEC):
  *   ---
  *   name: code-review
  *   description: 审查代码改动并输出结构化报告
@@ -46,7 +46,7 @@ export interface SkillInfo {
 export interface SkillsConfig {
   /** Directory containing skill folders (default `<cwd>/skills`). */
   dir?: string
-  /** Extra skill directories to merge (e.g. shared harness-skills). */
+  /** Extra skill directories to merge (e.g. shared resolve-skills). */
   dirs?: string[]
 }
 
@@ -74,7 +74,7 @@ export class SkillsService extends Service {
     } else {
       dirs.push(join(process.cwd(), 'skills'))
     }
-    // 2. Shared harness-skills via env var (same var as resolve-tui / resolve-harness).
+    // 2. Shared resolve-skills via env var (same var as resolve-tui / resolve-harness).
     if (process.env.HARNESS_SKILLS_DIR) {
       dirs.push(process.env.HARNESS_SKILLS_DIR)
     }

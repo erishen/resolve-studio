@@ -10,7 +10,7 @@ import { skills } from '../src/plugins/skills.js'
 
 async function buildContext(): Promise<Context> {
   const root = new Context()
-  await root.plugin(skills, { dir: '../../../harness-skills/skills' })
+  await root.plugin(skills, { dir: '../../../resolve-skills/skills' })
   return root
 }
 

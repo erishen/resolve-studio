@@ -112,10 +112,11 @@ const VARIANTS = {
     pseReviewConfig: { provider: 'agnes' },
     // Read widened to the whole invest workspace so the web file-picker can
     // reach sibling projects; writes/shell stay pinned to this repo for safety.
+    // Relative paths are resolved against cwd at runtime by fs-roots service.
     fs: {
-      readRoots: ['WORKSPACE'],
-      writeRoots: ['WORKSPACE/resolve-studio'],
-      shellRoots: ['WORKSPACE/resolve-studio'],
+      readRoots: ['../../..'],
+      writeRoots: ['.'],
+      shellRoots: ['.'],
     },
   }),
 }

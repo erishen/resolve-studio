@@ -9,9 +9,9 @@
  * manifest's top-level `fs:` key, e.g.
  *
  *   fs:
- *     readRoots:  [WORKSPACE]
- *     writeRoots: [WORKSPACE]
- *     shellRoots: [WORKSPACE]
+ *     readRoots:  [/path/to/workspace]
+ *     writeRoots: [/path/to/workspace]
+ *     shellRoots: [/path/to/workspace]
  *
  * When a list is omitted it falls back to the previous default:
  *   - read  → cwd + HARNESS_EXTRA_ROOTS

@@ -364,7 +364,7 @@ plugins:
 - **加工具**：`src/plugins/` 里写 `definePlugin((ctx) => ctx.tools.register({...}), 'tool-xxx', ['tools'])`，并在 `registry.ts` 的 `PLUGINS` 与对应 `cordis.yml` 登记。或用 `make new-plugin name=x` 脚手架生成独立插件包。
 - **加 LLM 后端**：继承 `LlmService`，实现 `chat()` / `models()`，用 `definePlugin` 注册，再在 `cordis.yml` 替换 `llm-*` 条目。
 - **加服务**：`src/services/` 新 Service + `declare module 'cordis'` + 需要处 `inject`（可选服务用可选链访问，不列入 inject）。
-- **加技能**：在外部 `harness-skills/skills/<name>/SKILL.md` 写指令包，通过 `HARNESS_SKILLS_DIR` 环境变量指定目录，重启即入索引。
+- **加技能**：在外部 `resolve-skills/skills/<name>/SKILL.md` 写指令包，通过 `HARNESS_SKILLS_DIR` 环境变量指定目录，重启即入索引。
 - **加 MCP server**：在 `cordis.yml` 的 `mcp.config.servers` 或 `.data/mcp-servers.json` 添加条目，支持 stdio 和 http 两种传输。
 - **换前端**：写一个新的「监听 `agent/step` 等事件」的插件即可（如 Web / A2A 前端），与 `cli-chat` 平级、互斥挂载。
 

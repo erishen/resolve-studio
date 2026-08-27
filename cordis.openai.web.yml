@@ -4,11 +4,11 @@
 # approval unless a server opts out via its `approval` policy.
 fs:
   readRoots:
-    - WORKSPACE
+    - ../../..
   writeRoots:
-    - WORKSPACE/resolve-studio
+    - .
   shellRoots:
-    - WORKSPACE/resolve-studio
+    - .
 plugins:
   - id: tools
     name: tools

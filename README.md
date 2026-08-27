@@ -20,7 +20,7 @@ English | [中文](README.zh.md)
 | **工具审批**      | `needsApproval` 工具执行前挂起，UI 上 Approve/Reject，超时自动拒绝（60s）              |
 | **流式输出**      | SSE `delta` 逐 token 打字机；DeepSeek 系 `reasoning_content` 思考过程单独显示          |
 | **联网探索**      | Playwright 驱动系统 Chrome（零下载）：`browser-open`（提取正文）/ `browser-screenshot` |
-| **技能 Skills**   | 外部 `harness-skills/skills/<name>/SKILL.md` 指令包，索引注入 system prompt             |
+| **技能 Skills**   | 外部 `resolve-skills/skills/<name>/SKILL.md` 指令包，索引注入 system prompt             |
 | **会话持久化**    | 会话历史（含工具卡与思考块）JSON 落盘，刷新恢复                                        |
 | **Markdown 渲染** | 表格/代码块/列表（react-markdown + remark-gfm）                                        |
 | **插件脚手架**    | `make new-plugin name=x` 一键生成插件包并接线                                          |
@@ -90,7 +90,7 @@ pnpm run chat -- --config cordis.openai.yml   # 真实模型
 | `ctx.agent`      | Agent 循环：Fast Path → 技能注入 → LLM ⇄ 工具（含审批挂起）            |
 | `ctx.approval`   | 人机审批：挂起等待 / 外部 resolve / 超时自动拒绝                       |
 | `ctx.fastpath`   | 确定性预处理器（纯算术短路）                                           |
-| `ctx.skills`     | 技能索引（扫描外部 `harness-skills/skills/*/SKILL.md`，frontmatter 解析） |
+| `ctx.skills`     | 技能索引（扫描外部 `resolve-skills/skills/*/SKILL.md`，frontmatter 解析） |
 | `ctx.pse`        | PSE 三角色模式：开关状态、角色定义加载、系统提示词注入                 |
 | `ctx.sandbox`    | OS 级沙箱：Seatbelt/bwrap profile 生成、shell 命令包装                 |
 | `ctx.mcp`        | MCP 客户端：连接/断开 server，工具动态注册                             |
@@ -148,7 +148,7 @@ wp-publish · crewai-publish · crewai-discover
       - id: fs
         transport: stdio
         command: npx
-        args: ['-y', '@modelcontextprotocol/server-filesystem', '~erishen']
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/allowed/dir']
       - id: remote
         transport: http
         url: https://example.com/mcp
@@ -192,7 +192,7 @@ wp-publish · crewai-publish · crewai-discover
 详见 [docs/plugin-authoring.md](docs/plugin-authoring.md)（从骨架到完整插件的逐步指南）。
 
 - **加工具**：`make new-plugin name=x` 生成包，或在 `src/plugins/` 写 `tool-x.ts` + registry + yml
-- **加技能**：在外部 `harness-skills/skills/<name>/SKILL.md`（frontmatter: name/description + 步骤），通过 `HARNESS_SKILLS_DIR` 环境变量指定目录，重启即入索引
+- **加技能**：在外部 `resolve-skills/skills/<name>/SKILL.md`（frontmatter: name/description + 步骤），通过 `HARNESS_SKILLS_DIR` 环境变量指定目录，重启即入索引
 - **加 LLM 后端**：继承 `LlmService` 实现 `chat`（+ 可选 `chatStream`）
 - **加服务**：`src/services/` 新 Service + `declare module 'cordis'` + 需要处 `inject`
 - **外部插件**：遵循纯 Cordis 契约（只 import `cordis`），按包名发布到 npm，`cordis.yml` 里直接引用
