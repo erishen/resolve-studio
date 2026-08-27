@@ -59,7 +59,7 @@ export class AgentService extends Service {
   // must declare those as injected dependencies; otherwise Cordis' property
   // guard throws "cannot get property … without inject" when `run` touches
   // `this.ctx.tools` / `this.ctx.llm`.
-  static inject = { tools: {}, llm: {}, fastpath: {}, approval: {}, skills: {} }
+  static inject = { tools: {}, llm: {}, fastpath: {}, approval: {}, skills: {}, pse: {} }
 
   /** Per-plugin default context budget; a run may override it. */
   private readonly budgetChars?: number
