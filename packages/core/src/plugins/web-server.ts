@@ -634,4 +634,5 @@ export const webServer = definePlugin(startWebServer, 'web-server', [
   'mcp',
   'usage',
   'fsRoots',
+  'pse',
 ])
