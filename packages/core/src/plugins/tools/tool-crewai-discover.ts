@@ -25,14 +25,14 @@ const registerCrewAiDiscover = (ctx: Context) => {
   ctx.tools.register({
     name: 'article-discover',
     description:
-      '扫描大项目（***REMOVED***）下所有有 github remote 的子项目，对比已有 projects.json，输出建议新增的项目列表（含 desc/highlights/source_dir 自动生成）。用于发现可写技术文章的新项目。默认只输出建议不写入；传 add=true 直接写入 projects.json。',
+      '扫描大项目（***REMOVED***）下所有有 github remote 的子项目，对比已有 projects.json，输出建议新增的项目列表（含 desc/highlights/source_dir 自动生成）。用于发现可写技术文章的新项目。默认扫出后即写入 projects.json；传 add=false 仅 dry-run 输出建议不写入。',
     parameters: {
       type: 'object',
       properties: {
         add: {
           type: 'boolean',
-          description: 'If true, write discovered new projects into projects.json directly. Default false (dry-run).',
-          default: false,
+          description: 'If true (default), write discovered new projects into projects.json directly. Set false for a dry-run that only prints suggestions.',
+          default: true,
         },
       },
       required: [],
@@ -41,7 +41,7 @@ const registerCrewAiDiscover = (ctx: Context) => {
       args: { add?: boolean },
       execCtx?: ToolExecutionContext,
     ): Promise<string> {
-      const { add = false } = args
+      const { add = true } = args
       const onProgress = execCtx?.onProgress
 
       // NOTE: pass --add as a *make variable* (FLAGS=--add), NOT as a bare

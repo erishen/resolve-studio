@@ -67,9 +67,9 @@ node --import tsx packages/core/src/index.ts --config cordis.patch.yml
 
 | 输入                                            | 预期                                                                                       |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `帮我扫描一下有哪些 github 项目可以写技术文章`   | 模型调用 `article-discover`（默认 dry-run）→ 返回建议新增项目列表（desc / highlights / source_dir 自动生成），**不写入** projects.json |
-| `把刚才发现的新项目直接写进 projects.json`       | 传 `add=true` → `article-discover` 直接写入 projects.json 并返回结果（覆盖式更新，先核对再执行） |
+| `帮我扫描一下有哪些 github 项目可以写技术文章`   | 模型调用 `article-discover`（默认扫出即**写入**）→ 返回新增项目列表并直接写入 projects.json（desc / highlights / source_dir 自动生成） |
+| `先扫一下、只给我建议先别写`                     | 传 `add=false` → `article-discover` 仅 dry-run，返回建议列表**不写入** projects.json |
 | `帮我写一篇技术文章，用 crewai-pse 三角色流水线生成` | 模型调用 `article-write` → 跑 PSE 流水线生成中英双语草稿（耗时较长，长项目可能弹审批）      |
 | `帮我把一篇已生成的文章发布到 WordPress`         | 模型调用 `article-publish` → 发布（通常弹审批一次）                                        |
 
-> 提示：`article-discover` 扫描的是 `***REMOVED***` 下「有 github remote」的子项目，对比 `projects.json` 找出还没写文章的项目；先 dry-run 看建议，确认无误再 `add=true` 写入。
+> 提示：`article-discover` 扫描的是 `***REMOVED***` 下「有 github remote」的子项目，对比 `projects.json` 找出还没写文章的项目；**默认扫出即写入** `projects.json`，传 `add=false` 可先只看建议不写入。
