@@ -81,7 +81,18 @@ chat-real:         ## 起后端 CLI（真实模型）
 $(PID_DIR):
 	@mkdir -p $(PID_DIR)
 
+# 启动前检查并清理占用端口的旧进程（防止 EADDRINUSE）
+define kill_port
+	@if lsof -ti :$(1) >/dev/null 2>&1; then \
+		echo "port $(1) in use, killing old process..."; \
+		lsof -ti :$(1) | xargs kill -9 2>/dev/null; \
+		sleep 1; \
+	fi
+endef
+
 dev: $(PID_DIR)    ## 后端(真实模型)+前端 dev（前台常驻，Ctrl-C 退出）
+	$(call kill_port,$(BACKEND_PORT))
+	$(call kill_port,$(WEB_PORT))
 	@echo "starting backend (real model) on :$(BACKEND_PORT) && web dev on :$(WEB_PORT) ..."; \
 	node --import tsx $(CORE)/src/index.ts --config $(DEV_CONFIG) > $(PID_DIR)/backend.log 2>&1 & BACKEND_PID=$$!; \
 	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & WEB_PID=$$!; \
@@ -91,6 +102,8 @@ dev: $(PID_DIR)    ## 后端(真实模型)+前端 dev（前台常驻，Ctrl-C �
 	wait
 
 dev-mock: $(PID_DIR)  ## 后端(mock)+前端 dev（离线，无需密钥，Ctrl-C 退出）
+	$(call kill_port,$(BACKEND_PORT))
+	$(call kill_port,$(WEB_PORT))
 	@echo "starting backend (mock) on :$(BACKEND_PORT) && web dev on :$(WEB_PORT) ..."; \
 	node --import tsx $(CORE)/src/index.ts --config $(CONFIG) > $(PID_DIR)/backend.log 2>&1 & BACKEND_PID=$$!; \
 	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & WEB_PID=$$!; \
