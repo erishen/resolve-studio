@@ -60,3 +60,16 @@ node --import tsx packages/core/src/index.ts --config cordis.patch.yml
 ## 推荐一条龙（make dev）
 
 `3+4`（Fast Path）→ 带自然语言的计算（审批弹窗，批准）→ Markdown 请求（渲染）→ 刷新（会话恢复）→「帮我 review 一个文件」（技能触发）。
+
+## H. 文章写作（make dev + article-* 工具）
+
+这些工具依赖 `CREWAI_PSE_DIR`（默认指向 `***REMOVED***/***REMOVED***`），需在 `.env` 配好 crewai-pse 的模型密钥；运行 `make dev`（真实模型）才能跑通流水线。
+
+| 输入                                            | 预期                                                                                       |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `帮我扫描一下有哪些 github 项目可以写技术文章`   | 模型调用 `article-discover`（默认 dry-run）→ 返回建议新增项目列表（desc / highlights / source_dir 自动生成），**不写入** projects.json |
+| `把刚才发现的新项目直接写进 projects.json`       | 传 `add=true` → `article-discover` 直接写入 projects.json 并返回结果（覆盖式更新，先核对再执行） |
+| `帮我写一篇技术文章，用 crewai-pse 三角色流水线生成` | 模型调用 `article-write` → 跑 PSE 流水线生成中英双语草稿（耗时较长，长项目可能弹审批）      |
+| `帮我把一篇已生成的文章发布到 WordPress`         | 模型调用 `article-publish` → 发布（通常弹审批一次）                                        |
+
+> 提示：`article-discover` 扫描的是 `***REMOVED***` 下「有 github remote」的子项目，对比 `projects.json` 找出还没写文章的项目；先 dry-run 看建议，确认无误再 `add=true` 写入。
