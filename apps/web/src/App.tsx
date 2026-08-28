@@ -364,9 +364,9 @@ export function App() {
           >
             <header className="app-header">
               <div className="app-header-left">
-                <div className="app-title">
+                <div className="app-title" title="Resolve Studio">
                   <span className="dot" />
-                  Resolve Studio
+                  <span className="app-title-text">Resolve Studio</span>
                 </div>
                 <div className="app-nav">
                   <button
