@@ -195,11 +195,12 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       const zhMatch = ZH_SAVED_RE.exec(stdout)
       const enMatch = EN_SAVED_RE.exec(stdout)
 
-      // run.py prints save paths RELATIVE to its cwd (CREWAI_PSE). The Web UI
-      // preview regex only matches REAL absolute paths (/Users/.../file.md), so
-      // resolve to an absolute path — otherwise no clickable preview button shows.
-      const toAbs = (p?: string): string | undefined =>
-        p && !p.startsWith('/') ? resolve(CREWAI_PSE, p) : (p ?? undefined)
+      // run.py prints ABSOLUTE save paths (ARTICLES_DIR in crewai-pse/.env is an
+      // absolute path), so they already match the Web UI preview regex
+      // (/Users/.../file.md) and render as clickable preview buttons. Pass them
+      // through unchanged. If a future run mode ever emits a relative path we
+      // leave it as-is (no preview) instead of guessing a wrong base.
+      const toAbs = (p?: string): string | undefined => (p ?? undefined)
       const zhPath = toAbs(zhMatch?.[1])
       const enPath = toAbs(enMatch?.[1])
 
