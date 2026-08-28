@@ -63,6 +63,11 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       'If the user did not specify a project, ASK the user to pick one of the `project` enum ' +
       'values (read them from the tool schema — do NOT call this tool to discover them), then ' +
       'call with `project` set. Never guess or invent a project name. This parameter is REQUIRED. ' +
+      'CRITICAL: this tool produces EXACTLY ONE article for the SINGLE `project` given — ' +
+      'never call it once per project, never loop over the enum, and never generate articles ' +
+      'for multiple projects from a vague "write an article" request. If the user did not name ' +
+      'a specific project, ask them to pick ONE, then call once. Only iterate across projects ' +
+      'when the user explicitly says "write for all / every project". ' +
       'Default provider: free (default); set provider="deepseek" for paid higher quality. ' +
       'Do NOT read any files before calling this tool — all paths and configs are handled internally.',
     parameters: {
