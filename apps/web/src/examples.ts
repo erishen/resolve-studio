@@ -64,6 +64,31 @@ function skillExample(s: SkillInfo): ExampleItem | null {
 
 function toolExample(t: ToolSchema): ExampleItem | null {
   const blob = (t.name + ' ' + (t.description ?? '')).toLowerCase()
+
+  // Curated, name-keyed examples. Match by NAME (not description) to avoid
+  // cross-talk — e.g. article-discover's description mentions "article-publish",
+  // and "已发布文章" contains the substring "发布文章", both mis-route via the
+  // loose description regexes below.
+  const CURATED: Record<string, { prompt: string; category: ExampleCategory }> = {
+    'article-write': { prompt: '帮我写一篇技术文章，用 crewai-pse 三角色流水线生成。', category: 'article' },
+    'article-validate': { prompt: '帮我校验一下待发布文章的正确性，看看有没有问题。', category: 'article' },
+    'article-publish': { prompt: '请调用 article-publish 工具（不要传 project、也不要设 confirm）列出当前待发布到 WordPress 的文章清单供我选择。', category: 'article' },
+    'article-archive': { prompt: '帮我归档一篇文章，重建各平台副本并更新关键词索引。', category: 'article' },
+    'article-discover': { prompt: '帮我扫描一下有哪些 github 项目可以写技术文章。', category: 'article' },
+    'juejin-draft': { prompt: '帮我把下一篇未发布的文章建成掘金草稿。', category: 'article' },
+    'wechat-draft': { prompt: '帮我把下一篇未发布的文章建成微信公众号草稿箱草稿。', category: 'article' },
+    'sf-pw-publish': { prompt: '帮我把下一篇未发布的文章发布到思否（用 Playwright 真浏览器）。', category: 'article' },
+    'pick-post': { prompt: '帮我随机选一篇已发布的技术文章，我想给它写条评论。', category: 'article' },
+    'pse-review': { prompt: '帮我做一份深度投资组合分析，用 autogen-pse 的 PSE 三角色流水线生成。', category: 'invest' },
+    'portfolio-summary': { prompt: '帮我做一份当前投资组合的快速概览，包括持仓、收益和风险分布。', category: 'invest' },
+    'resume-tailor': { prompt: '帮我定制一份简历，目标岗位 JD：资深后端工程师，要求 5 年以上 Java/Python 经验，熟悉分布式系统和微服务架构。', category: 'interview' },
+    'interview-questions': { prompt: '帮我生成一份 Python 后端工程师的技术面试题库，包含基础、进阶、难题各 3 道。', category: 'interview' },
+    'crm-task': { prompt: '帮我生成一份本周的 CRM 关系复盘，看看哪些联系人需要跟进。', category: 'crm' },
+    'skill-run': { prompt: `调用 ${t.name} 来完成任务。`, category: 'other' },
+  }
+  const curated = CURATED[t.name]
+  if (curated) return { id: 'tool:' + t.name, title: humanize(t.name), prompt: curated.prompt, category: curated.category }
+
   let prompt: string
   let category: ExampleCategory = 'code'
 
@@ -83,7 +108,7 @@ function toolExample(t: ToolSchema): ExampleItem | null {
     prompt = '帮我随机选一篇已发布的技术文章，我想给它写条评论。'
     category = 'article'
   } else if (/article.*publish|article-publish|发布文章|publish.*wordpress/.test(blob)) {
-    prompt = '帮我把一篇已生成的文章发布到 WordPress。'
+    prompt = '请调用 article-publish 工具（不要传 project、也不要设 confirm）列出当前待发布到 WordPress 的文章清单供我选择。'
     category = 'article'
   } else if (/article.*archive|article-archive|归档文章|archive.*article/.test(blob)) {
     prompt = '帮我归档一篇文章，重建各平台副本并更新关键词索引。'

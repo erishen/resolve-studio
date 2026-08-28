@@ -25,7 +25,8 @@ const registerCrewAiDiscover = (ctx: Context) => {
   ctx.tools.register({
     name: 'article-discover',
     description:
-      '扫描大项目（***REMOVED***）下所有有 github remote 的子项目，对比已有 projects.json，输出建议新增的项目列表（含 desc/highlights/source_dir 自动生成）。用于发现可写技术文章的新项目。默认扫出后即写入 projects.json；传 add=false 仅 dry-run 输出建议不写入。',
+      '扫描大项目（***REMOVED***）下所有有 github remote 的子项目，对比已有 projects.json，输出建议新增的项目列表（含 desc/highlights/source_dir 自动生成）。用于发现可写技术文章的新项目。默认扫出后即写入 projects.json；传 add=false 仅 dry-run 输出建议不写入。' +
+      '⚠️ 此工具仅用于发现【尚未撰写】的新项目以生成文章，不负责发布；要发布已生成的待发文章请改用 article-publish（不传 project 即可列出待发布清单）。',
     parameters: {
       type: 'object',
       properties: {

@@ -66,9 +66,11 @@ const TASKS: CrewAiPublishTaskDef[] = [
     script: PUBLISH,
     preValidate: true,
     description:
-      '发布已生成的文章到 WordPress。发布前自动运行 article-validate 校验，有错误则阻止发布并提示修复。调用 crewai-pse 的 `make publish P=<project>`，把待发布队列中的文章发布到线上并写回 wp_id/link。需要 .env 中的 WordPress 凭据。 ' +
-      'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name. This parameter is REQUIRED.',
-  },
+      '发布已生成的文章到 WordPress。发布前自动运行 article-validate 校验，有错误则阻止发布并提示修复。调用 crewai-pse 的 `make publish P=<project>`，把待发布队列中的文章发布到线上并写回 wp_id/link。需要 .env 中的 WordPress 凭据。' +
+      '⚠️ 这是【发布】工具：调用时不传 project 会列出当前待发布队列中的所有文章供用户选择，用户选定后再带 project 调用即可发布；不要改用 article-discover（那是用于发现【新】项目以撰写文章，不负责发布）。 ' +
+      'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name. This parameter is REQUIRED.' +
+      '🛑 安全闸门：本工具默认【只预览、不真正发布】。只有 `confirm` 参数显式设为 true 时才会 POST 到 WordPress。且一次只能发布用户【明确点名】的那一篇 project——绝对禁止对队列里的多篇文章循环调用本工具、或在一次回复里批量发布。未等用户明确指定 project 前，不要设 confirm=true。',
+   },
   {
     name: 'article-archive',
     label: '归档文章',
@@ -97,15 +99,30 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
             'Project key from crewai-pse projects.json. This parameter is REQUIRED — pick one of the enum values. If the user has not specified a project, ask them to choose, then pass project=<key>.',
           enum: projectKeys.length ? projectKeys : undefined,
         },
+        confirm: {
+          type: 'boolean',
+          description:
+            '安全闸门。必须显式设为 true 才会真正 POST 到 WordPress；缺省或 false 只做只读预览（跑校验、打印将执行的操作，但不发布）。仅在用户已明确点名这篇 project 后才可设 true；禁止对同一队列批量设 true。',
+          default: false,
+        },
       },
-      required: ['project'],
+      required: [],
     },
     async execute(
-      args: { project?: string },
+      args: { project?: string; confirm?: boolean },
       execCtx?: ToolExecutionContext,
     ): Promise<string> {
-      const { project } = args
+      const { project: rawProject, confirm } = args
       const onProgress = execCtx?.onProgress
+
+      // Allow numeric index selection (1-based) from the enumerated list, so a
+      // user/agent reply like "4" maps to projectKeys[3] instead of failing.
+      let project = rawProject
+      if (project && /^\d+$/.test(project.trim())) {
+        const idx = parseInt(project.trim(), 10) - 1
+        if (idx >= 0 && idx < projectKeys.length) project = projectKeys[idx]
+        else return `error: 编号 ${project} 超出范围（1-${projectKeys.length}）`
+      }
 
       // If no project specified (shouldn't happen — `project` is required), ask
       // the user to choose instead of re-listing in a loop.
@@ -114,15 +131,55 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
           return 'error: no projects configured in crewai-pse projects.json.'
         }
         return (
-          `project 参数必填。可用项目见本工具的 project 枚举（crewai-pse projects.json 的 key）：\n` +
+          `(清单模式：未指定 project) 可用项目见本工具的 project 枚举（crewai-pse projects.json 的 key），也可直接传列表中的编号：\n` +
           projectKeys.map((k, i) => `${i + 1}. ${k}`).join('\n') +
-          `\n\n请先让用户从中选一个，再带 project=<项目名> 调用本工具（${task.label}）；不要反复不带 project 调用。`
+          `\n\n要预览/发布某篇，请再次调用本工具并带 \`project=<项目名 或 编号>\`（如 project="resolve-studio" 或 project="4"）；本工具默认只预览不发布，确认发布需另带 confirm=true。`
         )
       }
 
       // Validate project against known keys (best-effort).
       if (projectKeys.length > 0 && !projectKeys.includes(project)) {
         return `error: unknown project "${project}". Available: ${projectKeys.join(', ')}`
+      }
+
+      // Enforce one article per call: reject comma/space-separated multi-project.
+      if (/[,\s]/.test(project)) {
+        return `error: article-publish 每次只能发布一篇文章（一个 project）。收到 "${project}" 疑似含多个项目；请只传单个 project，需要发多篇时分别调用本工具。`
+      }
+
+      // Preview gate: without explicit confirm=true, NEVER POST. Run the
+      // read-only validate so the user sees readiness, then return a preview.
+      if (confirm !== true) {
+        ctx.logger(task.name).info('preview mode (confirm=false): P=%s', project)
+        let validated = false
+        if (task.preValidate) {
+          onProgress?.('🔍 预览：先跑发布前校验（只读，不发布）...\n')
+          try {
+            const v = await execFileAsync('make', ['validate', `P=${project}`], {
+              cwd: CREWAI_PSE,
+              timeout: 60_000,
+              maxBuffer: 4 << 20,
+            })
+            onProgress?.((v.stdout || '') + (v.stderr ? '\n' + v.stderr : ''))
+            validated = true
+          } catch (verr) {
+            const ve = verr as { stdout?: string; stderr?: string; code?: number }
+            const vtail = (ve.stdout || '') + (ve.stderr ? '\n--- stderr ---\n' + ve.stderr : '')
+            return (
+              `⚠️ 预览中止：article-validate 未通过（exit ${ve.code ?? 'unknown'}），发布会被拦截。请先修复后再带 confirm=true 调用。\n\n` +
+              truncate(vtail, 4000)
+            )
+          }
+        }
+        const ready = validated
+          ? '，且发布前校验已通过（文章文件存在、frontmatter 完整）'
+          : ''
+        return (
+          `👁️ 预览模式（未真正发布，仅展示将执行的操作）${ready}：\n` +
+          `📋 project=${project} 在可发布项目列表中，待发布文章就绪。\n` +
+          `📤 确认发布将执行 \`make ${task.makeTarget} P=${project}\`，把文章发布到 WordPress 并写回 wp_id/link。\n` +
+          `👉 请让用户确认；用户确认后再次调用本工具并带 \`confirm=true\`（只针对这一篇 project）即真正发布。`
+        )
       }
 
       // Pre-publish validation gate: run `make validate` first; block on errors.
