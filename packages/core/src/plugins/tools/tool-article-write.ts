@@ -60,9 +60,9 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       'Takes 3-10 minutes and calls the LLM multiple times. Returns the full Chinese article ' +
       '(Markdown) and save paths. Use when the user asks to write / generate an article for a ' +
       'project. The project MUST be one from the enum (configured in crewai-pse projects.json). ' +
-      'If the user did not specify a project, ASK the user to pick one of the `project` enum ' +
-      'values (read them from the tool schema — do NOT call this tool to discover them), then ' +
-      'call with `project` set. Never guess or invent a project name. This parameter is REQUIRED. ' +
+      'If the user did not specify a project, call this tool WITHOUT `project` to list the ' +
+      'candidates, let the user pick ONE, then call again WITH `project` set. Do NOT guess or ' +
+      'invent a project name, and NEVER loop over the enum to write multiple articles at once. ' +
       'CRITICAL: this tool produces EXACTLY ONE article for the SINGLE `project` given — ' +
       'never call it once per project, never loop over the enum, and never generate articles ' +
       'for multiple projects from a vague "write an article" request. If the user did not name ' +
@@ -76,9 +76,9 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
         project: {
           type: 'string',
           description:
-            'Project key from crewai-pse projects.json. This parameter is REQUIRED — pick one ' +
-            'of the enum values. If the user has not specified a project, ask them to choose, ' +
-            'then pass project=<key>.',
+            'Project key from crewai-pse projects.json. Omit it (call WITHOUT `project`) to get ' +
+            'the candidate list; once the user picks one, pass project=<key> to write that single ' +
+            'article. Never guess or invent a project name.',
           enum: projectKeys.length ? projectKeys : undefined,
         },
         publish: {
@@ -100,7 +100,10 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
           default: 'free',
         },
       },
-      required: ['project'],
+      // `project` is intentionally NOT required: a vague "write an article" request
+      // should route through the no-project branch (returns the candidate list) so the
+      // model lets the USER pick ONE instead of guessing or looping over the enum.
+      required: [],
     },
     async execute(
       args: { project?: string; publish?: boolean; style?: string; provider?: 'free' | 'deepseek' },
@@ -109,8 +112,8 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       const { project, publish = false, style, provider = 'free' } = args
       const onProgress = execCtx?.onProgress
 
-      // If no project specified (shouldn't happen — `project` is required), ask
-      // the user to choose instead of re-listing in a loop.
+      // If no project specified, return the candidate list so the user can choose
+      // ONE — this is the intended "pick a project" flow, not a re-list loop.
       if (!project) {
         if (projectKeys.length === 0) {
           return 'error: no projects configured in crewai-pse projects.json.'
