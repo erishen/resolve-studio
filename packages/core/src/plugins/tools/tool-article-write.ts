@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { readFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
@@ -27,15 +28,20 @@ const EN_SAVED_RE = /英文已保存 →\s*(\S+)/
 // stays in sync without manual edits.
 const PROJECTS_FILE = join(CREWAI_PSE, 'tasks', 'project-articles', 'projects.json')
 
-async function loadProjectKeys(): Promise<string[]> {
+// Loaded synchronously at module-eval so the `project` enum is populated in the
+// tool schema at registration time. An async load would leave the enum empty,
+// hiding the choices from the model and causing repeated no-project calls.
+function loadProjectKeys(): string[] {
   try {
-    const raw = await readFile(PROJECTS_FILE, { encoding: 'utf8' })
+    const raw = readFileSync(PROJECTS_FILE, 'utf8')
     const obj = JSON.parse(raw) as Record<string, unknown>
     return Object.keys(obj).sort()
   } catch {
     return []
   }
 }
+
+const projectKeys = loadProjectKeys()
 
 const STYLE_NAMES = ['A', 'B', 'C', 'D', 'E', 'F'] as const
 type StyleLetter = (typeof STYLE_NAMES)[number]
@@ -46,12 +52,6 @@ export interface ArticleWriteConfig {
 }
 
 const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) => {
-  let projectKeys: string[] = []
-  // Fire-and-forget load; if it fails we fall back to a static list.
-  loadProjectKeys().then((keys) => {
-    projectKeys = keys
-  })
-
   ctx.tools.register({
     name: 'article-write',
     description:
@@ -60,9 +60,9 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       'Takes 3-10 minutes and calls the LLM multiple times. Returns the full Chinese article ' +
       '(Markdown) and save paths. Use when the user asks to write / generate an article for a ' +
       'project. The project MUST be one from the enum (configured in crewai-pse projects.json). ' +
-      'If the user did not specify a project, call this tool WITHOUT the project parameter first ' +
-      'to get the list of available projects, then ask the user to pick one — do NOT guess or ' +
-      'invent a project name. ' +
+      'If the user did not specify a project, ASK the user to pick one of the `project` enum ' +
+      'values (read them from the tool schema — do NOT call this tool to discover them), then ' +
+      'call with `project` set. Never guess or invent a project name. This parameter is REQUIRED. ' +
       'Default provider: free (default); set provider="deepseek" for paid higher quality. ' +
       'Do NOT read any files before calling this tool — all paths and configs are handled internally.',
     parameters: {
@@ -71,8 +71,9 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
         project: {
           type: 'string',
           description:
-            'Project key from crewai-pse projects.json. Available projects are listed in the enum. ' +
-            'OMIT this parameter to get the list of available projects (when user has not specified one).',
+            'Project key from crewai-pse projects.json. This parameter is REQUIRED — pick one ' +
+            'of the enum values. If the user has not specified a project, ask them to choose, ' +
+            'then pass project=<key>.',
           enum: projectKeys.length ? projectKeys : undefined,
         },
         publish: {
@@ -94,7 +95,7 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
           default: 'free',
         },
       },
-      required: [],
+      required: ['project'],
     },
     async execute(
       args: { project?: string; publish?: boolean; style?: string; provider?: 'free' | 'deepseek' },
@@ -103,15 +104,16 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       const { project, publish = false, style, provider = 'free' } = args
       const onProgress = execCtx?.onProgress
 
-      // If no project specified, return the list of available projects.
+      // If no project specified (shouldn't happen — `project` is required), ask
+      // the user to choose instead of re-listing in a loop.
       if (!project) {
         if (projectKeys.length === 0) {
           return 'error: no projects configured in crewai-pse projects.json.'
         }
         return (
-          '可用的文章项目（请选择一个）：\n' +
+          'project 参数必填。可用项目见本工具的 project 枚举（crewai-pse projects.json 的 key）：\n' +
           projectKeys.map((k, i) => `${i + 1}. ${k}`).join('\n') +
-          '\n\n请告诉我你想写哪个项目，我会用 crewai-pse 三角色流水线生成。'
+          '\n\n请先让用户从中选一个，再带 project=<项目名> 调用本工具；不要反复不带 project 调用。'
         )
       }
 

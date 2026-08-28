@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { dirname, join, resolve } from 'node:path'
-import { readFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
@@ -26,9 +26,12 @@ const MAX_OUTPUT = 32 * 1024
 // Project keys are read from projects.json at registration time.
 const PROJECTS_FILE = join(CREWAI_PSE, 'tasks', 'project-articles', 'projects.json')
 
-async function loadProjectKeys(): Promise<string[]> {
+// Loaded synchronously at module-eval so the `project` enum is populated in the
+// tool schema at registration time. (An async load would leave the enum empty,
+// hiding the choices from the model and causing repeated no-project calls.)
+function loadProjectKeys(): string[] {
   try {
-    const raw = await readFile(PROJECTS_FILE, { encoding: 'utf8' })
+    const raw = readFileSync(PROJECTS_FILE, 'utf8')
     const obj = JSON.parse(raw) as Record<string, unknown>
     return Object.keys(obj).sort()
   } catch {
@@ -54,7 +57,7 @@ const TASKS: CrewAiPublishTaskDef[] = [
     script: VALIDATE,
     description:
       '发布前校验文章正确性。检查 articles/pse/zh 和 en 下的文章：文件存在性、frontmatter 完整性（title/date/slug/categories/tags/description/excerpt）、正文有效性（长度/标题数/非计划口吻）、思维链泄漏检测、FAQ 区块存在性与中英文数量一致、slug 命名规范、代码块闭合、日期格式。返回通过/错误/警告清单。 ' +
-      'The project MUST be one from the enum. If the user did not specify a project, call this tool WITHOUT the project parameter first to get the list of available projects — do NOT guess or invent a project name.',
+      'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name. This parameter is REQUIRED.',
   },
   {
     name: 'article-publish',
@@ -64,7 +67,7 @@ const TASKS: CrewAiPublishTaskDef[] = [
     preValidate: true,
     description:
       '发布已生成的文章到 WordPress。发布前自动运行 article-validate 校验，有错误则阻止发布并提示修复。调用 crewai-pse 的 `make publish P=<project>`，把待发布队列中的文章发布到线上并写回 wp_id/link。需要 .env 中的 WordPress 凭据。 ' +
-      'The project MUST be one from the enum. If the user did not specify a project, call this tool WITHOUT the project parameter first to get the list of available projects — do NOT guess or invent a project name.',
+      'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name. This parameter is REQUIRED.',
   },
   {
     name: 'article-archive',
@@ -73,7 +76,7 @@ const TASKS: CrewAiPublishTaskDef[] = [
     script: ARCHIVE,
     description:
       '归档文章到 wordpress-tools 并重建各平台副本。调用 crewai-pse 的 `make archive P=<project>`，把已发布文章归档、重建 juejin/segmentfault/wechat 草稿副本、更新关键词索引、清理源码镜像缓存。 ' +
-      'The project MUST be one from the enum. If the user did not specify a project, call this tool WITHOUT the project parameter first to get the list of available projects — do NOT guess or invent a project name.',
+      'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name. This parameter is REQUIRED.',
   },
 ]
 
@@ -91,11 +94,11 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
         project: {
           type: 'string',
           description:
-            'Project key from crewai-pse projects.json. OMIT this parameter to get the list of available projects (when user has not specified one).',
+            'Project key from crewai-pse projects.json. This parameter is REQUIRED — pick one of the enum values. If the user has not specified a project, ask them to choose, then pass project=<key>.',
           enum: projectKeys.length ? projectKeys : undefined,
         },
       },
-      required: [],
+      required: ['project'],
     },
     async execute(
       args: { project?: string },
@@ -104,15 +107,16 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
       const { project } = args
       const onProgress = execCtx?.onProgress
 
-      // If no project specified, return the list of available projects.
+      // If no project specified (shouldn't happen — `project` is required), ask
+      // the user to choose instead of re-listing in a loop.
       if (!project) {
         if (projectKeys.length === 0) {
           return 'error: no projects configured in crewai-pse projects.json.'
         }
         return (
-          `可用的${task.label}项目（请选择一个）：\n` +
+          `project 参数必填。可用项目见本工具的 project 枚举（crewai-pse projects.json 的 key）：\n` +
           projectKeys.map((k, i) => `${i + 1}. ${k}`).join('\n') +
-          `\n\n请告诉我你想${task.label}哪个项目。`
+          `\n\n请先让用户从中选一个，再带 project=<项目名> 调用本工具（${task.label}）；不要反复不带 project 调用。`
         )
       }
 
@@ -171,10 +175,7 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
 }
 
 const registerCrewAiPublish = (ctx: Context) => {
-  let projectKeys: string[] = []
-  loadProjectKeys().then((keys) => {
-    projectKeys = keys
-  })
+  const projectKeys = loadProjectKeys()
 
   for (const task of TASKS) {
     registerTask(ctx, task, projectKeys)
