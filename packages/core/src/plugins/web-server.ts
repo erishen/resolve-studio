@@ -365,6 +365,13 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       }
       const now = new Date().toISOString()
       const existing = await sessions.get(id)
+      const messages = Array.isArray(rec.messages) ? rec.messages : (existing?.messages ?? [])
+      // Only bump updatedAt when the conversation content actually changed. A
+      // bare re-save of identical history (e.g. just opening the session) must
+      // NOT refresh the timestamp — otherwise the session jumps to the top of
+      // the list even though nothing new was produced.
+      const contentUnchanged =
+        !!existing && JSON.stringify(existing.messages) === JSON.stringify(messages)
       const record: SessionRecord = {
         id,
         title:
@@ -372,8 +379,8 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
             ? rec.title.slice(0, 80)
             : (existing?.title ?? 'Untitled'),
         createdAt: existing?.createdAt ?? now,
-        updatedAt: now,
-        messages: Array.isArray(rec.messages) ? rec.messages : (existing?.messages ?? []),
+        updatedAt: contentUnchanged ? existing!.updatedAt : now,
+        messages,
       }
       await sessions.set(record)
       sendJson(res, 200, { ok: true, session: { ...record } })
