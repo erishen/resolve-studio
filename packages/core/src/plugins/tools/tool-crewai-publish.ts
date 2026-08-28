@@ -25,18 +25,30 @@ const MAX_OUTPUT = 32 * 1024
 
 // Project keys are read from projects.json at registration time.
 const PROJECTS_FILE = join(CREWAI_PSE, 'tasks', 'project-articles', 'projects.json')
+const PUBLISHED_FILE = join(CREWAI_PSE, 'tasks', 'project-articles', 'projects-published.json')
 
 // Loaded synchronously at module-eval so the `project` enum is populated in the
 // tool schema at registration time. (An async load would leave the enum empty,
 // hiding the choices from the model and causing repeated no-project calls.)
-function loadProjectKeys(): string[] {
+function loadKeys(file: string): string[] {
   try {
-    const raw = readFileSync(PROJECTS_FILE, 'utf8')
-    const obj = JSON.parse(raw) as Record<string, unknown>
-    return Object.keys(obj).sort()
+    const raw = readFileSync(file, 'utf8')
+    return Object.keys(JSON.parse(raw) as Record<string, unknown>).sort()
   } catch {
     return []
   }
+}
+
+// Pending queue (projects.json) — publish/validate only operate on not-yet-published entries.
+function loadProjectKeys(): string[] {
+  return loadKeys(PROJECTS_FILE)
+}
+
+// archive.py merges projects.json + projects-published.json, so the archive tool
+// must enumerate the union — otherwise an already-published article (e.g. one the
+// user just pushed to WordPress) disappears from the archive choices.
+function loadArchiveKeys(): string[] {
+  return [...new Set([...loadKeys(PROJECTS_FILE), ...loadKeys(PUBLISHED_FILE)])].sort()
 }
 
 interface CrewAiPublishTaskDef {
@@ -57,7 +69,7 @@ const TASKS: CrewAiPublishTaskDef[] = [
     script: VALIDATE,
     description:
       '发布前校验文章正确性。检查 articles/pse/zh 和 en 下的文章：文件存在性、frontmatter 完整性（title/date/slug/categories/tags/description/excerpt）、正文有效性（长度/标题数/非计划口吻）、思维链泄漏检测、FAQ 区块存在性与中英文数量一致、slug 命名规范、代码块闭合、日期格式。返回通过/错误/警告清单。 ' +
-      'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name. This parameter is REQUIRED.',
+      'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name. 不传 project 会列出待校验队列清单。',
   },
   {
     name: 'article-publish',
@@ -69,7 +81,7 @@ const TASKS: CrewAiPublishTaskDef[] = [
       '发布已生成的文章到 WordPress。发布前自动运行 article-validate 校验，有错误则阻止发布并提示修复。调用 crewai-pse 的 `make publish P=<project>`，把待发布队列中的文章发布到线上并写回 wp_id/link。需要 .env 中的 WordPress 凭据。' +
       '⚠️ 这是【发布】工具：调用时不传 project 会列出当前待发布队列中的所有文章供用户选择，用户选定后再带 project 调用即可发布；不要改用 article-discover（那是用于发现【新】项目以撰写文章，不负责发布）。 ' +
       'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name. This parameter is REQUIRED.' +
-      '🛑 安全闸门：本工具默认【只预览、不真正发布】。只有 `confirm` 参数显式设为 true 时才会 POST 到 WordPress。且一次只能发布用户【明确点名】的那一篇 project——绝对禁止对队列里的多篇文章循环调用本工具、或在一次回复里批量发布。未等用户明确指定 project 前，不要设 confirm=true。',
+      '🛑 安全闸门：本工具默认【只预览、不真正发布】。只有 `confirm` 参数显式设为 true 时才会 POST 到 WordPress。且一次只能发布用户【明确点名】的那一篇 project——绝对禁止对队列里的多篇文章循环调用本工具、或在一次回复里批量发布。未等用户明确指定 project 前，不要设 confirm=true。若用户只泛泛地说「发布一篇文章」却没给出具体 project，你必须先停下来问清楚要发布哪一篇，绝不可自行从清单里挑一个并设 confirm=true。',
    },
   {
     name: 'article-archive',
@@ -77,8 +89,10 @@ const TASKS: CrewAiPublishTaskDef[] = [
     makeTarget: 'archive',
     script: ARCHIVE,
     description:
-      '归档文章到 wordpress-tools 并重建各平台副本。调用 crewai-pse 的 `make archive P=<project>`，把已发布文章归档、重建 juejin/segmentfault/wechat 草稿副本、更新关键词索引、清理源码镜像缓存。 ' +
-      'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name. This parameter is REQUIRED.',
+      '归档已发布文章到 wordpress-tools 并重建各平台副本。调用 crewai-pse 的 `make archive P=<project>`，把已发布文章归档、重建 juejin/segmentfault/wechat 草稿副本、更新关键词索引、清理源码镜像缓存。注意：归档 ≠ 发布——本工具不 POST 到 WordPress，只整理本地/平台副本。' +
+      '⚠️ 这是【归档】工具：调用时不传 project 会列出当前可归档队列中的所有文章供用户选择，用户选定后再带 project 调用即可归档；不要改用 article-discover（那是用于发现【新】项目以撰写文章，不负责归档）。 ' +
+      'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name.' +
+      '🛑 安全闸门：本工具默认【只预览、不真正归档】。只有 `confirm` 参数显式设为 true 时才会执行 `make archive`。且一次只能归档用户【明确点名】的那一篇 project——绝对禁止对队列里的多篇文章循环调用本工具、或在一次回复里批量归档。未等用户明确指定 project 前，不要设 confirm=true。若用户只泛泛地说「归档一篇文章」却没给出具体 project，你必须先停下来问清楚要归档哪一篇，绝不可自行从清单里挑一个并设 confirm=true。',
   },
 ]
 
@@ -96,7 +110,7 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
         project: {
           type: 'string',
           description:
-            'Project key from crewai-pse projects.json. This parameter is REQUIRED — pick one of the enum values. If the user has not specified a project, ask them to choose, then pass project=<key>.',
+            'Project key from crewai-pse projects.json。不传 project 会列出待处理队列清单供用户选择；用户指定后传 project=<key 或 编号>。',
           enum: projectKeys.length ? projectKeys : undefined,
         },
         confirm: {
@@ -133,7 +147,7 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
         return (
           `(清单模式：未指定 project) 可用项目见本工具的 project 枚举（crewai-pse projects.json 的 key），也可直接传列表中的编号：\n` +
           projectKeys.map((k, i) => `${i + 1}. ${k}`).join('\n') +
-          `\n\n要预览/发布某篇，请再次调用本工具并带 \`project=<项目名 或 编号>\`（如 project="resolve-studio" 或 project="4"）；本工具默认只预览不发布，确认发布需另带 confirm=true。`
+          `\n\n要预览并执行某篇，请再次调用本工具并带 \`project=<项目名 或 编号>\`（如 project="resolve-studio" 或 project="4"）；本工具默认只预览不执行，确认执行需另带 confirm=true。`
         )
       }
 
@@ -144,7 +158,7 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
 
       // Enforce one article per call: reject comma/space-separated multi-project.
       if (/[,\s]/.test(project)) {
-        return `error: article-publish 每次只能发布一篇文章（一个 project）。收到 "${project}" 疑似含多个项目；请只传单个 project，需要发多篇时分别调用本工具。`
+        return `error: ${task.name} 每次只能处理一篇文章（一个 project）。收到 "${project}" 疑似含多个项目；请只传单个 project，需要多篇时分别调用本工具。`
       }
 
       // Preview gate: without explicit confirm=true, NEVER POST. Run the
@@ -166,7 +180,7 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
             const ve = verr as { stdout?: string; stderr?: string; code?: number }
             const vtail = (ve.stdout || '') + (ve.stderr ? '\n--- stderr ---\n' + ve.stderr : '')
             return (
-              `⚠️ 预览中止：article-validate 未通过（exit ${ve.code ?? 'unknown'}），发布会被拦截。请先修复后再带 confirm=true 调用。\n\n` +
+              `⚠️ 预览中止：article-validate 未通过（exit ${ve.code ?? 'unknown'}），执行会被拦截。请先修复后再带 confirm=true 调用。\n\n` +
               truncate(vtail, 4000)
             )
           }
@@ -175,10 +189,10 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
           ? '，且发布前校验已通过（文章文件存在、frontmatter 完整）'
           : ''
         return (
-          `👁️ 预览模式（未真正发布，仅展示将执行的操作）${ready}：\n` +
-          `📋 project=${project} 在可发布项目列表中，待发布文章就绪。\n` +
-          `📤 确认发布将执行 \`make ${task.makeTarget} P=${project}\`，把文章发布到 WordPress 并写回 wp_id/link。\n` +
-          `👉 请让用户确认；用户确认后再次调用本工具并带 \`confirm=true\`（只针对这一篇 project）即真正发布。`
+          `👁️ 预览模式（未真正执行，仅展示将执行的操作）${ready}：\n` +
+          `📋 project=${project} 已在队列中，可${task.label}。\n` +
+          `📤 确认后将执行 \`make ${task.makeTarget} P=${project}\`（${task.label}）。\n` +
+          `👉 请让用户确认；用户确认后再次调用本工具并带 \`confirm=true\`（只针对这一篇 project）即真正执行。`
         )
       }
 
@@ -199,9 +213,9 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
           const ve = verr as { stdout?: string; stderr?: string; code?: number }
           const vtail = (ve.stdout || '') + (ve.stderr ? '\n' + ve.stderr : '')
           return (
-            `⛔ 发布已拦截：article-validate 未通过（exit ${ve.code ?? 'unknown'}），请先修复以下问题：\n\n` +
+            `⛔ 执行已拦截：article-validate 未通过（exit ${ve.code ?? 'unknown'}），请先修复以下问题：\n\n` +
             truncate(vtail, 4000) +
-            '\n\n修复后可重新调用 article-publish，或先用 article-validate 单独复查。'
+            `\n\n修复后可重新调用 ${task.name}，或先用 article-validate 单独复查。`
           )
         }
         onProgress?.('✅ 校验通过，开始发布...\n\n')
@@ -232,10 +246,14 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
 }
 
 const registerCrewAiPublish = (ctx: Context) => {
-  const projectKeys = loadProjectKeys()
+  const pendingKeys = loadProjectKeys()
+  const archiveKeys = loadArchiveKeys()
 
   for (const task of TASKS) {
-    registerTask(ctx, task, projectKeys)
+    // archive enumerates pending + published (it can act on already-published
+    // articles); publish/validate only see the pending queue.
+    const keys = task.name === 'article-archive' ? archiveKeys : pendingKeys
+    registerTask(ctx, task, keys)
   }
   ctx.logger('crewai-publish').info('registered %d crewai-pse publish tasks: %s', TASKS.length, TASKS.map((t) => t.name).join(', '))
 }
