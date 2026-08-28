@@ -79,7 +79,12 @@ export class SessionStore {
         // skip corrupt files
       }
     }
-    return metas.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+    return metas.sort((a, b) => {
+      // Newest updatedAt first. Ties (same timestamp) are broken by id so the
+      // order is fully deterministic — equal timestamps must never shuffle.
+      if (a.updatedAt === b.updatedAt) return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+      return a.updatedAt < b.updatedAt ? 1 : -1
+    })
   }
 
   async get(id: string): Promise<SessionRecord | null> {

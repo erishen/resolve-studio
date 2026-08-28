@@ -12,6 +12,14 @@ function deriveTitle(messages: UIMessage[]): string {
   return t ? t.slice(0, 40) : 'Untitled'
 }
 
+/** Stable, total order for the session list: newest updatedAt first, ties
+ *  broken by id. Keeps the sidebar order deterministic (never a random shuffle
+ *  from async save races) and consistent with the backend's sort. */
+function byUpdatedDesc(a: SessionMeta, b: SessionMeta): number {
+  if (a.updatedAt === b.updatedAt) return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  return a.updatedAt < b.updatedAt ? 1 : -1
+}
+
 /** Persisted shape: text content + reasoning + tool-call history (survives reload). */
 export function toStored(messages: UIMessage[]) {
   return messages
@@ -38,7 +46,7 @@ export function useSessions() {
   const [sessionId, setSessionId] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    setSessions(await fetchSessions())
+    setSessions((await fetchSessions()).slice().sort(byUpdatedDesc))
   }, [])
 
   useEffect(() => {
@@ -53,16 +61,20 @@ export function useSessions() {
       updatedAt: string
       messages: { length: number }
     }) => {
-      setSessions((prev) => [
-        {
-          id: rec.id,
-          title: rec.title,
-          createdAt: rec.createdAt,
-          updatedAt: rec.updatedAt,
-          messageCount: rec.messages.length,
-        },
-        ...prev.filter((s) => s.id !== rec.id),
-      ])
+      // Merge the upserted record, then sort by updatedAt so the active
+      // conversation rises to the top deterministically (no head-insert race).
+      setSessions((prev) =>
+        [
+          {
+            id: rec.id,
+            title: rec.title,
+            createdAt: rec.createdAt,
+            updatedAt: rec.updatedAt,
+            messageCount: rec.messages.length,
+          },
+          ...prev.filter((s) => s.id !== rec.id),
+        ].sort(byUpdatedDesc),
+      )
     },
     [],
   )
