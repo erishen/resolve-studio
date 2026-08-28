@@ -20,6 +20,9 @@
 #   make stop       # 停掉 dev / dev-mock 起的后台进程
 #   make secret-scan # 本地全量密钥扫描（防泄露，公开前必跑）
 #   make hook-init  # 启用提交前自动密钥扫描钩子
+#   make publish    # 发布所有 plugin-* 包：make publish OTP=123456（需 npm 登录 + 2FA）
+#   make publish-dry # 预演发布（不上传）：make publish-dry
+#   make release    # 三包版本自增并发布：make release OTP=123456 [VERSION=minor]
 
 SHELL := /bin/zsh
 .DEFAULT_GOAL := install
@@ -46,7 +49,7 @@ WEB_MATCH     := vite --host 127.0.0.1 --port $(WEB_PORT)
 .PHONY: all install typecheck test check build build-web \
         chat chat-real dev dev-mock stop clean help new-plugin manifests \
         lint lint-fix format format-check docker-build docker-up docker-down logs \
-        secret-scan hook-init
+        secret-scan hook-init publish publish-dry release
 
 all: install
 
@@ -148,6 +151,36 @@ secret-scan:       ## 本地全量密钥扫描（需 gitleaks）
 hook-init:         ## 启用本地 pre-commit 密钥扫描钩子
 	git config core.hooksPath .githooks
 	@echo "已启用 .githooks/pre-commit（提交前自动扫描密钥）"
+
+# ---- 发布 ----
+
+PLUGIN_PKGS := $(wildcard packages/plugin-*)
+OTP         ?=
+VERSION     ?= patch
+
+publish:            ## 发布所有 packages/plugin-* 到 npm：make publish OTP=123456
+	@for d in $(PLUGIN_PKGS); do \
+		echo "=== publishing $$d ==="; \
+		if [ -n "$(OTP)" ]; then \
+			(cd $$d && npm publish --otp=$(OTP)) || exit 1; \
+		else \
+			(cd $$d && npm publish) || exit 1; \
+		fi; \
+	done
+
+publish-dry:        ## 预演发布（不真正上传）：make publish-dry
+	@for d in $(PLUGIN_PKGS); do \
+		echo "=== dry-run $$d ==="; \
+		(cd $$d && npm publish --dry-run) || exit 1; \
+	done
+
+release:            ## 三包版本自增(patch/minor/major)并发布：make release OTP=123456 [VERSION=minor]
+	@for d in $(PLUGIN_PKGS); do \
+		echo "=== bump $$d ($(VERSION)) ==="; \
+		(cd $$d && npm version $(VERSION) --no-git-tag-version) || exit 1; \
+	done
+	pnpm install
+	@$(MAKE) publish OTP=$(OTP)
 
 docker-build:      ## 构建 Docker 镜像
 	docker compose build
