@@ -4,10 +4,21 @@ import type { UIMessage } from './types'
 import { CATEGORY_LABELS, CATEGORY_ORDER, type ExampleCategory, type ExampleItem } from './examples'
 import { ToolCallCard } from './ToolCallCard'
 
-/** Extract absolute .md file paths from text for preview buttons. */
+/**
+ * Extract previewable .md file paths from message text.
+ *
+ * Only REAL absolute filesystem paths are turned into preview buttons — we
+ * require a known root prefix (Users/home/tmp/var/opt/usr/etc) plus at least
+ * three path segments. This deliberately excludes relative article links that
+ * happen to start with `/` (e.g. the `/pse/zh/...` cross-links crewai-pse
+ * injects into generated articles): they look like paths but resolve to
+ * nowhere on disk, and the backend sandbox would reject them with
+ * "path escapes the allowed sandbox". Keep this in sync with ToolCallCard's
+ * extractMarkdownPaths.
+ */
 function extractMarkdownPaths(text: string): string[] {
   const paths = new Set<string>()
-  const re = /(\/[^\s'"<>，。、；：]+\.md)/g
+  const re = /(\/(?:Users|home|tmp|var|opt|usr|etc)[^\s'"<>]+\.md)/g
   let m
   while ((m = re.exec(text)) !== null) {
     paths.add(m[1])
