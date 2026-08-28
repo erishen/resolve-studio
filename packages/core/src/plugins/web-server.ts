@@ -610,12 +610,17 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.end(JSON.stringify(payload))
 }
 
+// Local agent harness: bound to localhost, so a generous body cap is fine.
+// A saved session can hold a full long-form article plus tool results/reasoning
+// and easily top 1 MiB — 16 MiB covers long conversations without risk.
+const MAX_BODY_BYTES = 16 * 1024 * 1024
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = ''
     req.on('data', (chunk) => {
       data += chunk
-      if (data.length > 1_000_000) {
+      if (data.length > MAX_BODY_BYTES) {
         reject(new Error('request body too large'))
         req.destroy()
       }
