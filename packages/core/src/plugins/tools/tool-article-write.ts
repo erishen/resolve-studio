@@ -195,16 +195,24 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       const zhMatch = ZH_SAVED_RE.exec(stdout)
       const enMatch = EN_SAVED_RE.exec(stdout)
 
+      // run.py prints save paths RELATIVE to its cwd (CREWAI_PSE). The Web UI
+      // preview regex only matches REAL absolute paths (/Users/.../file.md), so
+      // resolve to an absolute path — otherwise no clickable preview button shows.
+      const toAbs = (p?: string): string | undefined =>
+        p && !p.startsWith('/') ? resolve(CREWAI_PSE, p) : (p ?? undefined)
+      const zhPath = toAbs(zhMatch?.[1])
+      const enPath = toAbs(enMatch?.[1])
+
       const parts: string[] = []
       parts.push(`> crewai-pse article generated for project: **${project}**`)
-      if (zhMatch?.[1]) parts.push(`> Chinese: ${zhMatch[1]}`)
-      if (enMatch?.[1]) parts.push(`> English: ${enMatch[1]}`)
+      if (zhPath) parts.push(`> Chinese: ${zhPath}`)
+      if (enPath) parts.push(`> English: ${enPath}`)
       if (publish) parts.push('> Auto-published to WordPress.')
 
       // Read and return the Chinese article if available
-      if (zhMatch?.[1]) {
+      if (zhPath) {
         try {
-          const article = await readFile(zhMatch[1], { encoding: 'utf8' })
+          const article = await readFile(zhPath, { encoding: 'utf8' })
           parts.push('', truncate(article, MAX_OUTPUT - parts.join('\n').length - 100))
         } catch {
           parts.push('', '(could not read article file; check the path above)')
