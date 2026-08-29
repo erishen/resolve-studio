@@ -24,9 +24,10 @@ interface ToolCallCardProps {
 }
 
 // Sentinel emitted by pse-review on "agnes 抽风" — UI renders a retry choice.
-// Failure returns begin with `error: ` (so the harness marks ok=false), and the
-// sentinel appears on its own line; detect anywhere to be robust to the prefix.
-const RETRY_CHOICE_RE = /PSE_RETRY_CHOICE/
+// Failure returns begin with `error: PSE_RETRY_CHOICE` on their own line. Anchor
+// to a line start (allowing the error: prefix) so the marker in SKILL.md's prose
+// ("...返回 `PSE_RETRY_CHOICE`...") does not falsely trigger the retry buttons.
+const RETRY_CHOICE_RE = /^error:\s*PSE_RETRY_CHOICE\b|^PSE_RETRY_CHOICE\b/m
 
 function renderArgs(args: string | Record<string, unknown>): string {
   if (typeof args === 'string') return args
