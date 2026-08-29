@@ -70,6 +70,9 @@ export interface Tool {
    *  letting a tool require approval only for specific argument values (e.g. a
    *  paid model provider) without gating every invocation. */
   approvalWhen?: (args: Record<string, unknown>) => boolean
+  /** True for tools registered by MCP servers; used by the UI to keep them out
+   *  of the native "Tools" list (they're shown under MCP Servers instead). */
+  fromMcp?: boolean
   /** Execute the tool. May return a string or structured JSON. */
   execute(args: Record<string, unknown>, ctx?: ToolExecutionContext): Promise<string | object>
 }
@@ -81,6 +84,8 @@ export interface ToolSchema {
   parameters: ToolParameter
   /** Mirrors {@link Tool.needsApproval} for UI/transport. */
   needsApproval?: boolean
+  /** Mirrors {@link Tool.fromMcp} for UI/transport. */
+  fromMcp?: boolean
 }
 
 /** A tool invocation requested by the model. */

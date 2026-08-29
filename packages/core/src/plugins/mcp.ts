@@ -291,6 +291,7 @@ export class McpService extends Service {
           parameters: (t.inputSchema ?? { type: 'object' }) as ToolParameter,
           needsApproval: staticApproval,
           approvalWhen,
+          fromMcp: true,
           async execute(args, toolCtx) {
             const res = await connected.client.callTool(
               { name: t.name, arguments: args },

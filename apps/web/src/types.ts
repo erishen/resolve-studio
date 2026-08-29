@@ -78,6 +78,8 @@ export interface ToolSchema {
   parameters: Record<string, unknown>
   /** True if the tool requires human approval before execution. */
   needsApproval?: boolean
+  /** True for tools registered by MCP servers (shown under MCP Servers, not Tools). */
+  fromMcp?: boolean
 }
 
 export interface ModelInfo {

@@ -279,6 +279,20 @@ export function buildExamples(
   for (const e of uniq) {
     grouped[e.category].push(e)
   }
+
+  // Investment: keep portfolio-check first (it's the pre-flight data check that
+  // gates the weekly review), then pse-review, then the rest in build order.
+  const investOrder = ['tool:portfolio-check', 'tool:pse-review']
+  grouped.invest.sort((a, b) => {
+    const ia = investOrder.indexOf(a.id)
+    const ib = investOrder.indexOf(b.id)
+    // Known invest tools go first (in investOrder order); unknown ones keep
+    // their relative order but after the known set.
+    if (ia !== -1 && ib !== -1) return ia - ib
+    if (ia !== -1) return -1
+    if (ib !== -1) return 1
+    return 0
+  })
   return grouped
 }
 

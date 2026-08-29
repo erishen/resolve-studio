@@ -97,6 +97,7 @@ export class ToolRegistry extends Service {
       description: t.description,
       parameters: t.parameters,
       ...(t.needsApproval !== undefined ? { needsApproval: t.needsApproval } : {}),
+      ...(t.fromMcp !== undefined ? { fromMcp: t.fromMcp } : {}),
     }))
   }
 

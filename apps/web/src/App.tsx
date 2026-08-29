@@ -530,13 +530,7 @@ export function App() {
             <div className="runtime">
               <details className="runtime-section" open>
                 <summary>
-                  Tools (
-                  {mcp.loaded
-                    ? tools.filter(
-                        (t) => !mcp.servers.some((s) => t.name.startsWith(`${s.id}:`)),
-                      ).length
-                    : '…'}
-                  )
+                  Tools ({tools.filter((t) => !t.fromMcp).length})
                 </summary>
                 <div
                   className="runtime-chips"
@@ -544,14 +538,14 @@ export function App() {
                     .map((t) => `${t.name}${t.needsApproval ? ' (needs approval)' : ''}`)
                     .join(', ')}
                 >
-                  {!mcp.loaded && <span className="runtime-empty">loading…</span>}
-                  {mcp.loaded &&
-                    tools.filter(
-                      (t) => !mcp.servers.some((s) => t.name.startsWith(`${s.id}:`)),
-                    ).length === 0 && <span className="runtime-empty">none</span>}
-                  {mcp.loaded &&
+                  {tools.length === 0 && <span className="runtime-empty">loading…</span>}
+                  {tools.length > 0 &&
+                    tools.filter((t) => !t.fromMcp).length === 0 && (
+                      <span className="runtime-empty">none</span>
+                    )}
+                  {tools.length > 0 &&
                     tools
-                      .filter((t) => !mcp.servers.some((s) => t.name.startsWith(`${s.id}:`)))
+                      .filter((t) => !t.fromMcp)
                       .map((t) => (
                         <span
                           key={t.name}
