@@ -43,7 +43,6 @@ plugins:
   - id: llm
     name: llm-openai
     config:
-      model: gpt-4o-mini
       temperature: 0.7
   - id: tool-echo
     name: tool-echo

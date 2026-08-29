@@ -87,6 +87,36 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
     const path = url.pathname
 
+    // ---- CORS 支持（只允许特定的本地前端 origin，不使用 *） ----
+    // 允许的 origin 列表：
+    // - resolve-studio 自己的前端 (5173)
+    // - firefly-studio Electron 前端 (5180)
+    // - Electron 生产模式 (file://)
+    const ALLOWED_ORIGINS = [
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+      'http://localhost:5180',
+      'http://127.0.0.1:5180',
+      'file://',
+    ]
+    const requestOrigin = req.headers.origin ?? ''
+    const isAllowed = ALLOWED_ORIGINS.some((allowed) => requestOrigin.startsWith(allowed))
+    if (isAllowed && requestOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', requestOrigin)
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+    res.setHeader('Access-Control-Max-Age', '86400')
+    res.setHeader('Access-Control-Allow-Credentials', 'true')
+    res.setHeader('Vary', 'Origin')
+
+    // 处理 OPTIONS 预检请求
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
+
     // ---- health check (no auth, lightweight) ----
     if (path === '/health' && req.method === 'GET') {
       sendJson(res, 200, {
