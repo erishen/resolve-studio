@@ -182,6 +182,10 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
 
     // ---- MCP server management ----
     if (path === '/api/mcp' && req.method === 'GET') {
+      // Wait for startup connections (bounded inside mcp) so the first fetch
+      // returns the full server list, not just whichever connected first
+      // (e.g. only fs while serena/pse-review are still booting).
+      if (ctx.mcp) await ctx.mcp.whenReady()
       const servers = ctx.mcp ? await ctx.mcp.list() : []
       sendJson(res, 200, { servers })
       return
