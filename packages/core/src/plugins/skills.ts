@@ -126,11 +126,35 @@ export class SkillsService extends Service {
   async read(name: string): Promise<string | null> {
     const safe = name.replace(/[^a-zA-Z0-9_-]/g, '')
     if (!safe) return null
+    // Fast path: folder named after the skill.
     for (const dir of this.dirs) {
       try {
         return (await readFile(join(dir, safe, 'SKILL.md'), { encoding: 'utf8' })) as string
       } catch {
         // not in this dir — try the next
+      }
+    }
+    // Fallback: the display name (frontmatter `name`) may differ from the folder
+    // name (e.g. weekly-investment vs weekly-investment-review). Scan each skill
+    // folder and match on its frontmatter name.
+    for (const dir of this.dirs) {
+      let folderNames: string[]
+      try {
+        folderNames = await readdir(dir)
+      } catch {
+        continue
+      }
+      for (const folder of folderNames) {
+        try {
+          if (!(await stat(join(dir, folder))).isDirectory()) continue
+          const raw = (await readFile(join(dir, folder, 'SKILL.md'), {
+            encoding: 'utf8',
+          })) as string
+          const fm = parseFrontmatter(raw)
+          if (fm.name === name) return raw
+        } catch {
+          // unreadable folder — skip
+        }
       }
     }
     return null
