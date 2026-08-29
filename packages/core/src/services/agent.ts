@@ -40,6 +40,33 @@ function safeParseArgs(raw: string): Record<string, unknown> {
   }
 }
 
+/** Canonical, deterministic string for a tool call's arguments — used to detect
+ *  duplicate calls within a round. Strings are parsed to objects so the same
+ *  args in either form compare equal; object keys are sorted. */
+function canonicalArgs(args: string | Record<string, unknown>): string {
+  let obj: unknown = args
+  if (typeof args === 'string') {
+    try {
+      obj = JSON.parse(args)
+    } catch {
+      obj = args
+    }
+  }
+  const sort = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(sort)
+    if (v && typeof v === 'object') {
+      return Object.keys(v as Record<string, unknown>)
+        .sort()
+        .reduce<Record<string, unknown>>((acc, k) => {
+          acc[k] = sort((v as Record<string, unknown>)[k])
+          return acc
+        }, {})
+    }
+    return v
+  }
+  return JSON.stringify(sort(obj))
+}
+
 declare module 'cordis' {
   interface Context {
     agent: AgentService
@@ -217,19 +244,39 @@ export class AgentService extends Service {
       const toolResults: { call: ToolCall; result: string; ok: boolean }[] = []
 
       if (toolCalls.length) {
-        // Execute tool calls in parallel. Approval-gated tools also wait in
-        // parallel (the UI surfaces multiple approval cards at once); results
-        // are then appended in original call order so the LLM API sees tool
-        // messages aligned with tool_calls.
+        // Deduplicate identical tool calls within this round: the model may
+        // emit two tool_calls with the same name+args (e.g. pse-review twice).
+        // Running both would double-execute a slow/costly tool, so only the
+        // first runs; duplicates are short-circuited with a note to the model.
+        const seen = new Map<string, number>() // canonical key → index of first
+        const keys: (string | null)[] = []
+        const firstIdx = new Array<number>(toolCalls.length).fill(-1)
+        toolCalls.forEach((call, idx) => {
+          const argsStr = canonicalArgs(call.arguments)
+          const key = `${call.name}|${argsStr}`
+          if (seen.has(key)) {
+            firstIdx[idx] = seen.get(key)!
+            keys.push(null)
+          } else {
+            seen.set(key, idx)
+            firstIdx[idx] = -1
+            keys.push(key)
+          }
+        })
+
         interface ExecutedCall {
           call: ToolCall
           result: string
           ok: boolean
           nsId: string
           durationMs: number
+          idx: number
         }
-        const executed: ExecutedCall[] = await Promise.all(
-          toolCalls.map(async (call): Promise<ExecutedCall> => {
+        // Run only the first occurrence of each unique call, in parallel.
+        const uniqIdx = toolCalls.map((_, i) => i).filter((i) => firstIdx[i] === -1)
+        const executed = await Promise.all(
+          uniqIdx.map(async (idx): Promise<ExecutedCall> => {
+            const call = toolCalls[idx]
             const nsId = this.ns(call.id, runId)
             bus.emit('agent/tool-call', { ...call, id: nsId })
             const t0 = performance.now()
@@ -243,7 +290,7 @@ export class AgentService extends Service {
               )
               if (decision === 'reject') {
                 const result = `User rejected the tool call "${call.name}" (arguments: ${JSON.stringify(call.arguments)}). Do not call it again; explain or adjust.`
-                return { call, result, ok: false, nsId, durationMs: performance.now() - t0 }
+                return { call, result, ok: false, nsId, durationMs: performance.now() - t0, idx }
               }
             }
 
@@ -253,11 +300,26 @@ export class AgentService extends Service {
               },
             })
             const ok = !result.startsWith('error:')
-            return { call, result, ok, nsId, durationMs: performance.now() - t0 }
+            return { call, result, ok, nsId, durationMs: performance.now() - t0, idx }
           }),
         )
+        const byIdx = new Map(executed.map((e) => [e.idx, e]))
 
-        for (const { call, result, ok, nsId, durationMs } of executed) {
+        // Reassemble in original order; duplicates get a skip note.
+        const ordered: ExecutedCall[] = toolCalls.map((call, idx) => {
+          const dup = firstIdx[idx] !== -1
+          const nsId = this.ns(call.id, runId)
+          const dupCall: ToolCall = { ...call, id: nsId }
+          if (dup) {
+            bus.emit('agent/tool-call', { ...call, id: nsId })
+            const dupOf = toolCalls[firstIdx[idx]]
+            const result = `(skipped: "${call.name}" was already called in this same round with identical arguments${JSON.stringify(dupOf.arguments) ? ` ${JSON.stringify(dupOf.arguments)}` : ''} — its result above is reused)`
+            return { call: dupCall, result, ok: true, nsId, durationMs: 0, idx }
+          }
+          return byIdx.get(idx)!
+        })
+
+        for (const { call, result, ok, nsId, durationMs } of ordered) {
           toolResults.push({ call, result, ok })
           bus.emit('agent/tool-result', { call: { ...call, id: nsId }, result, ok, durationMs })
           messages.push({
