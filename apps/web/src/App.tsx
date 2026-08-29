@@ -497,7 +497,17 @@ export function App() {
                     }
                   }}
                   onPreview={setPreviewPath}
-                  onRetryTool={(name, args) => void chat.runTool(name, args)}
+                  onRetryTool={(_name, args) => {
+                    // Resume the weekly-investment skill flow (the skill's
+                    // instructions are already in context): re-run pse-review
+                    // with the chosen provider, then present the report per the
+                    // skill, instead of bare-running the tool in isolation.
+                    const provider = (args as Record<string, unknown> | undefined)?.provider
+                    const instruction = provider
+                      ? '继续执行 weekly-investment 技能：改用 deepseek（付费，会触发审批）重新运行 pse-review 生成周报，然后按技能要求呈现周报。技能指令已在上下文中，不要再调用 skill-run 或 portfolio-check。'
+                      : '继续执行 weekly-investment 技能：用免费 agnes 重新运行 pse-review（不传 provider，默认 agnes）生成周报，然后按技能要求呈现周报。技能指令已在上下文中，不要再调用 skill-run 或 portfolio-check。'
+                    void chat.send(instruction)
+                  }}
                   onPickExample={(p) => {
                     setDraft(p)
                     composerRef.current?.focus()
