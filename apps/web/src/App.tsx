@@ -577,8 +577,12 @@ export function App() {
               <details className="runtime-section" open>
                 <summary>MCP Servers ({mcp.servers.length})</summary>
                 <div className="runtime-list">
-                  {mcp.servers.length === 0 && <span className="runtime-empty">none</span>}
-                  {mcp.servers.map((s) => (
+                  {!mcp.loaded && <span className="runtime-empty">loading…</span>}
+                  {mcp.loaded && mcp.servers.length === 0 && (
+                    <span className="runtime-empty">none</span>
+                  )}
+                  {mcp.loaded &&
+                    mcp.servers.map((s) => (
                     <div key={s.id} className="mcp-item">
                       <div
                         className="mcp-head mcp-head-clickable"
