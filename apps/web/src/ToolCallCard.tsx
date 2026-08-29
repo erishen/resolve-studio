@@ -19,6 +19,8 @@ interface ToolCallCardProps {
   onPreview?: (path: string) => void
   /** Direct re-run affordances (tool may ask the user to retry with different args). */
   onRetryTool?: (name: string, args: Record<string, unknown>) => void
+  /** Disable the retry buttons while a run/retry is in flight. */
+  retryDisabled?: boolean
 }
 
 // Sentinel emitted by pse-review on "agnes 抽风" — UI renders a retry choice.
@@ -145,6 +147,7 @@ export function ToolCallCard({
   onDecide,
   onPreview,
   onRetryTool,
+  retryDisabled,
 }: ToolCallCardProps) {
   const resolved = ok === undefined ? 'pending' : ok ? 'ok' : 'error'
   const shot = screenshotUrl(result)
@@ -237,6 +240,7 @@ export function ToolCallCard({
               <div className="tool-retry-buttons">
                 <button
                   className="btn btn-sm"
+                  disabled={retryDisabled}
                   onClick={() => onRetryTool(name, {})}
                   title="重新用免费 agnes 跑一次"
                 >
@@ -244,6 +248,7 @@ export function ToolCallCard({
                 </button>
                 <button
                   className="btn btn-sm btn-primary"
+                  disabled={retryDisabled}
                   onClick={() => onRetryTool(name, { provider: 'deepseek' })}
                   title="改用付费 DeepSeek（将触发审批）"
                 >

@@ -140,6 +140,7 @@ export function MessageList({
                       onPreview={onPreview}
                       onDecide={tc.id && onDecide ? (d) => onDecide(tc.id as string, d) : undefined}
                       onRetryTool={onRetryTool}
+                      retryDisabled={busy}
                     />
                   ))}
                 </div>
