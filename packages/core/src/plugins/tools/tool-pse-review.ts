@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dirname, join, resolve } from 'node:path'
-import { readFile } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
@@ -25,6 +25,22 @@ const RUN_TIMEOUT_MS = 480_000
 const MAX_OUTPUT = 48 * 1024
 
 const REVIEW_SAVED_RE = /Review 已保存 →\s*(\S+)/
+
+// Copy a generated review to <studio>/sandbox/weekly-investment-review so the
+// web UI can preview it via a relative path (which is within fsRoots). Resolved
+// against the resolve-studio root (5 levels up from this file), overridable via
+// RESOLVE_STUDIO_DIR.
+const STUDIO_ROOT = process.env.RESOLVE_STUDIO_DIR ?? resolve(HERE, '../../../../..')
+async function copyReviewToSandbox(srcPath: string, content: string): Promise<string> {
+  const destDir = join(STUDIO_ROOT, 'sandbox', 'weekly-investment-review')
+  await mkdir(destDir, { recursive: true })
+  // 产物路径形如 output/<model>/weekly_review_<date>.md —— 把模型目录名嵌入副本
+  // 文件名，避免不同模型（agnes / deepseek）同一天的报告互相覆盖。
+  const modelDir = basename(dirname(srcPath))
+  const destName = `${modelDir}__${basename(srcPath)}`
+  await writeFile(join(destDir, destName), content, 'utf8')
+  return `sandbox/weekly-investment-review/${destName}`
+}
 
 /**
  * Bridges the full autogen-pse PSE portfolio-review pipeline:
@@ -137,7 +153,10 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
       if (m?.[1]) {
         try {
           const review = await readFile(m[1], { encoding: 'utf8' })
-          const note = `> PSE review saved to ${m[1]}\n\n`
+          const rel = await copyReviewToSandbox(m[1], review)
+          const note =
+            `> PSE review 已保存（预览副本）：${rel}\n` +
+            `> 原始路径：${m[1]}\n\n`
           return truncate(note + review, MAX_OUTPUT)
         } catch {
           // fall through to stdout
