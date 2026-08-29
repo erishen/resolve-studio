@@ -50,8 +50,9 @@ async function copyReviewToSandbox(srcPath: string, content: string): Promise<st
  *                            knowledge-base retrieval) produces the review
  *   3. returns the saved review file content (the full report)
  *
- * This is the "heavy" counterpart to portfolio-summary: same data source, but
- * multi-agent analysis with quality gates instead of a single-pass summary.
+ * This is the primary weekly-review tool: same data source as the (removed)
+ * portfolio-summary, but multi-agent analysis with quality gates instead of a
+ * single-pass summary.
  *
  * NOTE: real holdings + real model calls — local private use only.
  *
@@ -109,8 +110,7 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
       'portfolio summary and runs a Planner/Specialist/Evaluator agent team with ' +
       'personal knowledge-base retrieval to produce an in-depth weekly review. ' +
       'Takes 2-6 minutes and calls the configured LLM. Returns the complete review ' +
-      'report (Markdown). Use for a serious, quality-gated review instead of the ' +
-      'quick portfolio-summary. ' +
+      'report (Markdown). Use for a serious, quality-gated weekly review. ' +
       `[model provider: ${provider}${provider === 'deepseek' ? ' (PAID)' : ' (free)'}].`,
     parameters: {
       type: 'object',

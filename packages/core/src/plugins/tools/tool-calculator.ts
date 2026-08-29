@@ -68,7 +68,7 @@ const registerCalculator = (ctx: Context) => {
       const expr = String(args['expression'] ?? '')
       return String(evaluate(expr))
     },
-    needsApproval: true,
+    needsApproval: false,
   } satisfies Tool)
 }
 

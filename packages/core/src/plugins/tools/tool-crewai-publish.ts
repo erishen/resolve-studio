@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { dirname, join, resolve } from 'node:path'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
@@ -23,32 +23,50 @@ const VALIDATE = join('tasks', 'project-articles', 'validate.py')
 const TASK_TIMEOUT_MS = 300_000
 const MAX_OUTPUT = 32 * 1024
 
-// Project keys are read from projects.json at registration time.
+// Pending queue (projects.json) — articles not yet published.
 const PROJECTS_FILE = join(CREWAI_PSE, 'tasks', 'project-articles', 'projects.json')
-const PUBLISHED_FILE = join(CREWAI_PSE, 'tasks', 'project-articles', 'projects-published.json')
 
-// Loaded synchronously at module-eval so the `project` enum is populated in the
-// tool schema at registration time. (An async load would leave the enum empty,
-// hiding the choices from the model and causing repeated no-project calls.)
-function loadKeys(file: string): string[] {
+// Generated articles live here (including already-published ones like
+// resolve-tui that remain as files but are absent from the pending queue).
+const PSE_ARTICLES_DIR = join(
+  CREWAI_PSE,
+  '..',
+  '..',
+  'personal',
+  'personal-site',
+  'wordpress-tools',
+  'articles',
+  'pse',
+  'zh',
+)
+
+function loadJsonKeys(file: string): string[] {
   try {
     const raw = readFileSync(file, 'utf8')
-    return Object.keys(JSON.parse(raw) as Record<string, unknown>).sort()
+    return Object.keys(JSON.parse(raw) as Record<string, unknown>)
   } catch {
     return []
   }
 }
 
-// Pending queue (projects.json) — publish/validate only operate on not-yet-published entries.
-function loadProjectKeys(): string[] {
-  return loadKeys(PROJECTS_FILE)
-}
-
-// archive.py merges projects.json + projects-published.json, so the archive tool
-// must enumerate the union — otherwise an already-published article (e.g. one the
-// user just pushed to WordPress) disappears from the archive choices.
-function loadArchiveKeys(): string[] {
-  return [...new Set([...loadKeys(PROJECTS_FILE), ...loadKeys(PUBLISHED_FILE)])].sort()
+// Project enum = union of the pending queue (projects.json) and the generated
+// articles directory. Pending projects with not-yet-generated articles stay
+// listed; already-published articles still present as files stay publishable.
+// projects-published.json is deliberately NOT read here.
+function loadArticleKeys(): string[] {
+  const keys = new Set<string>(loadJsonKeys(PROJECTS_FILE))
+  try {
+    for (const name of readdirSync(PSE_ARTICLES_DIR)) {
+      const m = /^(.+?)-zh\.md$/.exec(name)
+      if (!m) continue
+      const slug = m[1]
+      // 下划线 slug（resolve_tui）→ 连字符 project key（resolve-tui）
+      keys.add(slug.replace(/_/g, '-'))
+    }
+  } catch {
+    // 目录不存在/不可读：仅用 json 队列
+  }
+  return [...keys].sort()
 }
 
 interface CrewAiPublishTaskDef {
@@ -246,14 +264,12 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
 }
 
 const registerCrewAiPublish = (ctx: Context) => {
-  const pendingKeys = loadProjectKeys()
-  const archiveKeys = loadArchiveKeys()
+  const articleKeys = loadArticleKeys()
 
   for (const task of TASKS) {
-    // archive enumerates pending + published (it can act on already-published
-    // articles); publish/validate only see the pending queue.
-    const keys = task.name === 'article-archive' ? archiveKeys : pendingKeys
-    registerTask(ctx, task, keys)
+    // 所有任务（publish/validate/archive）共用「目录文章 + json 存档」的并集：
+    // 已发布但尚未归档的文章（如 resolve-tui）也能从 UI 重新发布/校验/归档。
+    registerTask(ctx, task, articleKeys)
   }
   ctx.logger('crewai-publish').info('registered %d crewai-pse publish tasks: %s', TASKS.length, TASKS.map((t) => t.name).join(', '))
 }

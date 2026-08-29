@@ -30,7 +30,7 @@ import { toolSystemInfo } from './tools/tool-system-info.js'
 import { toolBrowser } from './tools/tool-browser.js'
 import { toolPickPost } from './tools/tool-pick-post.js'
 import { toolSkillRun } from './tools/tool-skill-run.js'
-import { toolPortfolioSummary } from './tools/tool-portfolio-summary.js'
+import { toolPortfolioCheck } from './tools/tool-portfolio-check.js'
 import { toolPseReview } from './tools/tool-pse-review.js'
 import { toolArticleWrite } from './tools/tool-article-write.js'
 import { toolResumeTailor } from './tools/tool-resume-tailor.js'
@@ -67,7 +67,7 @@ export const PLUGINS: Record<string, Plugin> = {
   'tool-browser': toolBrowser as unknown as Plugin,
   'tool-pick-post': toolPickPost as unknown as Plugin,
   'tool-skill-run': toolSkillRun as unknown as Plugin,
-  'tool-portfolio-summary': toolPortfolioSummary as unknown as Plugin,
+  'tool-portfolio-check': toolPortfolioCheck as unknown as Plugin,
   'tool-pse-review': toolPseReview as unknown as Plugin,
   'tool-article-write': toolArticleWrite as unknown as Plugin,
   'tool-resume-tailor': toolResumeTailor as unknown as Plugin,

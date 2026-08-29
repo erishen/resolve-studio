@@ -7,7 +7,9 @@
  * Supports multiple skill directories merged together:
  *   1. local `<cwd>/skills/` (project-specific skills)
  *   2. `HARNESS_SKILLS_DIR` env var (shared resolve-skills repo, same var as
- *      resolve-tui / resolve-harness)
+ *      resolve-tui / resolve-harness) — optional override
+ *   2b. `<cwd>/resolve-skills/skills` git submodule, auto-detected (mirrors
+ *       resolve-tui) so the shared skills work with zero env config
  *   3. `config.dirs` (explicit extra directories)
  *
  * On name collisions, earlier directories win (local takes precedence over
@@ -77,6 +79,12 @@ export class SkillsService extends Service {
     // 2. Shared resolve-skills via env var (same var as resolve-tui / resolve-harness).
     if (process.env.HARNESS_SKILLS_DIR) {
       dirs.push(process.env.HARNESS_SKILLS_DIR)
+    }
+    // 2b. Auto-detect the resolve-skills git submodule at <cwd>/resolve-skills
+    // (mirrors resolve-tui): the shared skills work with zero env config.
+    const submoduleSkills = join(process.cwd(), 'resolve-skills', 'skills')
+    if (existsSync(submoduleSkills)) {
+      dirs.push(submoduleSkills)
     }
     // 3. Explicit extra dirs from config.
     if (config.dirs) {

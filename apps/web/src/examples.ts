@@ -63,6 +63,9 @@ function skillExample(s: SkillInfo): ExampleItem | null {
 }
 
 function toolExample(t: ToolSchema): ExampleItem | null {
+  // MCP tools are namespaced `<serverId>:<tool>`; strip the prefix so curated
+  // examples and the card title match the bare tool name.
+  const base = t.name.includes(':') ? t.name.slice(t.name.lastIndexOf(':') + 1) : t.name
   const blob = (t.name + ' ' + (t.description ?? '')).toLowerCase()
 
   // Curated, name-keyed examples. Match by NAME (not description) to avoid
@@ -81,13 +84,18 @@ function toolExample(t: ToolSchema): ExampleItem | null {
     'pick-post': { prompt: '帮我随机选一篇已发布的技术文章，我想给它写条评论。', category: 'article' },
     'pse-review': { prompt: '帮我做一份深度投资组合分析，用 autogen-pse 的 PSE 三角色流水线生成。', category: 'invest' },
     'portfolio-summary': { prompt: '帮我做一份当前投资组合的快速概览，包括持仓、收益和风险分布。', category: 'invest' },
+    'portfolio-check': {
+      prompt:
+        '帮我做一次投资前数据体检：用 portfolio-check 工具在 analysis-lens 执行 make calculate / analyze / compare 刷新快照并扫描异常，确认数据无误后再做投资复盘。',
+      category: 'invest',
+    },
     'resume-tailor': { prompt: '帮我定制一份简历，目标岗位 JD：资深后端工程师，要求 5 年以上 Java/Python 经验，熟悉分布式系统和微服务架构。', category: 'interview' },
     'interview-questions': { prompt: '帮我生成一份 Python 后端工程师的技术面试题库，包含基础、进阶、难题各 3 道。', category: 'interview' },
     'crm-task': { prompt: '帮我生成一份本周的 CRM 关系复盘，看看哪些联系人需要跟进。', category: 'crm' },
     'skill-run': { prompt: `调用 ${t.name} 来完成任务。`, category: 'other' },
   }
-  const curated = CURATED[t.name]
-  if (curated) return { id: 'tool:' + t.name, title: humanize(t.name), prompt: curated.prompt, category: curated.category }
+  const curated = CURATED[base]
+  if (curated) return { id: 'tool:' + base, title: humanize(base), prompt: curated.prompt, category: curated.category }
 
   let prompt: string
   let category: ExampleCategory = 'code'
@@ -167,7 +175,7 @@ function toolExample(t: ToolSchema): ExampleItem | null {
   } else {
     return null
   }
-  return { id: 'tool:' + t.name, title: humanize(t.name), prompt, category }
+  return { id: 'tool:' + base, title: humanize(base), prompt, category }
 }
 
 /**
@@ -200,12 +208,15 @@ export function buildExamples(
     'pick-post',
     'pse-review',
     'portfolio-summary',
+    'portfolio-check',
     'resume-tailor',
     'interview-questions',
     'crm-task',
   ]
   for (const name of priorityTools) {
-    const tool = tools.find((t) => t.name === name)
+    // MCP tools register as `<serverId>:<tool>` (mcp.ts); match both the bare
+    // name (native tools) and the namespaced form (e.g. `pse-review:pse-review`).
+    const tool = tools.find((t) => t.name === name || t.name.endsWith(':' + name))
     if (tool) {
       const e = toolExample(tool)
       if (e) all.push(e)
