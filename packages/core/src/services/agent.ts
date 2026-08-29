@@ -24,10 +24,21 @@ import type {
   ChatResponse,
   ChatStreamChunk,
   RunEventBus,
+  Tool,
   ToolCall,
 } from '../types.js'
 import type { ApprovalDecision } from './approval.js'
 import { fitContext } from '../context.js'
+
+/** Best-effort parse of tool arguments that arrive as a JSON string. */
+function safeParseArgs(raw: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(raw)
+    return v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
 
 declare module 'cordis' {
   interface Context {
@@ -81,9 +92,13 @@ export class AgentService extends Service {
     const pseActive = this.ctx.pse?.enabled ?? false
     const maxIterations = options.maxIterations ?? (pseActive ? 15 : 8)
     const tools = options.tools ?? this.ctx.tools.schemas()
-    // Index schemas by name once per run so the per-tool-call lookup inside the
-    // loop is O(1) instead of a linear scan through the (small) tool list.
-    const toolSchemaByName = new Map(tools.map((t) => [t.name, t]))
+    // Index the full Tool definitions (incl. the dynamic `approvalWhen` rule)
+    // by name for O(1) lookup in the loop. The LLM only sees the sanitized
+    // `tools` schemas above; approval gating happens against the full Tool.
+    const toolDefs: Tool[] = options.tools
+      ? (options.tools as unknown as Tool[])
+      : this.ctx.tools.list()
+    const toolSchemaByName = new Map<string, Tool>(toolDefs.map((t) => [t.name, t]))
     // Per-run event sink: when the caller supplies one (the web bridge does,
     // once per HTTP request) every `agent/*` / `llm/*` event is scoped to that
     // run so concurrent chats don't cross-talk. Without it we fall back to the
@@ -219,7 +234,8 @@ export class AgentService extends Service {
             const t0 = performance.now()
 
             const schema = toolSchemaByName.get(call.name)
-            if (schema?.needsApproval && this.ctx.approval) {
+            const needApproval = this.toolNeedsApproval(schema, call.arguments)
+            if (needApproval && this.ctx.approval) {
               const decision: ApprovalDecision = await this.ctx.approval.request(
                 { ...call, id: nsId },
                 bus,
@@ -333,6 +349,25 @@ export class AgentService extends Service {
       content: content || undefined,
       toolCalls: toolCalls.length ? toolCalls : undefined,
     }
+  }
+
+  /**
+   * Decide whether a tool call needs human approval. Honors a tool's dynamic
+   * {@link Tool.approvalWhen} rule (evaluated against the actual call arguments)
+   * when present, falling back to the static {@link Tool.needsApproval} flag.
+   * Lets e.g. a paid-model provider be gated while the free default is not.
+   */
+  private toolNeedsApproval(
+    schema: Tool | undefined,
+    args: string | Record<string, unknown>,
+  ): boolean {
+    if (!schema) return false
+    if (typeof schema.approvalWhen === 'function') {
+      const parsed: Record<string, unknown> =
+        typeof args === 'string' ? safeParseArgs(args) : (args ?? {})
+      return schema.approvalWhen(parsed)
+    }
+    return !!schema.needsApproval
   }
 
   /** Namespace a tool call id with the run id (no-op when there's no run id). */

@@ -38,7 +38,10 @@ import { definePlugin } from './util.js'
  *  - `{ deny: [...] }`: the listed names STILL need approval even when the
  *    server-wide default is `false` (e.g. keep write/exec tools gated).
  */
-export type McpApprovalPolicy = boolean | { allow?: string[]; deny?: string[] }
+export type McpApprovalPolicy =
+  | boolean
+  | { allow?: string[]; deny?: string[] }
+  | { whenArg: Record<string, unknown> }
 
 export interface McpServerConfig {
   /** Unique id; becomes the tool-name prefix (`<id>:<tool>`). */
@@ -86,6 +89,13 @@ declare module 'cordis' {
 }
 
 const PERSISTED_FILE = join(process.cwd(), '.data', 'mcp-servers.json')
+
+// Per-tool-call timeout (ms). Must exceed the longest MCP tool runtime — pse-review
+// runs prepare.py + run.py for 2-6 min, so 10 min is a safe default. Override via
+// MCP_TOOL_TIMEOUT_MS if needed. The MCP SDK has no global requestTimeout; the limit
+// is per-request (RequestOptions.timeout, default 60s), which is what previously
+// killed long-running tools with `-32001 Request timed out`.
+const MCP_TOOL_TIMEOUT_MS = Number(process.env.MCP_TOOL_TIMEOUT_MS ?? 600_000)
 
 async function connectServer(s: McpServerConfig): Promise<ConnectedServer> {
   const client = new Client({ name: 'resolve-studio', version: '0.1.0' })
@@ -135,9 +145,22 @@ function formatMcpResult(raw: unknown): string {
 export function needsApprovalFor(toolName: string, policy: McpApprovalPolicy | undefined): boolean {
   const p = policy ?? true
   if (typeof p === 'boolean') return p
+  if ('whenArg' in p) return true
   if (Array.isArray(p.allow)) return !p.allow.includes(toolName)
   if (Array.isArray(p.deny)) return p.deny.includes(toolName)
   return true
+}
+
+/**
+ * Shallow equality: true iff every key in `pattern` equals the corresponding
+ * top-level key in `args`. Backs the {@link McpApprovalPolicy} `{ whenArg }`
+ * form - require approval only when the call arguments match (e.g. a paid
+ * provider), leaving other invocations ungated.
+ */
+export function matchArgs(args: unknown, pattern: Record<string, unknown>): boolean {
+  if (!args || typeof args !== 'object') return false
+  const a = args as Record<string, unknown>
+  return Object.entries(pattern).every(([k, v]) => a[k] === v)
 }
 
 export class McpService extends Service {
@@ -221,13 +244,31 @@ export class McpService extends Service {
       for (const t of tools) {
         const name = `${config.id}:${t.name}`
         names.push(name)
+        // Per-argument approval: `{ whenArg }` gates a tool only when its call
+        // arguments match the pattern (e.g. require approval for a paid
+        // provider but not the free default). The static flag then stays false
+        // (so the UI doesn't always show an approval badge) and the dynamic
+        // rule does the real gating at call time in the agent loop.
+        const policy = config.approval
+        let staticApproval = needsApprovalFor(name, policy)
+        let approvalWhen: ((args: Record<string, unknown>) => boolean) | undefined
+        if (policy && typeof policy === 'object' && 'whenArg' in policy) {
+          const pattern = (policy as { whenArg: Record<string, unknown> }).whenArg
+          approvalWhen = (callArgs) => matchArgs(callArgs, pattern)
+          staticApproval = false
+        }
         this.ctx.tools.register({
           name,
           description: t.description ?? `MCP tool from server "${config.id}"`,
           parameters: (t.inputSchema ?? { type: 'object' }) as ToolParameter,
-          needsApproval: needsApprovalFor(name, config.approval),
+          needsApproval: staticApproval,
+          approvalWhen,
           async execute(args) {
-            const res = await connected.client.callTool({ name: t.name, arguments: args })
+            const res = await connected.client.callTool(
+              { name: t.name, arguments: args },
+              undefined,
+              { timeout: MCP_TOOL_TIMEOUT_MS },
+            )
             return formatMcpResult(res)
           },
         } satisfies Tool)

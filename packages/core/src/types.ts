@@ -65,6 +65,11 @@ export interface Tool {
   /** If true, the tool requires human approval before execution. Reserved for
    *  a future human-in-the-loop flow; the scaffold flags it in the UI today. */
   needsApproval?: boolean
+  /** Optional dynamic approval rule evaluated at call time with the actual
+   *  tool arguments. Takes precedence over {@link needsApproval} when present,
+   *  letting a tool require approval only for specific argument values (e.g. a
+   *  paid model provider) without gating every invocation. */
+  approvalWhen?: (args: Record<string, unknown>) => boolean
   /** Execute the tool. May return a string or structured JSON. */
   execute(args: Record<string, unknown>, ctx?: ToolExecutionContext): Promise<string | object>
 }
