@@ -144,6 +144,7 @@ export class AgentService extends Service {
       '- shell 命令的工作目录是项目根目录，可正常运行 pnpm、node、python 等命令；如缺少依赖（如 pytest），用 python 直接运行脚本或先 pip install。',
       '- serena:* 工具需要先调用 serena:activate_project 激活项目；如果报 "No active project"，不要反复调用，改用内置的 read-file/write-file 工具。',
       '- 如果某个工具连续调用失败，换一种方式实现，不要反复重试消耗迭代次数。',
+      '- 避免重复调用：同一个技能（skill-run）只加载一次；同一个工具如果已经在本轮对话中执行过且结果仍有效，不要再次调用。尤其：技能加载一次后直接按其中步骤执行，不要重复 skill-run；portfolio-check 体检一次通过后直接进入下一步，不要重复体检。',
     ].join('\n')
     messages.unshift({ role: 'system', content: envBrief })
 
