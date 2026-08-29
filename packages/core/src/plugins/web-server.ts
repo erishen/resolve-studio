@@ -417,7 +417,93 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       return
     }
 
+    // Direct single-tool execution (retry buttons/RPA): run one registered tool
+    // by name with given args, streaming the same SSE event vocabulary as the
+    // chat flow (tool-call / approval-request / tool-progress / tool-result /
+    // done). Approval gating is honored exactly like the agent loop.
+    if (path === '/api/tool/run' && req.method === 'POST') {
+      await handleToolRun(req, res)
+      return
+    }
+
     sendJson(res, 404, { error: 'not found' })
+  }
+
+  async function handleToolRun(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const body = await readBody(req)
+    let parsed: { name?: unknown; arguments?: Record<string, unknown> }
+    try {
+      parsed = JSON.parse(body || '{}')
+    } catch {
+      sendJson(res, 400, { error: 'invalid JSON body' })
+      return
+    }
+    const name = parsed.name
+    if (typeof name !== 'string' || !name) {
+      sendJson(res, 400, { error: 'expected { name }' })
+      return
+    }
+    const args: Record<string, unknown> =
+      parsed.arguments && typeof parsed.arguments === 'object' ? parsed.arguments : {}
+    if (!ctx.tools.get(name)) {
+      sendJson(res, 404, { error: `tool not found: ${name}` })
+      return
+    }
+
+    const ac = new AbortController()
+    req.on('close', () => ac.abort())
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    })
+    res.write('retry: 2000\n\n')
+
+    const send = (event: string, data: unknown) => {
+      res.write(`event: ${event}\n`)
+      res.write(`data: ${JSON.stringify(data)}\n\n`)
+    }
+
+    // Same event vocab as the chat SSE stream so the web client reuses its
+    // existing tool-state handling. Approval request is routed here as well.
+    const bus: RunEventBus = {
+      emit(event: string, payload?: unknown) {
+        if (event === 'agent/tool-call') send('tool-call', { call: payload })
+        else if (event === 'agent/tool-progress') send('tool-progress', { payload })
+        else if (event === 'agent/tool-result') send('tool-result', { payload })
+        else if (event === 'agent/approval-request') send('approval-request', { call: payload })
+      },
+    }
+
+    const call = { id: `tool-${Math.random().toString(36).slice(2, 10)}`, name, arguments: args }
+    send('tool-call', { call })
+
+    try {
+      if (ctx.tools.needsApproval(name, args) && ctx.approval) {
+        const decision = await ctx.approval.request(call, bus)
+        if (decision === 'reject') {
+          const result = `User rejected the tool call "${name}".`
+          send('tool-result', { payload: { call, result, ok: false, durationMs: 0 } })
+          send('done', { answer: result })
+          return
+        }
+      }
+      const t0 = performance.now()
+      const result = await ctx.tools.call(name, args, {
+        onProgress: (chunk: string) =>
+          send('tool-progress', { payload: { id: call.id, chunk } }),
+      })
+      send('tool-result', {
+        payload: { call, result, ok: !result.startsWith('error:'), durationMs: performance.now() - t0 },
+      })
+      send('done', { answer: result })
+    } catch (err) {
+      send('error', { message: (err as Error).message })
+    } finally {
+      if (!res.writableEnded) res.end()
+    }
   }
 
   async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {

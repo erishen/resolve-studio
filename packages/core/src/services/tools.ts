@@ -11,6 +11,16 @@ import type { Context } from 'cordis'
 import { Service } from 'cordis'
 import type { Tool, ToolSchema, ToolExecutionContext } from '../types.js'
 
+/** Best-effort parse of tool args that arrive as a JSON string. */
+function safeParseArgs(raw: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(raw)
+    return v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
 /** Options for {@link ToolRegistry.call}. */
 export interface ToolCallOptions {
   /**
@@ -62,6 +72,22 @@ export class ToolRegistry extends Service {
   /** All registered tools. */
   list(): Tool[] {
     return [...this.registry.values()]
+  }
+
+  /**
+   * Whether calling a tool with the given args needs human approval. Mirrors
+   * the agent loop's `toolNeedsApproval`: honors the dynamic {@link Tool.approvalWhen}
+   * rule (evaluated against args) when present, else the static flag.
+   */
+  needsApproval(name: string, args: string | Record<string, unknown>): boolean {
+    const tool = this.registry.get(name)
+    if (!tool) return false
+    if (typeof tool.approvalWhen === 'function') {
+      const parsed: Record<string, unknown> =
+        typeof args === 'string' ? safeParseArgs(args) : (args ?? {})
+      return tool.approvalWhen(parsed)
+    }
+    return !!tool.needsApproval
   }
 
   /** Tool schemas for the LLM. */

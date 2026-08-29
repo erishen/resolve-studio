@@ -497,6 +497,7 @@ export function App() {
                     }
                   }}
                   onPreview={setPreviewPath}
+                  onRetryTool={(name, args) => void chat.runTool(name, args)}
                   onPickExample={(p) => {
                     setDraft(p)
                     composerRef.current?.focus()

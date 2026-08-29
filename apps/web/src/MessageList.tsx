@@ -7,21 +7,24 @@ import { ToolCallCard } from './ToolCallCard'
 /**
  * Extract previewable .md file paths from message text.
  *
- * Only REAL absolute filesystem paths are turned into preview buttons — we
- * require a known root prefix (Users/home/tmp/var/opt/usr/etc) plus at least
- * three path segments. This deliberately excludes relative article links that
- * happen to start with `/` (e.g. the `/pse/zh/...` cross-links crewai-pse
- * injects into generated articles): they look like paths but resolve to
- * nowhere on disk, and the backend sandbox would reject them with
- * "path escapes the allowed sandbox". Keep this in sync with ToolCallCard's
+ * Matches two shapes so the web UI can offer a "preview" button:
+ *  - absolute paths under a known root (/Users|/home|/tmp|/var|/opt|/usr|/etc)
+ *  - relative paths containing at least one "/" (e.g. sandbox/.../foo.md,
+ *    ./x.md, ../a/b.md) — the server resolves them against its cwd and serves
+ *    them if within fsRoots.
+ * This deliberately excludes bare cross-links like /pse/zh/... (leading "/" but
+ * not a real filesystem root) and any URL containing "://" (the backend sandbox
+ * would reject non-filesystem paths). Keep in sync with ToolCallCard's
  * extractMarkdownPaths.
  */
 function extractMarkdownPaths(text: string): string[] {
   const paths = new Set<string>()
-  const re = /(\/(?:Users|home|tmp|var|opt|usr|etc)[^\s'"<>]+\.md)/g
+  const re = /((?:\/(?:Users|home|tmp|var|opt|usr|etc)|[A-Za-z0-9_.\-]+)\/[^\s'"<>]*\.md)/g
   let m
   while ((m = re.exec(text)) !== null) {
-    paths.add(m[1])
+    const p = m[1]
+    if (p.includes('://')) continue
+    paths.add(p)
   }
   return [...paths]
 }
@@ -36,6 +39,8 @@ interface MessageListProps {
   onRegenerate?: () => void
   onEditFrom?: (messageId: string) => void
   onPreview?: (path: string) => void
+  /** Direct re-run affordances (tool cards may ask the user to retry with different args). */
+  onRetryTool?: (name: string, args: Record<string, unknown>) => void
   busy?: boolean
 }
 
@@ -47,6 +52,7 @@ export function MessageList({
   onRegenerate,
   onEditFrom,
   onPreview,
+  onRetryTool,
   busy,
 }: MessageListProps) {
   const lastIdx = messages.length - 1
@@ -133,6 +139,7 @@ export function MessageList({
                       progress={tc.progress}
                       onPreview={onPreview}
                       onDecide={tc.id && onDecide ? (d) => onDecide(tc.id as string, d) : undefined}
+                      onRetryTool={onRetryTool}
                     />
                   ))}
                 </div>

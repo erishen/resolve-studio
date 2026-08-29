@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { approveCall, streamChat } from '../api'
+import { approveCall, streamChat, streamToolRun } from '../api'
 import type { ChatEvent, ToolSchema, UIMessage } from '../types'
 
 function uid(): string {
@@ -234,6 +234,117 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
     abortRef.current?.abort()
   }, [])
 
+  /**
+   * Directly run a single tool by name (no LLM round-trip) — used by retry
+   * affordances on tool cards. Appends an assistant message hosting the tool
+   * card and streams the same SSE events as a normal chat run.
+   */
+  const runTool = useCallback(
+    async (name: string, args: Record<string, unknown>) => {
+      if (busy) return
+      setError(null)
+      setBusy(true)
+
+      const assistantId = uid()
+      const assistantMsg: UIMessage = {
+        id: assistantId,
+        role: 'assistant',
+        content: '',
+        toolCalls: [],
+        pending: true,
+      }
+      setMessages((prev) => [...prev, assistantMsg])
+
+      const toolStates = new Map<
+        string,
+        NonNullable<UIMessage['toolCalls']>[number] & { id: string }
+      >()
+      const patchAssistant = (patch: Partial<UIMessage>) => {
+        setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)))
+      }
+      const ac = new AbortController()
+      abortRef.current = ac
+      const isGated = (n: string) => tools.some((t) => t.name === n && t.needsApproval)
+
+      const handle = (ev: ChatEvent) => {
+        switch (ev.type) {
+          case 'tool-call': {
+            const entry = {
+              id: ev.call.id,
+              name: ev.call.name,
+              arguments: ev.call.arguments,
+              gated: isGated(ev.call.name),
+            }
+            toolStates.set(ev.call.id, entry)
+            patchAssistant({ toolCalls: [...toolStates.values()] })
+            break
+          }
+          case 'approval-request': {
+            const existing = toolStates.get(ev.call.id) ?? {
+              id: ev.call.id,
+              name: ev.call.name,
+              arguments: ev.call.arguments,
+            }
+            toolStates.set(ev.call.id, {
+              ...existing,
+              awaitingApproval: true,
+              decision: undefined,
+            })
+            patchAssistant({ toolCalls: [...toolStates.values()] })
+            break
+          }
+          case 'tool-result': {
+            const existing = toolStates.get(ev.payload.call.id)
+            if (existing) {
+              toolStates.set(ev.payload.call.id, {
+                ...existing,
+                result: ev.payload.result,
+                ok: ev.payload.ok,
+                awaitingApproval: false,
+                durationMs: ev.payload.durationMs,
+              })
+              patchAssistant({ toolCalls: [...toolStates.values()] })
+            }
+            break
+          }
+          case 'tool-progress': {
+            const existing = toolStates.get(ev.payload.id)
+            if (existing) {
+              toolStates.set(ev.payload.id, {
+                ...existing,
+                progress: (existing.progress ?? '') + ev.payload.chunk,
+              })
+              patchAssistant({ toolCalls: [...toolStates.values()] })
+            }
+            break
+          }
+          case 'done': {
+            patchAssistant({ content: ev.answer, pending: false })
+            break
+          }
+          case 'error': {
+            setError(ev.message)
+            patchAssistant({ pending: false })
+            break
+          }
+        }
+      }
+
+      try {
+        await streamToolRun(name, args, handle)
+      } catch (err) {
+        setError((err as Error).message)
+        patchAssistant({ pending: false })
+      } finally {
+        setBusy(false)
+        abortRef.current = null
+        patchAssistant({ pending: false })
+        onCompleteRef.current?.(messagesRef.current)
+      }
+    },
+    [busy, tools],
+  )
+
   const reset = useCallback(() => {
     setMessages([])
     setError(null)
@@ -286,6 +397,7 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
     setError,
     usage,
     send,
+    runTool,
     stop,
     reset,
     regenerate,

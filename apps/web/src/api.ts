@@ -191,6 +191,54 @@ export async function fetchTools(): Promise<ToolSchema[]> {
   return data.tools ?? []
 }
 
+/**
+ * Directly run a single tool by name (used by UI retry affordances), consuming
+ * the same SSE stream as `/api/chat` (tool-call / approval-request / progress /
+ * result / done), so the chat hook can reuse its event handling unchanged.
+ */
+export async function streamToolRun(
+  name: string,
+  args: Record<string, unknown>,
+  onEvent: (ev: ChatEvent) => void,
+): Promise<void> {
+  const res = await fetch('/api/tool/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, arguments: args }),
+  })
+  if (!res.ok || !res.body) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(data.error ?? `tool run failed: ${res.status}`)
+  }
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      let sep: number
+      while ((sep = buffer.indexOf('\n\n')) !== -1) {
+        const frame = buffer.slice(0, sep)
+        buffer = buffer.slice(sep + 2)
+        const parsed = parseFrame(frame)
+        if (parsed) onEvent(parsed)
+      }
+    }
+  } catch (err) {
+    if ((err as Error)?.name === 'AbortError') return
+    throw err
+  }
+  const tail = buffer.trim()
+  if (tail) {
+    const parsed = parseFrame(tail)
+    if (parsed) onEvent(parsed)
+  }
+}
+
 /** Fetch the available models and the backend's default model. */
 export async function fetchModels(): Promise<{ models: ModelInfo[]; defaultModel?: string }> {
   const res = await fetch('/api/models')

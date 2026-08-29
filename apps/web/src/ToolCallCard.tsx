@@ -17,7 +17,12 @@ interface ToolCallCardProps {
   progress?: string
   onDecide?: (decision: 'approve' | 'reject') => void
   onPreview?: (path: string) => void
+  /** Direct re-run affordances (tool may ask the user to retry with different args). */
+  onRetryTool?: (name: string, args: Record<string, unknown>) => void
 }
+
+// Sentinel emitted by pse-review on "agnes 抽风" — UI renders a retry choice.
+const RETRY_CHOICE_RE = /^PSE_RETRY_CHOICE\b/m
 
 function renderArgs(args: string | Record<string, unknown>): string {
   if (typeof args === 'string') return args
@@ -83,16 +88,23 @@ function screenshotUrl(result?: string): string | null {
   return `/api/screenshots/${encodeURIComponent(file)}`
 }
 
-/** Extract absolute .md file paths from a tool result for preview. */
+/**
+ * Extract previewable .md file paths from a tool result.
+ * Matches absolute paths under a known root (/Users|/home|/tmp|/var|/opt|/usr|/etc)
+ * and relative paths containing at least one "/" (e.g. sandbox/.../foo.md,
+ * ./x.md, ../a/b.md) — the server resolves relatives against its cwd and serves
+ * them if within fsRoots. URLs containing "://" are skipped. Keep in sync with
+ * MessageList's extractMarkdownPaths.
+ */
 function extractMarkdownPaths(result?: string): string[] {
   if (!result) return []
   const paths = new Set<string>()
-  // Match absolute paths ending in .md. Require at least 3 path segments
-  // (e.g. /Users/.../file.md) to avoid matching URL fragments like /foo.md.
-  const re = /(\/(?:Users|home|tmp|var|opt|usr|etc)[^\s'"<>]+\.md)/g
+  const re = /((?:\/(?:Users|home|tmp|var|opt|usr|etc)|[A-Za-z0-9_.\-]+)\/[^\s'"<>]*\.md)/g
   let m
   while ((m = re.exec(result)) !== null) {
-    paths.add(m[1])
+    const p = m[1]
+    if (p.includes('://')) continue
+    paths.add(p)
   }
   return [...paths]
 }
@@ -132,11 +144,14 @@ export function ToolCallCard({
   progress,
   onDecide,
   onPreview,
+  onRetryTool,
 }: ToolCallCardProps) {
   const resolved = ok === undefined ? 'pending' : ok ? 'ok' : 'error'
   const shot = screenshotUrl(result)
   const engineInfo = parseEngineInfo(result)
   const mdPaths = extractMarkdownPaths(result)
+  const retryChoice = !!result && RETRY_CHOICE_RE.test(result)
+  const displayResult = result?.replace(/^PSE_RETRY_CHOICE\n?/m, '') ?? result
   const durationLabel =
     durationMs !== undefined
       ? durationMs < 1000
@@ -215,7 +230,28 @@ export function ToolCallCard({
               ))}
             </div>
           )}
-          <CollapsiblePre text={result} maxLines={12} />
+          <CollapsiblePre text={displayResult ?? ''} maxLines={12} />
+          {retryChoice && onRetryTool && (
+            <div className="tool-retry">
+              <span className="tool-label">重试选项</span>
+              <div className="tool-retry-buttons">
+                <button
+                  className="btn btn-sm"
+                  onClick={() => onRetryTool(name, {})}
+                  title="重新用免费 agnes 跑一次"
+                >
+                  重试 agnes（免费）
+                </button>
+                <button
+                  className="btn btn-sm btn-primary"
+                  onClick={() => onRetryTool(name, { provider: 'deepseek' })}
+                  title="改用付费 DeepSeek（将触发审批）"
+                >
+                  改用 DeepSeek（付费·需审批）
+                </button>
+              </div>
+            </div>
+          )}
           {shot && (
             <a href={shot} target="_blank" rel="noreferrer">
               <img className="tool-screenshot" src={shot} alt="screenshot" />

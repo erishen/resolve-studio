@@ -577,6 +577,7 @@ body {
   align-items: center;
   gap: 6px;
   font-size: 12px;
+  flex-wrap: nowrap;
 }
 
 .mcp-head-clickable {
@@ -625,12 +626,14 @@ body {
 .mcp-id {
   font-weight: 500;
   font-family: 'SF Mono', Menlo, Consolas, monospace;
+  flex-shrink: 0;
 }
 
 .mcp-meta {
   font-size: 11px;
   color: var(--muted);
   flex: 1;
+  white-space: nowrap;
 }
 
 .mcp-remove {
@@ -642,6 +645,7 @@ body {
   cursor: pointer;
   padding: 1px 4px;
   border-radius: 4px;
+  flex-shrink: 0;
 }
 
 .mcp-remove:hover {
@@ -1063,6 +1067,22 @@ body {
 .tool-args,
 .tool-result {
   padding: 7px 10px;
+}
+
+.tool-retry {
+  margin-top: 8px;
+}
+
+.tool-retry-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.tool-retry-buttons .btn {
+  justify-content: flex-start;
+  text-align: left;
 }
 
 .tool-label {
