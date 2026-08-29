@@ -83,7 +83,6 @@ function toolExample(t: ToolSchema): ExampleItem | null {
     'sf-pw-publish': { prompt: '帮我把下一篇未发布的文章发布到思否（用 Playwright 真浏览器）。', category: 'article' },
     'pick-post': { prompt: '帮我随机选一篇已发布的技术文章，我想给它写条评论。', category: 'article' },
     'pse-review': { prompt: '帮我做一份深度投资组合分析，用 autogen-pse 的 PSE 三角色流水线生成。', category: 'invest' },
-    'portfolio-summary': { prompt: '帮我做一份当前投资组合的快速概览，包括持仓、收益和风险分布。', category: 'invest' },
     'portfolio-check': {
       prompt:
         '帮我做一次投资前数据体检：用 portfolio-check 工具在 analysis-lens 执行 make calculate / analyze / compare 刷新快照并扫描异常，确认数据无误后再做投资复盘。',
@@ -197,6 +196,8 @@ export function buildExamples(
 
   // Priority tools first so they appear first within each category.
   const priorityTools = [
+    'portfolio-check',
+    'pse-review',
     'article-write',
     'article-validate',
     'article-publish',
@@ -206,9 +207,6 @@ export function buildExamples(
     'wechat-draft',
     'sf-pw-publish',
     'pick-post',
-    'pse-review',
-    'portfolio-summary',
-    'portfolio-check',
     'resume-tailor',
     'interview-questions',
     'crm-task',
