@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { addMcpServer, fetchMcpServers, removeMcpServer, type McpServerInfo } from '../api'
 
+export interface UseMcpOptions {
+  /** Called after the server list changes (add/remove) so callers can refresh
+   *  derived data like the tools list / examples. */
+  onToolsChanged?: () => void | Promise<void>
+}
+
 /**
  * MCP server management hook.
  *
@@ -8,7 +14,8 @@ import { addMcpServer, fetchMcpServers, removeMcpServer, type McpServerInfo } fr
  * actions. Extracted from App.tsx so the chat component doesn't also have to
  * manage MCP form fields.
  */
-export function useMcp() {
+export function useMcp(options: UseMcpOptions = {}) {
+  const { onToolsChanged } = options
   const [servers, setServers] = useState<McpServerInfo[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
@@ -53,8 +60,9 @@ export function useMcp() {
     if (server) {
       setServers((prev) => [server, ...prev.filter((s) => s.id !== server.id)])
       resetForm()
+      void onToolsChanged?.()
     }
-  }, [id, transport, command, args, url, noApproval, resetForm])
+  }, [id, transport, command, args, url, noApproval, resetForm, onToolsChanged])
 
   const startEdit = useCallback((s: McpServerInfo) => {
     setEditId(s.id)
@@ -69,8 +77,11 @@ export function useMcp() {
 
   const remove = useCallback(async (serverId: string) => {
     const ok = await removeMcpServer(serverId)
-    if (ok) setServers((prev) => prev.filter((s) => s.id !== serverId))
-  }, [])
+    if (ok) {
+      setServers((prev) => prev.filter((s) => s.id !== serverId))
+      void onToolsChanged?.()
+    }
+  }, [onToolsChanged])
 
   return {
     servers,

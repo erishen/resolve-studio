@@ -97,6 +97,11 @@ const PERSISTED_FILE = join(process.cwd(), '.data', 'mcp-servers.json')
 // killed long-running tools with `-32001 Request timed out`.
 const MCP_TOOL_TIMEOUT_MS = Number(process.env.MCP_TOOL_TIMEOUT_MS ?? 600_000)
 
+// Upper bound for how long /api/tools waits on startup MCP connections before
+// returning whatever is registered. Serena can take 2-3s to boot; this keeps
+// the initial tools/examples snapshot complete without hanging on a stuck server.
+const MCP_READY_TIMEOUT_MS = Number(process.env.MCP_READY_TIMEOUT_MS ?? 8_000)
+
 async function connectServer(s: McpServerConfig): Promise<ConnectedServer> {
   const client = new Client({ name: 'resolve-studio', version: '0.1.0' })
   if (s.transport === 'http') {
@@ -172,13 +177,36 @@ export class McpService extends Service {
   /** Servers added at runtime (persisted across restarts). */
   private readonly persisted: McpServerConfig[] = []
   private readonly persistedFile: string
+  /** Resolves once startup connections settle (bounded by MCP_READY_TIMEOUT_MS). */
+  private readonly ready: Promise<void>
 
   constructor(ctx: Context, config: McpConfig = {}) {
     super(ctx, 'mcp')
     this.persistedFile = PERSISTED_FILE
-    // Fire-and-forget: startup connections are async; failures are recorded,
-    // never fatal. yml servers first, then persisted user-added ones.
-    void this.init(config.servers ?? [])
+    // Startup connections are async and failures are recorded (never fatal).
+    // We capture the init promise (bounded by MCP_READY_TIMEOUT_MS) so callers
+    // that need a complete tools snapshot - notably /api/tools at first paint -
+    // can await whenReady() and not miss slow-booting servers like Serena.
+    this.ready = this.boundReady(this.init(config.servers ?? []))
+  }
+
+  /** Resolve once startup MCP connections have settled (or timed out). */
+  whenReady(): Promise<void> {
+    return this.ready
+  }
+
+  private async boundReady(p: Promise<void>): Promise<void> {
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, MCP_READY_TIMEOUT_MS)
+    })
+    try {
+      await Promise.race([p, timeout])
+    } catch {
+      // init never throws (connect records errors), but guard anyway.
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
   }
 
   private async init(ymlServers: McpServerConfig[]): Promise<void> {

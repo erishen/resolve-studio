@@ -63,8 +63,13 @@ export function App() {
   }, [theme])
 
   // ---- domain hooks ----
+  // Re-fetch just the tools list (used when MCP servers connect/disconnect at
+  // runtime so the tools + derived examples stay in sync without a full reload).
+  const reloadTools = useCallback(async () => {
+    setTools(await fetchTools())
+  }, [])
   const sessions = useSessions()
-  const mcp = useMcp()
+  const mcp = useMcp({ onToolsChanged: reloadTools })
   const memory = useMemory()
   const combinedSystemPrompt = [
     PROMPT_TEMPLATES.find((t) => t.id === promptTemplateId)?.systemPrompt,

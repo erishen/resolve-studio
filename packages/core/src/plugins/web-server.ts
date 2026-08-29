@@ -100,6 +100,10 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
     }
 
     if (path === '/api/tools' && req.method === 'GET') {
+      // Wait for startup MCP connections (bounded inside mcp) so the first paint
+      // includes slow-booting servers (Serena/pse-review); otherwise the UI would
+      // miss their tools and derived example prompts until a manual reload.
+      if (ctx.mcp) await ctx.mcp.whenReady()
       const tools = ctx.tools.schemas()
       sendJson(res, 200, { tools })
       return
