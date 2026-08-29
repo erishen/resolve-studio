@@ -531,10 +531,11 @@ export function App() {
               <details className="runtime-section" open>
                 <summary>
                   Tools (
-                  {
-                    tools.filter((t) => !mcp.servers.some((s) => t.name.startsWith(`${s.id}:`)))
-                      .length
-                  }
+                  {mcp.loaded
+                    ? tools.filter(
+                        (t) => !mcp.servers.some((s) => t.name.startsWith(`${s.id}:`)),
+                      ).length
+                    : '…'}
                   )
                 </summary>
                 <div
@@ -543,18 +544,23 @@ export function App() {
                     .map((t) => `${t.name}${t.needsApproval ? ' (needs approval)' : ''}`)
                     .join(', ')}
                 >
-                  {tools.length === 0 && <span className="runtime-empty">none</span>}
-                  {tools
-                    .filter((t) => !mcp.servers.some((s) => t.name.startsWith(`${s.id}:`)))
-                    .map((t) => (
-                      <span
-                        key={t.name}
-                        className={t.needsApproval ? 'tool-chip tool-chip-gated' : 'tool-chip'}
-                      >
-                        {t.name}
-                        {t.needsApproval ? ' ⚠' : ''}
-                      </span>
-                    ))}
+                  {!mcp.loaded && <span className="runtime-empty">loading…</span>}
+                  {mcp.loaded &&
+                    tools.filter(
+                      (t) => !mcp.servers.some((s) => t.name.startsWith(`${s.id}:`)),
+                    ).length === 0 && <span className="runtime-empty">none</span>}
+                  {mcp.loaded &&
+                    tools
+                      .filter((t) => !mcp.servers.some((s) => t.name.startsWith(`${s.id}:`)))
+                      .map((t) => (
+                        <span
+                          key={t.name}
+                          className={t.needsApproval ? 'tool-chip tool-chip-gated' : 'tool-chip'}
+                        >
+                          {t.name}
+                          {t.needsApproval ? ' ⚠' : ''}
+                        </span>
+                      ))}
                 </div>
               </details>
               <details className="runtime-section" open>

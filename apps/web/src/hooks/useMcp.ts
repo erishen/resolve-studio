@@ -17,6 +17,10 @@ export interface UseMcpOptions {
 export function useMcp(options: UseMcpOptions = {}) {
   const { onToolsChanged } = options
   const [servers, setServers] = useState<McpServerInfo[]>([])
+  // False until the initial fetchMcpServers resolves. The runtime sidebar uses
+  // this to avoid a first-frame race where tools load before servers: without
+  // the server list, MCP tools (fs:*/serena:*...) would be shown as plain tools.
+  const [loaded, setLoaded] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [id, setId] = useState('')
@@ -28,6 +32,7 @@ export function useMcp(options: UseMcpOptions = {}) {
 
   const refresh = useCallback(async () => {
     setServers(await fetchMcpServers())
+    setLoaded(true)
   }, [])
 
   useEffect(() => {
@@ -86,6 +91,7 @@ export function useMcp(options: UseMcpOptions = {}) {
   return {
     servers,
     setServers,
+    loaded,
     showForm,
     setShowForm,
     editId,
