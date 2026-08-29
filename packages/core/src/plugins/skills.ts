@@ -171,7 +171,7 @@ export class SkillsService extends Service {
     return [
       '可用技能（skills）：',
       ...lines,
-      '使用某技能时，先用 read-file 读取对应 SKILL.md，再按其步骤执行。',
+      '使用某技能时，直接调用 skill-run 工具（参数 name=技能名）加载完整指令与步骤，再按其流程执行；不要用 read-file 去猜 SKILL.md 的路径。',
     ].join('\n')
   }
 }
