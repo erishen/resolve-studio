@@ -24,7 +24,9 @@ interface ToolCallCardProps {
 }
 
 // Sentinel emitted by pse-review on "agnes 抽风" — UI renders a retry choice.
-const RETRY_CHOICE_RE = /^PSE_RETRY_CHOICE\b/m
+// Failure returns begin with `error: ` (so the harness marks ok=false), and the
+// sentinel appears on its own line; detect anywhere to be robust to the prefix.
+const RETRY_CHOICE_RE = /PSE_RETRY_CHOICE/
 
 function renderArgs(args: string | Record<string, unknown>): string {
   if (typeof args === 'string') return args
@@ -154,7 +156,7 @@ export function ToolCallCard({
   const engineInfo = parseEngineInfo(result)
   const mdPaths = extractMarkdownPaths(result)
   const retryChoice = !!result && RETRY_CHOICE_RE.test(result)
-  const displayResult = result?.replace(/^PSE_RETRY_CHOICE\n?/m, '') ?? result
+  const displayResult = result?.replace(/^error:\s*/m, '').replace(/^PSE_RETRY_CHOICE\n?/m, '') ?? result
   const durationLabel =
     durationMs !== undefined
       ? durationMs < 1000
