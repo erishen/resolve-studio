@@ -263,11 +263,21 @@ export class McpService extends Service {
           parameters: (t.inputSchema ?? { type: 'object' }) as ToolParameter,
           needsApproval: staticApproval,
           approvalWhen,
-          async execute(args) {
+          async execute(args, toolCtx) {
             const res = await connected.client.callTool(
               { name: t.name, arguments: args },
               undefined,
-              { timeout: MCP_TOOL_TIMEOUT_MS },
+              {
+                timeout: MCP_TOOL_TIMEOUT_MS,
+                // Forward MCP progress notifications to the agent loop, which
+                // surfaces them to the UI as live tool progress.
+                onprogress: toolCtx?.onProgress
+                  ? (p) => {
+                      const msg = (p as { message?: unknown })?.message
+                      if (msg) toolCtx.onProgress?.(String(msg))
+                    }
+                  : undefined,
+              },
             )
             return formatMcpResult(res)
           },
