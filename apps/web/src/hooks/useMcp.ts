@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { addMcpServer, fetchMcpServers, removeMcpServer, type McpServerInfo } from '../api'
 
 export interface UseMcpOptions {
@@ -6,6 +6,13 @@ export interface UseMcpOptions {
    *  derived data like the tools list / examples. */
   onToolsChanged?: () => void | Promise<void>
 }
+
+// `make dev` starts the backend (8787) and the vite frontend together; the page
+// can render before the MCP servers finish connecting, so the first fetch may
+// legitimately return an empty list. Poll a few times before giving up, instead
+// of showing "none" and requiring a manual refresh.
+const RETRY_DELAY_MS = 1500
+const MAX_RETRIES = 10
 
 /**
  * MCP server management hook.
@@ -29,14 +36,32 @@ export function useMcp(options: UseMcpOptions = {}) {
   const [args, setArgs] = useState('')
   const [url, setUrl] = useState('')
   const [noApproval, setNoApproval] = useState(false)
+  const retryCountRef = useRef(0)
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refresh = useCallback(async () => {
-    setServers(await fetchMcpServers())
+    let list: McpServerInfo[] = []
+    try {
+      list = await fetchMcpServers()
+    } catch {
+      list = []
+    }
+    setServers(list)
+    if (list.length === 0 && retryCountRef.current < MAX_RETRIES) {
+      // Backend may still be connecting (make dev race) — try again shortly.
+      retryCountRef.current += 1
+      retryTimerRef.current = setTimeout(() => void refresh(), RETRY_DELAY_MS)
+      return // keep loaded=false so the UI shows "loading…"
+    }
+    retryCountRef.current = 0
     setLoaded(true)
   }, [])
 
   useEffect(() => {
     void refresh()
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
+    }
   }, [refresh])
 
   const resetForm = useCallback(() => {
