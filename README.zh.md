@@ -26,7 +26,7 @@
 | **插件脚手架**    | `make new-plugin name=x` 一键生成插件包并接线                                          |
 | **跨生态加载**    | 支持按 npm 包名动态加载纯 Cordis 插件（dsh `cordis.patch.yml` 格式）                   |
 | **MCP 接入**      | 连接任意 MCP Server（stdio/http），工具以 `<id>:<tool>` 注册，默认需审批               |
-| **专用工具集**    | 文章写作/发布、简历定制、面试题生成、CRM 任务、投资组合汇总、项目发现等 60+ 工具        |
+| **专用工具集**    | 文章写作/发布、简历定制、面试题生成、CRM 任务、投资组合汇总、热点内容、项目发现等 60+ 工具        |
 
 ## 快速开始
 
@@ -131,8 +131,9 @@ browser-open · browser-screenshot · pick-post · system-info · skill-run
 专用工具（文章/投资/面试/CRM）：
 ```
 article-write · article-validate · article-publish · article-archive · article-discover
-resume-tailor · interview-questions · crm-task · portfolio-summary · pse-review
+resume-tailor · interview-questions · crm-task · portfolio-check · pse-review
 wp-publish · crewai-publish · crewai-discover
+hot-news-fetch · hot-news-topics · hot-news · hot-news-check
 ```
 
 读的操作无审批（browser/pick-post/read-file/system-info），写与执行必过审批（shell/calculator 演示）。**MCP server 的工具**（配置 `servers:` 后）以 `<serverId>:<toolName>` 追加注册，默认同样需审批。
@@ -221,3 +222,6 @@ wp-publish · crewai-publish · crewai-discover
 make docker-up        # 后端 :8787 + 前端 :5173
 make docker-down
 ```
+
+## 相关文章
+- [Cordis 插件化 Agent 运行时：用 DI 容器把 LLM 后端、工具、审批流全部变成配置](https://erishen.cn/resolve_studio/)

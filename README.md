@@ -26,7 +26,7 @@ Core idea: the LLM backend, tools, agent loop, approvals, skills, and the fronte
 | **Plugin scaffolding**    | `make new-plugin name=x` generates a plugin package and wires it up in one step           |
 | **Cross-ecosystem loading** | dynamically load pure Cordis plugins by npm package name (dsh `cordis.patch.yml` format) |
 | **MCP integration**       | connect any MCP Server (stdio/http), tools registered as `<id>:<tool>`, approval on by default |
-| **Specialized toolset**   | 60+ tools for article writing/publishing, resume tailoring, interview questions, CRM tasks, portfolio summary, project discovery, and more |
+| **Specialized toolset**   | 60+ tools for article writing/publishing, resume tailoring, interview questions, CRM tasks, portfolio summary, hot-news content, project discovery, and more |
 
 ## Quick start
 
@@ -128,11 +128,12 @@ hello · echo · calculator⚠ · read-file · write-file · shell⚠
 browser-open · browser-screenshot · pick-post · system-info · skill-run
 ```
 
-Specialized tools (articles / investing / interviews / CRM):
+Specialized tools (articles / investing / interviews / CRM / hot-news):
 ```
 article-write · article-validate · article-publish · article-archive · article-discover
-resume-tailor · interview-questions · crm-task · portfolio-summary · pse-review
+resume-tailor · interview-questions · crm-task · portfolio-check · pse-review
 wp-publish · crewai-publish · crewai-discover
+hot-news-fetch · hot-news-topics · hot-news · hot-news-check
 ```
 
 Read operations need no approval (browser/pick-post/read-file/system-info); writes and executions must pass approval (shell/calculator are demos). Tools from an **MCP server** (after configuring `servers:`) are appended as `<serverId>:<toolName>` and, by default, also require approval.
@@ -221,3 +222,6 @@ See [docs/plugin-authoring.md](docs/plugin-authoring.md) for a step-by-step guid
 make docker-up        # backend :8787 + frontend :5173
 make docker-down
 ```
+
+## Related Articles
+- [Cordis Plugin-Based Agent Runtime: Using a DI Container to Make LLM Backends, Tools, and Approval Flows All Configurable](https://erishen.cn/resolve_studio-en/)
