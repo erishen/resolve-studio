@@ -41,10 +41,17 @@ CORE  := $(ROOT)/packages/core
 WEB   := $(ROOT)/apps/web
 PID_DIR := $(ROOT)/.run
 
-# 进程特征（pkill 精确停，不依赖 PID 文件）
+# BACKEND_MATCH 必须同时锚定「启动方式」和「本项目入口文件」两件事：
+#   - 只写 `--import tsx` 会误杀机器上任何用 tsx 启动的 node 进程（别的项目的
+#     dev server 也在这个模式里）；
+#   - 只写入口文件又可能匹配到编辑器/其他工具打开的同名文件进程。
+# 两者都写，误杀面就收敛到「本项目的后端」。
+# 不锚 `^node`：argv[0] 可能是 node 的绝对路径（nvm / volta shim），锚死会漏匹配。
+# `$(subst .,[.],...)` 把入口路径的点号转义：清理命令自身的 argv 里是字面量
+# `index[.]ts`，而正则只匹配真实的 `index.ts`，因此不会自杀（同 WEB_MATCH 的技巧）。
 BACKEND_BIN  := packages/core/src/index.ts
-BACKEND_MATCH := $(BACKEND_BIN) --config
-WEB_MATCH     := vite --host 127.0.0.1 --port $(WEB_PORT)
+BACKEND_MATCH := --import tsx .*$(subst .,[.],$(BACKEND_BIN))
+WEB_MATCH     := vite[.]js --host 127.0.0.1 --port $(WEB_PORT)
 
 .PHONY: all install typecheck test check build build-web \
         chat chat-real dev dev-mock stop clean help new-plugin manifests \
@@ -97,27 +104,29 @@ define kill_port
 endef
 
 dev: $(PID_DIR)    ## 后端(真实模型)+前端 dev（前台常驻，Ctrl-C 退出）
+	-@pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; true
 	$(call kill_port,$(BACKEND_PORT))
 	$(call kill_port,$(WEB_PORT))
 	@echo "starting backend (real model) on :$(BACKEND_PORT) && web dev on :$(WEB_PORT) ..."; \
 	echo "--- backend log (live, colored) ---"; \
-	FORCE_COLOR=1 node --import tsx $(CORE)/src/index.ts --config $(DEV_CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & BACKEND_PID=$$!; \
-	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & WEB_PID=$$!; \
+	FORCE_COLOR=1 node --import tsx $(CORE)/src/index.ts --config $(DEV_CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & \
+	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & \
 	echo "ready: http://127.0.0.1:$(WEB_PORT)  (backend :$(BACKEND_PORT), real model)"; \
 	echo "Ctrl-C to stop. web log: $(PID_DIR)/web.log"; \
-	trap 'kill $$BACKEND_PID $$WEB_PID 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
+	trap 'pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
 	wait
 
 dev-mock: $(PID_DIR)  ## 后端(mock)+前端 dev（离线，无需密钥，Ctrl-C 退出）
+	-@pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; true
 	$(call kill_port,$(BACKEND_PORT))
 	$(call kill_port,$(WEB_PORT))
 	@echo "starting backend (mock) on :$(BACKEND_PORT) && web dev on :$(WEB_PORT) ..."; \
 	echo "--- backend log (live, colored) ---"; \
-	FORCE_COLOR=1 node --import tsx $(CORE)/src/index.ts --config $(CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & BACKEND_PID=$$!; \
-	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & WEB_PID=$$!; \
+	FORCE_COLOR=1 node --import tsx $(CORE)/src/index.ts --config $(CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & \
+	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & \
 	echo "ready: http://127.0.0.1:$(WEB_PORT)  (backend :$(BACKEND_PORT), mock)"; \
 	echo "Ctrl-C to stop. web log: $(PID_DIR)/web.log"; \
-	trap 'kill $$BACKEND_PID $$WEB_PID 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
+	trap 'pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
 	wait
 
 logs:              ## 实时查看后端和前端日志

@@ -589,6 +589,10 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
     const bus: RunEventBus = {
       emit(event: string, payload?: unknown) {
         switch (event) {
+          // NOTE: `{ call: … }`, not `{ payload: … }` — the web client types
+          // this as `{ type: 'tool-call'; call: ToolCall }` (apps/web/src/
+          // types.ts). The `{ payload }`-shaped duplicate branch that used to
+          // sit here was both dead (unreachable) and shape-incompatible.
           case 'agent/tool-call':
             send('tool-call', { call: payload })
             return
