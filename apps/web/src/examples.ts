@@ -1,7 +1,8 @@
 import type { SkillInfo } from './api'
 import type { ToolSchema } from './types'
 
-export type ExampleCategory = 'article' | 'invest' | 'interview' | 'crm' | 'pse' | 'code' | 'other'
+export type ExampleCategory =
+  'article' | 'hot-news' | 'invest' | 'interview' | 'crm' | 'pse' | 'code' | 'other'
 
 export interface ExampleItem {
   id: string
@@ -15,6 +16,7 @@ export interface ExampleItem {
 
 export const CATEGORY_LABELS: Record<ExampleCategory, string> = {
   article: '文章写作',
+  'hot-news': '热点新闻',
   invest: '投资分析',
   interview: '面试求职',
   crm: 'CRM 相关',
@@ -23,10 +25,67 @@ export const CATEGORY_LABELS: Record<ExampleCategory, string> = {
   other: '其他',
 }
 
-export const CATEGORY_ORDER: ExampleCategory[] = ['article', 'invest', 'interview', 'crm', 'pse', 'code', 'other']
+export const CATEGORY_ORDER: ExampleCategory[] = [
+  'article',
+  'hot-news',
+  'invest',
+  'interview',
+  'crm',
+  'pse',
+  'code',
+  'other',
+]
 
 function humanize(name: string): string {
   return name.replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/** 工具/技能 → 中文任务名（示例卡片标题）。未命中的回退英文 humanize。 */
+const ZH_TITLES: Record<string, string> = {
+  // 文章
+  'article-write': '写技术文章',
+  'article-validate': '校验文章',
+  'article-publish': '发布文章',
+  'article-archive': '归档文章',
+  'article-discover': '发现可写项目',
+  'juejin-draft': '建掘金草稿',
+  'wechat-draft': '建公众号草稿',
+  'sf-pw-publish': '发布到思否',
+  'pick-post': '随机选文章',
+  // 投资
+  'pse-review': '深度投资复盘',
+  'portfolio-check': '投资前数据体检',
+  // 面试 / CRM
+  'resume-tailor': '定制简历',
+  'interview-questions': '生成面试题库',
+  'crm-task': 'CRM 关系复盘',
+  // 热点新闻
+  'hot-news-fetch': '抓取热点素材',
+  'hot-news-topics': '列话题候选',
+  'hot-news': '生成热点文案',
+  'hot-news-check': '校验热点稿合规',
+  'hot-news-publish': '发布热点稿',
+  // 技能
+  'weekly-investment-review': '周度投资复盘',
+  'post-comment': '文章评论',
+  'rust-review': 'Rust 代码审查',
+  'code-review': '代码审查',
+  // 常用内置工具
+  'read-file': '读取文件',
+  'write-file': '写文件',
+  'analyze-dir': '分析目录',
+  'analyze-code-dir': '分析代码目录',
+  shell: '执行命令',
+  browser: '浏览器操作',
+  'skill-run': '运行技能',
+  echo: '回声测试',
+  calculator: '计算器',
+  hello: '打招呼',
+  'system-info': '系统信息',
+}
+
+function titleFor(base: string): string {
+  return ZH_TITLES[base] ?? humanize(base)
 }
 
 function skillExample(s: SkillInfo): ExampleItem | null {
@@ -59,7 +118,7 @@ function skillExample(s: SkillInfo): ExampleItem | null {
   } else {
     prompt = `请使用 ${s.name} 技能完成相关任务。`
   }
-  return { id: 'skill:' + s.name, title: humanize(s.name), prompt, category }
+  return { id: 'skill:' + s.name, title: titleFor(s.name), prompt, category }
 }
 
 function toolExample(t: ToolSchema): ExampleItem | null {
@@ -72,34 +131,124 @@ function toolExample(t: ToolSchema): ExampleItem | null {
   // cross-talk — e.g. article-discover's description mentions "article-publish",
   // and "已发布文章" contains the substring "发布文章", both mis-route via the
   // loose description regexes below.
-  const CURATED: Record<string, { prompt: string; category: ExampleCategory }> = {
-    'article-write': { prompt: '帮我写一篇技术文章，用 crewai-pse 三角色流水线生成。', category: 'article' },
-    'article-validate': { prompt: '帮我校验一下待发布文章的正确性，看看有没有问题。', category: 'article' },
-    'article-publish': { prompt: '请调用 article-publish 工具（不要传 project、也不要设 confirm）列出当前待发布到 WordPress 的文章清单供我选择。', category: 'article' },
-    'article-archive': { prompt: '帮我归档一篇文章，重建各平台副本并更新关键词索引。', category: 'article' },
-    'article-discover': { prompt: '帮我扫描一下有哪些 github 项目可以写技术文章。', category: 'article' },
-    'juejin-draft': { prompt: '帮我把下一篇未发布的文章建成掘金草稿。', category: 'article' },
-    'wechat-draft': { prompt: '帮我把下一篇未发布的文章建成微信公众号草稿箱草稿。', category: 'article' },
-    'sf-pw-publish': { prompt: '帮我把下一篇未发布的文章发布到思否（用 Playwright 真浏览器）。', category: 'article' },
-    'pick-post': { prompt: '帮我随机选一篇已发布的技术文章，我想给它写条评论。', category: 'article' },
-    'pse-review': { prompt: '帮我做一份深度投资组合分析，用 autogen-pse 的 PSE 三角色流水线生成。', category: 'invest' },
+  const CURATED: Record<string, { title: string; prompt: string; category: ExampleCategory }> = {
+    'article-write': {
+      title: '写技术文章',
+      prompt: '帮我写一篇技术文章，用 crewai-pse 三角色流水线生成。',
+      category: 'article',
+    },
+    'article-validate': {
+      title: '校验文章',
+      prompt: '帮我校验一下待发布文章的正确性，看看有没有问题。',
+      category: 'article',
+    },
+    'article-publish': {
+      title: '发布文章',
+      prompt:
+        '请调用 article-publish 工具（不要传 project、也不要设 confirm）列出当前待发布到 WordPress 的文章清单供我选择。',
+      category: 'article',
+    },
+    'article-archive': {
+      title: '归档文章',
+      prompt: '帮我归档一篇文章，重建各平台副本并更新关键词索引。',
+      category: 'article',
+    },
+    'article-discover': {
+      title: '发现可写项目',
+      prompt: '帮我扫描一下有哪些 github 项目可以写技术文章。',
+      category: 'article',
+    },
+    'juejin-draft': {
+      title: '建掘金草稿',
+      prompt: '帮我把下一篇未发布的文章建成掘金草稿。',
+      category: 'article',
+    },
+    'wechat-draft': {
+      title: '建公众号草稿',
+      prompt: '帮我把下一篇未发布的文章建成微信公众号草稿箱草稿。',
+      category: 'article',
+    },
+    'sf-pw-publish': {
+      title: '发布到思否',
+      prompt: '帮我把下一篇未发布的文章发布到思否（用 Playwright 真浏览器）。',
+      category: 'article',
+    },
+    'pick-post': {
+      title: '随机选文章',
+      prompt:
+        '帮我随机挑一篇已发布的文章，只返回标题和链接给我（用 pick-post 工具，只读不评论），我想自己看看内容。',
+      category: 'article',
+    },
+    'pse-review': {
+      title: '深度投资复盘',
+      prompt: '帮我做一份深度投资组合分析，用 autogen-pse 的 PSE 三角色流水线生成。',
+      category: 'invest',
+    },
     'portfolio-check': {
+      title: '投资前数据体检',
       prompt:
         '帮我做一次投资前数据体检：用 portfolio-check 工具在 analysis-lens 执行 make calculate / analyze / compare 刷新快照并扫描异常，确认数据无误后再做投资复盘。',
       category: 'invest',
     },
-    'resume-tailor': { prompt: '帮我定制一份简历，目标岗位 JD：资深后端工程师，要求 5 年以上 Java/Python 经验，熟悉分布式系统和微服务架构。', category: 'interview' },
-    'interview-questions': { prompt: '帮我生成一份 Python 后端工程师的技术面试题库，包含基础、进阶、难题各 3 道。', category: 'interview' },
-    'crm-task': { prompt: '帮我生成一份本周的 CRM 关系复盘，看看哪些联系人需要跟进。', category: 'crm' },
-    'skill-run': { prompt: `调用 ${t.name} 来完成任务。`, category: 'other' },
+    'resume-tailor': {
+      title: '定制简历',
+      prompt:
+        '帮我定制一份简历，目标岗位 JD：资深后端工程师，要求 5 年以上 Java/Python 经验，熟悉分布式系统和微服务架构。',
+      category: 'interview',
+    },
+    'interview-questions': {
+      title: '生成面试题库',
+      prompt: '帮我生成一份 Python 后端工程师的技术面试题库，包含基础、进阶、难题各 3 道。',
+      category: 'interview',
+    },
+    'crm-task': {
+      title: 'CRM 关系复盘',
+      prompt: '帮我生成一份本周的 CRM 关系复盘，看看哪些联系人需要跟进。',
+      category: 'crm',
+    },
+    'hot-news-fetch': {
+      title: '抓取热点素材',
+      prompt:
+        '帮我抓取最新的多平台热点新闻作为素材源（微博热搜、量子位、InfoQ 等），用 hot-news-fetch 工具。',
+      category: 'hot-news',
+    },
+    'hot-news-topics': {
+      title: '列话题候选',
+      prompt:
+        '帮我列出当前可写的话题候选（微博热搜+新闻依据，按热度排序），用 hot-news-topics 工具。',
+      category: 'hot-news',
+    },
+    'hot-news': {
+      title: '生成热点文案',
+      prompt:
+        '帮我写一篇小红书热点营销内容，挑最新的 AI 热点话题，用 hot-news 工具生成，品类用 tech_ai。',
+      category: 'hot-news',
+    },
+    'hot-news-check': {
+      title: '校验热点稿合规',
+      prompt: '帮我校验一篇热点稿是否合规（平台限值+违禁词+AI 声明），用 hot-news-check 工具。',
+      category: 'hot-news',
+    },
+    'skill-run': { title: '运行技能', prompt: `调用 ${t.name} 来完成任务。`, category: 'other' },
   }
   const curated = CURATED[base]
-  if (curated) return { id: 'tool:' + base, title: humanize(base), prompt: curated.prompt, category: curated.category }
+  if (curated)
+    return {
+      id: 'tool:' + base,
+      title: curated.title,
+      prompt: curated.prompt,
+      category: curated.category,
+    }
 
   let prompt: string
   let category: ExampleCategory = 'code'
 
-  if (/article.*write|write.*article|article-write/.test(blob)) {
+  // Hot-news pipeline tools must be routed before the article branches below:
+  // their descriptions mention 文章/校验/生成 and would otherwise get mis-typed.
+  if (/hot-news|hot_news|热点|热搜/.test(blob)) {
+    prompt = '帮我走一遍热点内容流水线：抓最新新闻素材，选话题，生成平台文案并校验合规。'
+    category = 'hot-news'
+  } else if (/article.*write|write.*article|article-write/.test(blob)) {
     prompt = '帮我写一篇技术文章，用 crewai-pse 三角色流水线生成。'
     category = 'article'
   } else if (/juejin.*draft|juejin-draft|掘金.*草稿/.test(blob)) {
@@ -115,7 +264,8 @@ function toolExample(t: ToolSchema): ExampleItem | null {
     prompt = '帮我随机选一篇已发布的技术文章，我想给它写条评论。'
     category = 'article'
   } else if (/article.*publish|article-publish|发布文章|publish.*wordpress/.test(blob)) {
-    prompt = '请调用 article-publish 工具（不要传 project、也不要设 confirm）列出当前待发布到 WordPress 的文章清单供我选择。'
+    prompt =
+      '请调用 article-publish 工具（不要传 project、也不要设 confirm）列出当前待发布到 WordPress 的文章清单供我选择。'
     category = 'article'
   } else if (/article.*archive|article-archive|归档文章|archive.*article/.test(blob)) {
     prompt = '帮我归档一篇文章，重建各平台副本并更新关键词索引。'
@@ -133,7 +283,8 @@ function toolExample(t: ToolSchema): ExampleItem | null {
     prompt = '帮我做一份当前投资组合的快速概览，包括持仓、收益和风险分布。'
     category = 'invest'
   } else if (/resume.*tailor|tailor.*resume|resume-tailor|简历/.test(blob)) {
-    prompt = '帮我定制一份简历，目标岗位 JD：资深后端工程师，要求 5 年以上 Java/Python 经验，熟悉分布式系统和微服务架构。'
+    prompt =
+      '帮我定制一份简历，目标岗位 JD：资深后端工程师，要求 5 年以上 Java/Python 经验，熟悉分布式系统和微服务架构。'
     category = 'interview'
   } else if (/interview.*question|question.*interview|interview-questions|面试题|题库/.test(blob)) {
     prompt = '帮我生成一份 Python 后端工程师的技术面试题库，包含基础、进阶、难题各 3 道。'
@@ -174,7 +325,7 @@ function toolExample(t: ToolSchema): ExampleItem | null {
   } else {
     return null
   }
-  return { id: 'tool:' + base, title: humanize(base), prompt, category }
+  return { id: 'tool:' + base, title: titleFor(base), prompt, category }
 }
 
 /**
@@ -194,22 +345,33 @@ export function buildExamples(
     if (e) all.push(e)
   }
 
-  // Priority tools first so they appear first within each category.
+  // Priority tools first so they appear first within each category. Ordered by
+  // each category's natural workflow (e.g. hot-news: fetch → topics → generate
+  // → check; article: discover → write → validate → publish → archive).
   const priorityTools = [
+    // invest: 数据体检 → 深度复盘
     'portfolio-check',
     'pse-review',
+    // article: 发现项目 → 写作 → 校验 → 发布 WP → 草稿 → 思否 → 归档 → 随机选文
+    'article-discover',
     'article-write',
     'article-validate',
     'article-publish',
-    'article-archive',
-    'article-discover',
     'juejin-draft',
     'wechat-draft',
     'sf-pw-publish',
+    'article-archive',
     'pick-post',
+    // interview: 定制简历 → 面试题库
     'resume-tailor',
     'interview-questions',
+    // crm
     'crm-task',
+    // hot-news: 抓素材 → 列话题 → 生成 → 校验（发布静态卡在末尾）
+    'hot-news-fetch',
+    'hot-news-topics',
+    'hot-news',
+    'hot-news-check',
   ]
   for (const name of priorityTools) {
     // MCP tools register as `<serverId>:<tool>` (mcp.ts); match both the bare
@@ -223,6 +385,9 @@ export function buildExamples(
   for (const t of tools) {
     if (t.name.includes(':')) continue
     if (priorityTools.includes(t.name)) continue
+    // 发布示例由上方静态 HOT_NEWS_PUBLISH_EXAMPLES 的三张平台卡覆盖；
+    // 跳过工具派生的通用卡，避免与「小红书/知乎/头条发布热点稿」重复。
+    if (t.name === 'hot-news-publish') continue
     const e = toolExample(t)
     if (e) all.push(e)
   }
@@ -234,29 +399,73 @@ export function buildExamples(
     {
       id: 'pse-lru',
       title: 'LRU 缓存（含验收）',
-      prompt: '实现一个 Python 的 LRU 缓存类，要求：1) get/put 时间复杂度 O(1)；2) 线程安全；3) 包含单元测试，覆盖正常/边界/并发场景；4) 写一个使用示例。完成后逐条说明每个要求是否满足，不满足的指出问题。',
+      prompt:
+        '实现一个 Python 的 LRU 缓存类，要求：1) get/put 时间复杂度 O(1)；2) 线程安全；3) 包含单元测试，覆盖正常/边界/并发场景；4) 写一个使用示例。完成后逐条说明每个要求是否满足，不满足的指出问题。',
       category: 'pse',
     },
     {
       id: 'pse-arch',
       title: '项目架构分析',
-      prompt: '分析当前项目的架构，输出架构图说明、技术栈选型理由、潜在风险点。每条结论都要有代码证据（引用具体文件和行号），完成后自检证据是否充分。',
+      prompt:
+        '分析当前项目的架构，输出架构图说明、技术栈选型理由、潜在风险点。每条结论都要有代码证据（引用具体文件和行号），完成后自检证据是否充分。',
       category: 'pse',
     },
     {
       id: 'pse-article',
       title: '技术文章（带自检）',
-      prompt: '写一篇关于 RAG 混合检索的技术文章，要求有数据支撑、有代码示例、有对比分析。完成后自检事实准确性，指出文中可能不准确的地方。',
+      prompt:
+        '写一篇关于 RAG 混合检索的技术文章，要求有数据支撑、有代码示例、有对比分析。完成后自检事实准确性，指出文中可能不准确的地方。',
       category: 'pse',
     },
     {
       id: 'pse-debug',
       title: 'Bug 调试与修复',
-      prompt: '这段代码有 bug，找出问题根因并修复。修复后说明：1) 根因是什么；2) 修复方案；3) 如何验证修复有效。不要只改代码不解释。',
+      prompt:
+        '这段代码有 bug，找出问题根因并修复。修复后说明：1) 根因是什么；2) 修复方案；3) 如何验证修复有效。不要只改代码不解释。',
       category: 'pse',
     },
   ]
   all.push(...PSE_EXAMPLES)
+
+  // 热点稿发布示例：三个平台各一张卡（hot-news-publish 用 Playwright 真浏览器
+  // 填稿后停在编辑器，由人工核对发布，绝不自动发布；需先完成一次平台登录）。
+  const HOT_NEWS_PUBLISH_EXAMPLES: ExampleItem[] = [
+    {
+      id: 'hot-news-publish-xiaohongshu',
+      title: '小红书发布热点稿',
+      prompt:
+        '把最新一篇热点稿发布到小红书，用 hot-news-publish 工具（platform=xiaohongshu），填好标题/正文/多图/话题后停在编辑器，我自己核对并点发布。',
+      category: 'hot-news',
+    },
+    {
+      id: 'hot-news-publish-zhihu',
+      title: '知乎发布热点稿',
+      prompt:
+        '把最新一篇热点稿发布到知乎，用 hot-news-publish 工具（platform=zhihu），填好标题/正文/封面/话题并尽力勾选 AI 创作声明后停在编辑器，我自己核对并点发布。',
+      category: 'hot-news',
+    },
+    {
+      id: 'hot-news-publish-toutiao',
+      title: '头条发布热点稿',
+      prompt:
+        '把最新一篇热点稿发布到今日头条，用 hot-news-publish 工具（platform=toutiao），填好标题/正文后保持页面打开，我自己核对并点发布。',
+      category: 'hot-news',
+    },
+  ]
+  all.push(...HOT_NEWS_PUBLISH_EXAMPLES)
+
+  // 文章运维示例：README 文章回链体检（crewai-pse 的 make check-links 只读校验
+  // 全部已发布项目仓库的回链完整性，exit 非 0 = 有缺链；修复走 sync-links）。
+  const ARTICLE_OPS_EXAMPLES: ExampleItem[] = [
+    {
+      id: 'article-check-links',
+      title: '校验文章回链',
+      prompt:
+        '在 ***REMOVED***/***REMOVED*** 目录运行一次 make check-links，校验各项目 README 的 erishen.cn 文章回链是否完整。若全绿（0 issues）：直接报告结论收工，不要执行其他命令。仅当有缺失时：列出具体项目和缺的链接，再运行一次 make sync-links FLAGS=--dry 预览修复动作（不要真正写入）。每条命令最多执行一次，失败或超时不要重复同一条命令，直接把现象报告给我。',
+      category: 'article',
+    },
+  ]
+  all.push(...ARTICLE_OPS_EXAMPLES)
 
   // Deduplicate by prompt.
   const seen = new Set<string>()
@@ -269,6 +478,7 @@ export function buildExamples(
   // Group by category.
   const grouped: Record<ExampleCategory, ExampleItem[]> = {
     article: [],
+    'hot-news': [],
     invest: [],
     interview: [],
     crm: [],
@@ -293,13 +503,35 @@ export function buildExamples(
     if (ib !== -1) return 1
     return 0
   })
+
+  // Article: known tools follow the workflow order (discover → write → validate
+  // → publish → archive → drafts); the "文章评论" skill card moves to the end.
+  const articleOrder = [
+    'tool:article-discover',
+    'tool:article-write',
+    'tool:article-validate',
+    'tool:article-publish',
+    'tool:article-archive',
+    'tool:juejin-draft',
+    'tool:wechat-draft',
+    'tool:sf-pw-publish',
+    'tool:pick-post',
+  ]
+  grouped.article.sort((a, b) => {
+    const ia = articleOrder.indexOf(a.id)
+    const ib = articleOrder.indexOf(b.id)
+    // Known tools go first (in articleOrder order); unknown ones (e.g. the
+    // "文章评论" skill card) keep relative order but after the known set.
+    if (ia !== -1 && ib !== -1) return ia - ib
+    if (ia !== -1) return -1
+    if (ib !== -1) return 1
+    return 0
+  })
   return grouped
 }
 
 /** Flatten grouped examples back to a flat list (for backward compat / fallback). */
-export function flattenExamples(
-  grouped: Record<ExampleCategory, ExampleItem[]>,
-): ExampleItem[] {
+export function flattenExamples(grouped: Record<ExampleCategory, ExampleItem[]>): ExampleItem[] {
   const out: ExampleItem[] = []
   for (const cat of CATEGORY_ORDER) {
     out.push(...grouped[cat])
@@ -309,9 +541,119 @@ export function flattenExamples(
 
 /** Shown when no tools/skills are available to derive examples from. */
 export const FALLBACK_EXAMPLES: ExampleItem[] = [
-  { id: 'fb1', title: '代码审查', prompt: '请对当前改动做一次代码审查，指出风险与改进点。', category: 'code' },
+  {
+    id: 'fb1',
+    title: '代码审查',
+    prompt: '请对当前改动做一次代码审查，指出风险与改进点。',
+    category: 'code',
+  },
   { id: 'fb2', title: '解释代码', prompt: '请解释某个模块的核心逻辑与数据流。', category: 'code' },
   { id: 'fb3', title: '写测试', prompt: '为指定函数编写单元测试。', category: 'code' },
   { id: 'fb4', title: '生成文档', prompt: '为这个项目生成一份简短的使用说明。', category: 'code' },
-  { id: 'fb5', title: '写技术文章', prompt: '帮我写一篇 rag-platform 的技术文章。', category: 'article' },
+  {
+    id: 'fb5',
+    title: '写技术文章',
+    prompt: '帮我写一篇 rag-platform 的技术文章。',
+    category: 'article',
+  },
 ]
+
+/**
+ * 流水线任务的「下一步」示例：已完成工具名 → 可选的后续示例任务。
+ * 供 MessageList 在任务完成后展示，点击即填入提示词继续。
+ */
+export const NEXT_STEP_EXAMPLES: Record<string, ExampleItem[]> = {
+  // hot-news 流水线：抓素材 → 列话题 → 生成 → 校验 → 发布
+  'hot-news-fetch': [
+    {
+      id: 'next-hot-news-topics',
+      title: '列话题候选',
+      prompt:
+        '帮我列出当前可写的话题候选（微博热搜+新闻依据，按热度排序），用 hot-news-topics 工具。',
+      category: 'hot-news',
+    },
+  ],
+  'hot-news-topics': [
+    {
+      id: 'next-hot-news-generate',
+      title: '生成热点文案',
+      prompt:
+        '帮我写一篇小红书热点营销内容，挑最新的 AI 热点话题，用 hot-news 工具生成，品类用 tech_ai。',
+      category: 'hot-news',
+    },
+  ],
+  'hot-news': [
+    {
+      id: 'next-hot-news-check',
+      title: '校验热点稿合规',
+      prompt: '帮我校验一篇热点稿是否合规（平台限值+违禁词+AI 声明），用 hot-news-check 工具。',
+      category: 'hot-news',
+    },
+  ],
+  'hot-news-check': [
+    {
+      id: 'next-hot-news-publish-xhs',
+      title: '小红书发布热点稿',
+      prompt:
+        '把最新一篇热点稿发布到小红书，用 hot-news-publish 工具（platform=xiaohongshu），填好标题/正文/多图/话题后停在编辑器，我自己核对并点发布。',
+      category: 'hot-news',
+    },
+    {
+      id: 'next-hot-news-publish-zhihu',
+      title: '知乎发布热点稿',
+      prompt:
+        '把最新一篇热点稿发布到知乎，用 hot-news-publish 工具（platform=zhihu），填好标题/正文/封面/话题并尽力勾选 AI 创作声明后停在编辑器，我自己核对并点发布。',
+      category: 'hot-news',
+    },
+    {
+      id: 'next-hot-news-publish-toutiao',
+      title: '头条发布热点稿',
+      prompt:
+        '把最新一篇热点稿发布到今日头条，用 hot-news-publish 工具（platform=toutiao），填好标题/正文后保持页面打开，我自己核对并点发布。',
+      category: 'hot-news',
+    },
+  ],
+  // article 流水线：发现项目 → 写作 → 校验 → 发布 → 归档
+  'article-discover': [
+    {
+      id: 'next-article-write',
+      title: '写技术文章',
+      prompt: '帮我写一篇技术文章，用 crewai-pse 三角色流水线生成。',
+      category: 'article',
+    },
+  ],
+  'article-write': [
+    {
+      id: 'next-article-validate',
+      title: '校验文章',
+      prompt: '帮我校验一下待发布文章的正确性，看看有没有问题。',
+      category: 'article',
+    },
+  ],
+  'article-validate': [
+    {
+      id: 'next-article-publish',
+      title: '发布文章',
+      prompt:
+        '请调用 article-publish 工具（不要传 project、也不要设 confirm）列出当前待发布到 WordPress 的文章清单供我选择。',
+      category: 'article',
+    },
+  ],
+  'article-publish': [
+    {
+      id: 'next-article-archive',
+      title: '归档文章',
+      prompt: '帮我归档一篇文章，重建各平台副本并更新关键词索引。',
+      category: 'article',
+    },
+  ],
+  // invest：数据体检 → 深度复盘
+  'portfolio-check': [
+    {
+      id: 'next-pse-review',
+      title: '深度投资复盘',
+      prompt: '帮我做一份深度投资组合分析，用 autogen-pse 的 PSE 三角色流水线生成。',
+      category: 'invest',
+    },
+  ],
+}

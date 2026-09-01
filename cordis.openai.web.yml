@@ -85,6 +85,16 @@ plugins:
     name: tool-crewai-publish
   - id: tool-crewai-discover
     name: tool-crewai-discover
+  - id: tool-hot-news
+    name: tool-hot-news
+  - id: tool-hot-news-fetch
+    name: tool-hot-news-fetch
+  - id: tool-hot-news-topics
+    name: tool-hot-news-topics
+  - id: tool-hot-news-check
+    name: tool-hot-news-check
+  - id: tool-hot-news-publish
+    name: tool-hot-news-publish
   - id: tool-system-info
     name: tool-system-info
   - id: web

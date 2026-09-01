@@ -55,6 +55,13 @@ function getQuickTasks(projectKey: string): QuickTask[] {
   if (k === 'llamaindex-pse') {
     return [
       {
+        label: '热点选题生成',
+        icon: '🔥',
+        taskType: 'hot-news',
+        prompt: () =>
+          '帮我走一遍热点内容流水线：先抓取最新热点新闻素材，列出候选话题，挑一个 AI 相关的热点生成小红书文案并校验合规。',
+      },
+      {
         label: '简历定制',
         icon: '📄',
         taskType: 'resume',

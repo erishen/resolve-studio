@@ -2,6 +2,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { UIMessage } from './types'
 import { CATEGORY_LABELS, CATEGORY_ORDER, type ExampleCategory, type ExampleItem } from './examples'
+import { NEXT_STEP_EXAMPLES } from './examples'
 import { ToolCallCard } from './ToolCallCard'
 
 /**
@@ -27,6 +28,35 @@ function extractMarkdownPaths(text: string): string[] {
     paths.add(p)
   }
   return [...paths]
+}
+
+/**
+ * 提取消息正文里可预览的 .md 路径。模型回复里可能用相对路径（如
+ * `tasks/hot-news/articles/x.md`），后端按 cwd 解析会失败；这里用同一条消息里
+ * 工具结果的**绝对路径**按文件名做匹配替换，匹配不到的相对路径直接丢弃。
+ */
+function extractPreviewPaths(
+  content: string,
+  toolResults: (string | undefined)[],
+): string[] {
+  const candidates = extractMarkdownPaths(content)
+  const absByBase = new Map<string, string>()
+  for (const r of toolResults) {
+    if (!r) continue
+    for (const p of extractMarkdownPaths(r)) {
+      if (p.startsWith('/')) absByBase.set(p.split('/').pop() ?? '', p)
+    }
+  }
+  const out = new Set<string>()
+  for (const p of candidates) {
+    if (p.startsWith('/')) {
+      out.add(p)
+    } else {
+      const abs = absByBase.get(p.split('/').pop() ?? '')
+      if (abs) out.add(abs)
+    }
+  }
+  return [...out]
 }
 
 type GroupedExamples = Record<ExampleCategory, ExampleItem[]>
@@ -58,6 +88,7 @@ export function MessageList({
   const lastIdx = messages.length - 1
   const grouped: GroupedExamples = examples ?? {
     article: [],
+    'hot-news': [],
     invest: [],
     interview: [],
     crm: [],
@@ -168,23 +199,57 @@ export function MessageList({
                   )}
                 </div>
               )}
-              {m.role === 'assistant' && onPreview && extractMarkdownPaths(m.content).length > 0 && (
-                <div className="message-file-links">
-                  {extractMarkdownPaths(m.content).map((p) => (
-                    <button
-                      key={p}
-                      className="btn btn-sm btn-preview"
-                      onClick={() => onPreview(p)}
-                      title="预览文件内容"
-                    >
-                      📄 {p.split('/').pop()}
-                    </button>
-                  ))}
-                </div>
-              )}
+              {m.role === 'assistant' &&
+                onPreview &&
+                (() => {
+                  const previews = extractPreviewPaths(
+                    m.content,
+                    (m.toolCalls ?? []).map((tc) => tc.result),
+                  )
+                  return previews.length > 0 ? (
+                    <div className="message-file-links">
+                      {previews.map((p) => (
+                        <button
+                          key={p}
+                          className="btn btn-sm btn-preview"
+                          onClick={() => onPreview(p)}
+                          title="预览文件内容"
+                        >
+                          📄 {p.split('/').pop()}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null
+                })()}
               {m.pending && !m.content && m.toolCalls?.length === 0 && (
                 <div className="pending">thinking…</div>
               )}
+              {isLastAssistant &&
+                m.toolCalls &&
+                (() => {
+                  // 取最近一次成功的工具调用，映射出「下一步」示例任务
+                  const done = [...m.toolCalls].reverse().find((tc) => tc.ok)
+                  const next = done ? NEXT_STEP_EXAMPLES[done.name] : undefined
+                  if (!next || next.length === 0 || !onPickExample) return null
+                  return (
+                    <div className="next-steps">
+                      <div className="next-steps-title">下一步可以试试</div>
+                      <div className="next-steps-list">
+                        {next.map((ex) => (
+                          <button
+                            key={ex.id}
+                            type="button"
+                            className="example-card"
+                            onClick={() => onPickExample(ex.prompt)}
+                          >
+                            <span className="example-title">{ex.title}</span>
+                            <span className="example-prompt">{ex.prompt}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
               {isLastAssistant && onRegenerate && (
                 <button
                   className="btn btn-sm btn-regenerate"

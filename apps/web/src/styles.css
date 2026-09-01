@@ -2003,6 +2003,30 @@ body {
   border-top: 1px solid var(--border);
 }
 
+/* ---- 任务完成后的「下一步」示例建议 ---- */
+.next-steps {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.next-steps-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.next-steps-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+.next-steps-list .example-card {
+  padding: 10px 12px;
+  background: var(--bg);
+}
+
 /* ---- file preview buttons in tool results ---- */
 .tool-file-links {
   display: flex;

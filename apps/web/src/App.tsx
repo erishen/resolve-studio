@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { fetchModels, fetchPseStatus, fetchSkills, fetchTools, setPseEnabled, type SkillInfo } from './api'
+import {
+  fetchModels,
+  fetchPseStatus,
+  fetchSkills,
+  fetchTools,
+  setPseEnabled,
+  type SkillInfo,
+} from './api'
 import { Composer, type ComposerHandle } from './Composer'
 import { FilePickerModal } from './FilePickerModal'
 import { FilePreview } from './FilePreview'
@@ -97,7 +104,12 @@ export function App() {
     let cancelled = false
     void (async () => {
       try {
-        const [m, t, sk, pse] = await Promise.all([fetchModels(), fetchTools(), fetchSkills(), fetchPseStatus()])
+        const [m, t, sk, pse] = await Promise.all([
+          fetchModels(),
+          fetchTools(),
+          fetchSkills(),
+          fetchPseStatus(),
+        ])
         if (cancelled) return
         setModels(m.models)
         setTools(t)
@@ -134,7 +146,18 @@ export function App() {
   const examples = useMemo(() => {
     const built = buildExamples(tools, skills)
     const flat = flattenExamples(built)
-    return flat.length ? built : { article: FALLBACK_EXAMPLES, invest: [], interview: [], crm: [], pse: [], code: [], other: [] }
+    return flat.length
+      ? built
+      : {
+          article: FALLBACK_EXAMPLES,
+          'hot-news': [],
+          invest: [],
+          interview: [],
+          crm: [],
+          pse: [],
+          code: [],
+          other: [],
+        }
   }, [tools, skills])
 
   // ---- session search ----
@@ -406,12 +429,26 @@ export function App() {
                     <div className="more-menu" onMouseLeave={() => setShowMoreMenu(false)}>
                       <div className="more-menu-section">
                         <div className="more-menu-title">导出对话</div>
-                        <button onClick={exportMarkdown} disabled={chat.messages.length === 0}>📄 Markdown</button>
-                        <button onClick={exportJson} disabled={chat.messages.length === 0}>📋 JSON</button>
-                        <button onClick={() => void copyMarkdown()} disabled={chat.messages.length === 0}>📋 Copy as Markdown</button>
+                        <button onClick={exportMarkdown} disabled={chat.messages.length === 0}>
+                          📄 Markdown
+                        </button>
+                        <button onClick={exportJson} disabled={chat.messages.length === 0}>
+                          📋 JSON
+                        </button>
+                        <button
+                          onClick={() => void copyMarkdown()}
+                          disabled={chat.messages.length === 0}
+                        >
+                          📋 Copy as Markdown
+                        </button>
                       </div>
                       <div className="more-menu-divider" />
-                      <button onClick={() => { setTheme((t) => (t === 'dark' ? 'light' : 'dark')); setShowMoreMenu(false); }}>
+                      <button
+                        onClick={() => {
+                          setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
+                          setShowMoreMenu(false)
+                        }}
+                      >
                         {theme === 'dark' ? '☀️ 浅色模式' : '🌙 深色模式'}
                       </button>
                     </div>
@@ -447,7 +484,9 @@ export function App() {
                   ))}
                 </select>
                 <div className="header-select-group">
-                  <span className="header-select-icon" title="选择助手角色/提示词模板">🎭</span>
+                  <span className="header-select-icon" title="选择助手角色/提示词模板">
+                    🎭
+                  </span>
                   <select
                     className="header-select"
                     value={promptTemplateId}
@@ -539,9 +578,7 @@ export function App() {
             <div className="sidebar-head sidebar-head-title">Runtime</div>
             <div className="runtime">
               <details className="runtime-section" open>
-                <summary>
-                  Tools ({tools.filter((t) => !t.fromMcp).length})
-                </summary>
+                <summary>Tools ({tools.filter((t) => !t.fromMcp).length})</summary>
                 <div
                   className="runtime-chips"
                   title={tools
@@ -549,10 +586,9 @@ export function App() {
                     .join(', ')}
                 >
                   {tools.length === 0 && <span className="runtime-empty">loading…</span>}
-                  {tools.length > 0 &&
-                    tools.filter((t) => !t.fromMcp).length === 0 && (
-                      <span className="runtime-empty">none</span>
-                    )}
+                  {tools.length > 0 && tools.filter((t) => !t.fromMcp).length === 0 && (
+                    <span className="runtime-empty">none</span>
+                  )}
                   {tools.length > 0 &&
                     tools
                       .filter((t) => !t.fromMcp)
@@ -593,50 +629,50 @@ export function App() {
                   )}
                   {mcp.loaded &&
                     mcp.servers.map((s) => (
-                    <div key={s.id} className="mcp-item">
-                      <div
-                        className="mcp-head mcp-head-clickable"
-                        onClick={() => setOpenMcp(openMcp === s.id ? null : s.id)}
-                        title="click to show tools"
-                      >
-                        <span className={`mcp-dot mcp-dot-${s.status}`} />
-                        <span className="mcp-id">{s.id}</span>
-                        <span className="mcp-meta">
-                          {s.transport} · {s.toolCount} tools
-                        </span>
-                        <button
-                          className="mcp-remove"
-                          title="edit server"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            mcp.startEdit(s)
-                          }}
+                      <div key={s.id} className="mcp-item">
+                        <div
+                          className="mcp-head mcp-head-clickable"
+                          onClick={() => setOpenMcp(openMcp === s.id ? null : s.id)}
+                          title="click to show tools"
                         >
-                          ✎
-                        </button>
-                        <button
-                          className="mcp-remove"
-                          title="disconnect server"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            void mcp.remove(s.id)
-                          }}
-                        >
-                          ×
-                        </button>
-                      </div>
-                      {openMcp === s.id && s.tools && s.tools.length > 0 && (
-                        <div className="mcp-tools">
-                          {s.tools.map((t) => (
-                            <span key={t} className="mcp-tool">
-                              {t}
-                            </span>
-                          ))}
+                          <span className={`mcp-dot mcp-dot-${s.status}`} />
+                          <span className="mcp-id">{s.id}</span>
+                          <span className="mcp-meta">
+                            {s.transport} · {s.toolCount} tools
+                          </span>
+                          <button
+                            className="mcp-remove"
+                            title="edit server"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              mcp.startEdit(s)
+                            }}
+                          >
+                            ✎
+                          </button>
+                          <button
+                            className="mcp-remove"
+                            title="disconnect server"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              void mcp.remove(s.id)
+                            }}
+                          >
+                            ×
+                          </button>
                         </div>
-                      )}
-                      {s.status === 'error' && <div className="mcp-error">{s.error}</div>}
-                    </div>
-                  ))}
+                        {openMcp === s.id && s.tools && s.tools.length > 0 && (
+                          <div className="mcp-tools">
+                            {s.tools.map((t) => (
+                              <span key={t} className="mcp-tool">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {s.status === 'error' && <div className="mcp-error">{s.error}</div>}
+                      </div>
+                    ))}
                   {mcp.showForm ? (
                     <div className="mcp-form">
                       <div className="mcp-form-title">
@@ -758,10 +794,10 @@ export function App() {
                       }}
                     >
                       Clear all
-                    </button>
-                  )}
-                </div>
-              </details>
+                     </button>
+                   )}
+                 </div>
+               </details>
             </div>
           </aside>
           {exportToast && <div className="toast">{exportToast}</div>}

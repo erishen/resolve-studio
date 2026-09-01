@@ -39,6 +39,11 @@ import { toolCrmTask } from './tools/tool-crm-task.js'
 import { toolWpPublish } from './tools/tool-wp-publish.js'
 import { toolCrewAiPublish } from './tools/tool-crewai-publish.js'
 import { toolCrewAiDiscover } from './tools/tool-crewai-discover.js'
+import { toolHotNews } from './tools/tool-hot-news.js'
+import { toolHotNewsFetch } from './tools/tool-hot-news-fetch.js'
+import { toolHotNewsTopics } from './tools/tool-hot-news-topics.js'
+import { toolHotNewsCheck } from './tools/tool-hot-news-check.js'
+import { toolHotNewsPublish } from './tools/tool-hot-news-publish.js'
 import { mcpPlugin } from './mcp.js'
 import { cliChat } from './cli-chat.js'
 import { webServer } from './web-server.js'
@@ -76,6 +81,11 @@ export const PLUGINS: Record<string, Plugin> = {
   'tool-wp-publish': toolWpPublish as unknown as Plugin,
   'tool-crewai-publish': toolCrewAiPublish as unknown as Plugin,
   'tool-crewai-discover': toolCrewAiDiscover as unknown as Plugin,
+  'tool-hot-news': toolHotNews as unknown as Plugin,
+  'tool-hot-news-fetch': toolHotNewsFetch as unknown as Plugin,
+  'tool-hot-news-topics': toolHotNewsTopics as unknown as Plugin,
+  'tool-hot-news-check': toolHotNewsCheck as unknown as Plugin,
+  'tool-hot-news-publish': toolHotNewsPublish as unknown as Plugin,
   'tool-system-info': toolSystemInfo as unknown as Plugin,
   'cli-chat': cliChat as unknown as Plugin,
   'web-server': webServer as unknown as Plugin,
