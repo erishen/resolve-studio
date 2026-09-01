@@ -72,15 +72,13 @@ const BASE_PLUGINS = [
 
 // LLM adapter variants.
 const LLM_MOCK = { id: 'llm', name: 'llm-mock', config: { tool: 'echo' } }
-// Default sample model for the OpenAI build. Intentionally NOT read from
-// process.env — the harness reads OPENAI_MODEL at runtime and supersedes this
-// value, so no private endpoint/model name is ever baked into the committed
-// manifest. Public default is a generic OpenAI-compatible model.
-const LLM_OPENAI = {
-  id: 'llm',
-  name: 'llm-openai',
-  config: { model: 'gpt-4o-mini', temperature: 0.7 },
-}
+// No `model` here on purpose. llm-openai resolves it as
+// `config.model ?? process.env.OPENAI_MODEL ?? 'deepseek-chat'` (see
+// packages/core/src/plugins/llm-openai.ts), so a manifest-level `model` would
+// *win* over the operator's env var — and baking one in would hard-code a
+// specific vendor/model name into a committed, public manifest. Leaving it
+// unset means the deployed model is whatever the operator configures.
+const LLM_OPENAI = { id: 'llm', name: 'llm-openai', config: { temperature: 0.7 } }
 
 // Interface variant — `cli` and `web` are mutually exclusive.
 const CLI = { id: 'cli', name: 'cli-chat' }
@@ -116,12 +114,17 @@ const VARIANTS = {
     iface: WEB,
     pseReviewConfig: { provider: 'free' },
     // Read widened to the whole invest workspace so the web file-picker can
-    // reach sibling projects; writes/shell stay pinned to this repo for safety.
-    // Relative paths are resolved against cwd at runtime by fs-roots service.
+    // reach sibling projects; writes stay pinned to this repo for safety.
+    // shellRoots carries one targeted exemption: crewai-pse, so the
+    // "校验文章回链" example can run `make check-links` there (read-only
+    // validation; its fix path is FLAGS=--dry preview only). The path is an
+    // env reference resolved at load time from `.env` (gitignored), so the
+    // absolute sibling path is NEVER committed; a checkout without CREWAI_PSE_DIR
+    // set simply has no crewai-pse shell root.
     fs: {
       readRoots: ['../../..'],
       writeRoots: ['.'],
-      shellRoots: ['.'],
+      shellRoots: ['.', '${CREWAI_PSE_DIR}'],
     },
   }),
 }

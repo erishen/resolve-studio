@@ -9,6 +9,7 @@ fs:
     - .
   shellRoots:
     - .
+    - ${CREWAI_PSE_DIR}
 plugins:
   - id: tools
     name: tools
@@ -43,7 +44,6 @@ plugins:
   - id: llm
     name: llm-openai
     config:
-      model: gpt-4o-mini
       temperature: 0.7
   - id: tool-echo
     name: tool-echo
