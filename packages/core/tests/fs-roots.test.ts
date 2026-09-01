@@ -67,3 +67,24 @@ test('loader auto-registers fs-roots from a manifest (with optional fs: key)', a
   assert.ok(root.fsRoots.read.includes(process.cwd()), 'default read roots include cwd')
   await root.fiber.dispose()
 })
+
+test('loader expands ${ENV} references in fs roots from process.env', async () => {
+  // Local-only roots (e.g. a sibling checkout) can live in `.env` as `${VAR}`
+  // instead of an absolute path committed to the public manifest.
+  process.env['FS_ROOTS_TEST_DIR'] = ROOT_A
+  const root = new Context()
+  await loadConfig(
+    root,
+    fileURLToPath(new URL('./fixtures/fs-roots-env.yml', import.meta.url)),
+  )
+  assert.ok(
+    root.fsRoots.shell.includes(resolve(ROOT_A)),
+    'shell root should expand ${FS_ROOTS_TEST_DIR} to the env value',
+  )
+  assert.ok(
+    root.fsRoots.read.includes(resolve(ROOT_A)),
+    'read root should expand ${FS_ROOTS_TEST_DIR} to the env value',
+  )
+  delete process.env['FS_ROOTS_TEST_DIR']
+  await root.fiber.dispose()
+})

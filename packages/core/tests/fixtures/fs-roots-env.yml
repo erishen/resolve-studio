@@ -1,0 +1,7 @@
+fs:
+  readRoots: ['${FS_ROOTS_TEST_DIR}']
+  writeRoots: [.]
+  shellRoots: [., '${FS_ROOTS_TEST_DIR}']
+plugins:
+  - id: tools
+    name: tools

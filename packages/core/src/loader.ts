@@ -46,10 +46,36 @@ interface PatchFile {
 
 type ManifestDoc = FlatFile & PatchFile & { fs?: Record<string, unknown> }
 
+const ENV_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
+
+/**
+ * Expand `${VAR}` references in manifest string scalars against `process.env`.
+ *
+ * This is what lets local-only roots (and other machine-specific values) live
+ * in `.env` instead of the committed YAML. Example: `shellRoots:
+ * ['${CREWAI_PSE_DIR}']` resolves to the sibling crewai-pse checkout at runtime,
+ * so the absolute path never lands in the public manifest. Undefined vars are
+ * left as the literal `${VAR}` so a missing `.env` entry is visible (and the
+ * path resolves to a harmless non-matching root) rather than silently folding
+ * into cwd.
+ */
+function expandEnv<T>(node: T): T {
+  if (typeof node === 'string') {
+    return node.replace(ENV_PATTERN, (_, name: string) => process.env[name] ?? `$${name}`) as unknown as T
+  }
+  if (Array.isArray(node)) return node.map((v) => expandEnv(v)) as unknown as T
+  if (node && typeof node === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(node as Record<string, unknown>)) out[k] = expandEnv(v)
+    return out as unknown as T
+  }
+  return node
+}
+
 /** Read and normalize a manifest into a flat entry list plus the `fs` config. */
 function readManifest(path: string): { entries: Entry[]; fs?: Record<string, unknown> } {
   const raw = readFileSync(path, 'utf8')
-  const doc: unknown = parse(raw)
+  const doc: unknown = expandEnv(parse(raw))
   // dsh cordis.patch.yml is a YAML *list* of patch ops; the `insert` op carries
   // the plugin rows. A bare list is treated as a single insert block.
   if (Array.isArray(doc)) {
