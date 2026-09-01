@@ -58,7 +58,7 @@ const BASE_PLUGINS = [
   { id: 'tool-browser', name: 'tool-browser' },
   { id: 'tool-pick-post', name: 'tool-pick-post' },
   { id: 'tool-skill-run', name: 'tool-skill-run' },
-  { id: 'tool-portfolio-summary', name: 'tool-portfolio-summary' },
+  { id: 'tool-portfolio-check', name: 'tool-portfolio-check' },
   { id: 'tool-pse-review', name: 'tool-pse-review' },
   { id: 'tool-article-write', name: 'tool-article-write' },
   { id: 'tool-resume-tailor', name: 'tool-resume-tailor' },

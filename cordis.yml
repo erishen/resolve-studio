@@ -59,6 +59,8 @@ plugins:
     name: tool-skill-run
   - id: tool-portfolio-check
     name: tool-portfolio-check
+  - id: tool-pse-review
+    name: tool-pse-review
   - id: tool-article-write
     name: tool-article-write
   - id: tool-resume-tailor
