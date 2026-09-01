@@ -19,8 +19,31 @@ import { skills } from '../src/plugins/skills.js'
 import { mcpPlugin } from '../src/plugins/mcp.js'
 import { llmMock } from '../src/plugins/llm-mock.js'
 import { toolEcho } from '../src/plugins/tools/tool-echo.js'
-import { toolCalculator } from '../src/plugins/tools/tool-calculator.js'
 import { webServer } from '../src/plugins/web-server.js'
+import { definePlugin } from '../src/plugins/util.js'
+import pse from '@resolve-studio/plugin-pse'
+
+// The shared `calculator` tool is not gated, but /api/tools surfaces gating and
+// these tests assert it, so register a gated variant with the same name.
+const gatedCalculator = definePlugin(
+  (ctx: Context): void => {
+    ctx.tools.register({
+      name: 'calculator',
+      description: 'Evaluate a basic arithmetic expression.',
+      parameters: {
+        type: 'object',
+        properties: { expression: { type: 'string' } },
+        required: ['expression'],
+      },
+      async execute(args) {
+        return String(eval(String(args['expression'] ?? '')))
+      },
+      needsApproval: true,
+    })
+  },
+  'tool-gated-calculator',
+  ['tools'],
+)
 
 const PORT = 8899
 const BASE = `http://127.0.0.1:${PORT}`
@@ -36,6 +59,7 @@ writeFileSync(
 async function buildServer(): Promise<Context> {
   const root = new Context()
   await root.plugin(ToolRegistry)
+  await root.plugin(pse)
   await root.plugin(AgentService)
   await root.plugin(FastPathService)
   await root.plugin(ApprovalService)
@@ -45,7 +69,7 @@ async function buildServer(): Promise<Context> {
   await root.plugin(mcpPlugin)
   await root.plugin(llmMock)
   await root.plugin(toolEcho)
-  await root.plugin(toolCalculator)
+  await root.plugin(gatedCalculator)
   await root.plugin(webServer, { host: '127.0.0.1', port: PORT })
   // server.listen is async; give it a beat to bind.
   await new Promise((r) => setTimeout(r, 300))

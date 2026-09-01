@@ -14,12 +14,34 @@ import { LlmService } from '../src/services/llm.js'
 import { skills } from '../src/plugins/skills.js'
 import { llmMock } from '../src/plugins/llm-mock.js'
 import { toolEcho } from '../src/plugins/tools/tool-echo.js'
-import { toolCalculator } from '../src/plugins/tools/tool-calculator.js'
+import pse from '@resolve-studio/plugin-pse'
 import type { ChatMessage, ChatOptions, ChatResponse, ChatStreamChunk } from '../src/types.js'
+import { definePlugin } from '../src/plugins/util.js'
+
+// The shared `calculator` tool is not gated (needsApproval:false), so the gated
+// approval tests register a gated variant that preserves the same tool name the
+// mock LLM targets, letting them exercise the approval-gating path.
+const registerGatedCalculator = (ctx: Context): void => {
+  ctx.tools.register({
+    name: 'calculator',
+    description: 'Evaluate a basic arithmetic expression.',
+    parameters: {
+      type: 'object',
+      properties: { expression: { type: 'string' } },
+      required: ['expression'],
+    },
+    async execute(args) {
+      return String(eval(String(args['expression'] ?? '')))
+    },
+    needsApproval: true,
+  })
+}
+const gatedCalculator = definePlugin(registerGatedCalculator, 'tool-gated-calculator', ['tools'])
 
 test('agent loop calls the echo tool and returns a final answer', async () => {
   const root = new Context()
   await root.plugin(ToolRegistry)
+  await root.plugin(pse)
   await root.plugin(AgentService)
   await root.plugin(FastPathService)
   await root.plugin(ApprovalService)
@@ -48,19 +70,20 @@ test('unknown tool returns an error string without throwing', async () => {
   const root = new Context()
   await root.plugin(ToolRegistry)
   const result = await root.tools.call('nope', '{}')
-  assert.match(result, /unknown tool/)
+  assert.match(result, /not registered/)
   await root.fiber.dispose()
 })
 
 test('gated tool blocks on approval; rejection is fed back to the model', async () => {
   const root = new Context()
   await root.plugin(ToolRegistry)
+  await root.plugin(pse)
   await root.plugin(AgentService)
   await root.plugin(FastPathService)
   await root.plugin(ApprovalService, { timeout: 500 })
   await root.plugin(skills, { dir: '../../skills' })
   await root.plugin(llmMock, { tool: 'calculator' })
-  await root.plugin(toolCalculator)
+  await root.plugin(gatedCalculator)
 
   const requested: { id: string; name: string }[] = []
   const toolResults: { ok: boolean }[] = []
@@ -89,12 +112,13 @@ test('gated tool blocks on approval; rejection is fed back to the model', async 
 test('runId namespaces approval call ids to avoid cross-run collisions', async () => {
   const root = new Context()
   await root.plugin(ToolRegistry)
+  await root.plugin(pse)
   await root.plugin(AgentService)
   await root.plugin(FastPathService)
   await root.plugin(ApprovalService, { timeout: 500 })
   await root.plugin(skills, { dir: '../../skills' })
   await root.plugin(llmMock, { tool: 'calculator' })
-  await root.plugin(toolCalculator)
+  await root.plugin(gatedCalculator)
 
   const requested: string[] = []
   root.on('agent/approval-request', (call) => requested.push(call.id))
@@ -145,6 +169,7 @@ class AbortLlm extends LlmService {
 test('aborting a run resolves without hanging', async () => {
   const root = new Context()
   await root.plugin(ToolRegistry)
+  await root.plugin(pse)
   await root.plugin(AgentService)
   await root.plugin(FastPathService)
   await root.plugin(ApprovalService, { timeout: 500 })
@@ -168,6 +193,7 @@ test('aborting a run resolves without hanging', async () => {
 test('multiple tool calls in one step execute in parallel', async () => {
   const root = new Context()
   await root.plugin(ToolRegistry)
+  await root.plugin(pse)
   await root.plugin(AgentService)
   await root.plugin(FastPathService)
   await root.plugin(ApprovalService, { timeout: 500 })

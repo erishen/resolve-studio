@@ -7,6 +7,8 @@ export interface ToolCall {
   id: string
   name: string
   arguments: string | Record<string, unknown>
+  /** True when a gated tool's approval was skipped (already approved this run). */
+  approvalSkipped?: boolean
 }
 
 export interface ToolResult {
@@ -67,6 +69,7 @@ export interface SessionRecord extends Omit<SessionMeta, 'messageCount'> {
       result?: string
       ok?: boolean
       gated?: boolean
+      approvalSkipped?: boolean
       decision?: 'approve' | 'reject'
     }[]
   }[]
@@ -110,6 +113,7 @@ export interface UIMessage {
     ok?: boolean
     gated?: boolean
     awaitingApproval?: boolean
+    approvalSkipped?: boolean
     decision?: 'approve' | 'reject'
     /** Execution time in milliseconds (set when the tool result arrives). */
     durationMs?: number

@@ -9,6 +9,8 @@ interface ToolCallCardProps {
   gated?: boolean
   /** True while the backend is waiting for a human decision. */
   awaitingApproval?: boolean
+  /** True when approval was skipped because it was already approved this run. */
+  approvalSkipped?: boolean
   /** The human's decision, once made. */
   decision?: 'approve' | 'reject'
   /** Execution time in milliseconds. */
@@ -23,7 +25,9 @@ interface ToolCallCardProps {
   retryDisabled?: boolean
 }
 
-// Sentinel emitted by pse-review on "agnes 抽风" — UI renders a retry choice.
+// Sentinel emitted by pse-review when the free default gateway produces an
+// unusable report (empty/truncated) — the UI renders a retry choice. The
+// sentinel string itself is owned by the resolve-skills submodule.
 // Failure returns begin with `error: PSE_RETRY_CHOICE` on their own line. Anchor
 // to a line start (allowing the error: prefix) so the marker in SKILL.md's prose
 // ("...返回 `PSE_RETRY_CHOICE`...") does not falsely trigger the retry buttons.
@@ -104,7 +108,7 @@ function screenshotUrl(result?: string): string | null {
 function extractMarkdownPaths(result?: string): string[] {
   if (!result) return []
   const paths = new Set<string>()
-  const re = /((?:\/(?:Users|home|tmp|var|opt|usr|etc)|[A-Za-z0-9_.\-]+)\/[^\s'"<>]*\.md)/g
+  const re = /((?:\/(?:Users|home|tmp|var|opt|usr|etc)|[A-Za-z0-9_.-]+)\/[^\s'"<>]*\.md)/g
   let m
   while ((m = re.exec(result)) !== null) {
     const p = m[1]
@@ -144,6 +148,7 @@ export function ToolCallCard({
   ok,
   gated,
   awaitingApproval,
+  approvalSkipped,
   decision,
   durationMs,
   progress,
@@ -180,6 +185,9 @@ export function ToolCallCard({
       </div>
       {gated && !awaitingApproval && !decision && (
         <div className="tool-gate-note">needs approval (flagged)</div>
+      )}
+      {approvalSkipped && (
+        <div className="tool-gate-note tool-gate-skipped">approval skipped (already approved this run)</div>
       )}
       {awaitingApproval && (
         <div className="tool-approval">
@@ -245,9 +253,9 @@ export function ToolCallCard({
                   className="btn btn-sm"
                   disabled={retryDisabled}
                   onClick={() => onRetryTool(name, {})}
-                  title="重新用免费 agnes 跑一次"
+                  title="用免费默认网关重新跑一次（不指定 provider）"
                 >
-                  重试 agnes（免费）
+                  重试（免费）
                 </button>
                 <button
                   className="btn btn-sm btn-primary"

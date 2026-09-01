@@ -1,20 +1,17 @@
-import { spawn } from 'node:child_process'
-import { dirname, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
+import { runPseTask, resolvePseDir, gateNonFreeProvider } from './util-pse.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
-// …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = ***REMOVED***. Override with LANGGRAPH_PSE_DIR in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const LANGGRAPH_PSE =
-  process.env.LANGGRAPH_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')
-const TASKS_DIR = join(LANGGRAPH_PSE, 'tasks')
+// Override with LANGGRAPH_PSE_DIR in .env; defaults to the workspace's
+// ***REMOVED*** (see util-pse.ts for the resolution rules).
+const TASKS_DIR = join(resolvePseDir('langgraph'), 'tasks')
 
+// CRM tasks hit a local backend/DB rather than long LLM pipelines, so they
+// get a tighter budget than runPseTask's 5-minute default.
 const RUN_TIMEOUT_MS = 180_000
-const MAX_OUTPUT = 64 * 1024
 
 const TASKS = {
   'crm-qa': {
@@ -67,6 +64,8 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
       '(3) weekly-review — weekly relationship summary from CRM data. ' +
       'All use the PSE graph (Planner + Specialist + Evaluator + Verify) with anti-hallucination. ' +
       'Default provider: free (default). Requires personal-CRM backend or database to be accessible. ' +
+      'Switching to provider="deepseek" (PAID) triggers a human approval prompt — wait for the user ' +
+      'to approve before assuming it will run; if rejected, do NOT retry with deepseek. ' +
       'Do NOT read any files before calling this tool.',
     parameters: {
       type: 'object',
@@ -97,6 +96,8 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
       },
       required: ['task'],
     },
+    // Paid (deepseek) runs require human approval; free runs pass through.
+    approvalWhen: gateNonFreeProvider('free'),
     async execute(
       args: {
         task: TaskKey
@@ -114,15 +115,9 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
         return `error: unknown crm-task "${task}". Available: ${Object.keys(TASKS).join(', ')}`
       }
 
-      // Guard: verify run.py exists
-      try {
-        await readFile(cfg.run)
-      } catch {
-        return `error: crm-task — run.py not found at ${cfg.run}. Check LANGGRAPH_PSE_DIR path.`
-      }
-
-      // Build command args (always --llm to generate natural language output)
-      const cmdArgs = ['run', 'python', cfg.run, '--llm', `--provider=${provider}`]
+      // Build command args (always --llm to generate natural language output).
+      // runPseTask prepends `uv run python <run.py>` and owns the guard.
+      const cmdArgs = ['--llm', `--provider=${provider}`]
       if (task === 'crm-qa' && api_base_url) {
         cmdArgs.push(`--api-base-url=${api_base_url}`)
       }
@@ -130,50 +125,20 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
         cmdArgs.push(`--db=${db_path}`)
       }
 
-      const taskDir = dirname(cfg.run)
-      ctx
-        .logger('crm-task')
-        .info('starting task=%s provider=%s cwd=%s', task, provider, taskDir)
+      const res = await runPseTask({
+        // Fold the task name into `tool` so errors read `crm-task crm-qa …`,
+        // matching the previous message format.
+        tool: `crm-task ${task}`,
+        framework: 'langgraph',
+        task,
+        args: cmdArgs,
+        timeoutMs: RUN_TIMEOUT_MS,
+        onProgress,
+        logger: (msg, ...a) => ctx.logger('crm-task').info(msg, ...a),
+      })
+      if (!res.ok) return res.error
 
-      let stdout = ''
-      let stderr = ''
-      try {
-        const child = spawn('uv', cmdArgs, {
-          cwd: taskDir,
-          env: { ...process.env },
-        })
-
-        const timeout = setTimeout(() => {
-          child.kill('SIGTERM')
-          setTimeout(() => child.kill('SIGKILL'), 5000)
-        }, RUN_TIMEOUT_MS)
-
-        child.stdout.on('data', (chunk: Buffer) => {
-          const text = chunk.toString()
-          stdout += text
-          if (stdout.length > MAX_OUTPUT) stdout = stdout.slice(-MAX_OUTPUT)
-          onProgress?.(text)
-        })
-        child.stderr.on('data', (chunk: Buffer) => {
-          const text = chunk.toString()
-          stderr += text
-          if (stderr.length > MAX_OUTPUT) stderr = stderr.slice(-MAX_OUTPUT)
-          onProgress?.(text)
-        })
-
-        const code = await new Promise<number>((resolve) => {
-          child.on('close', resolve)
-          child.on('error', () => resolve(-1))
-        })
-        clearTimeout(timeout)
-
-        if (code !== 0) {
-          const errTail = stderr.slice(-500) || stdout.slice(-500)
-          return `error: crm-task ${task} exited with code ${code}\n${errTail}`
-        }
-      } catch (e) {
-        return `error: crm-task spawn failed: ${(e as Error).message}`
-      }
+      const { stdout } = res
 
       // Read output file
       let outputContent = ''

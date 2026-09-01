@@ -13,10 +13,12 @@ import { ApprovalService } from '../src/services/approval.js'
 import { skills } from '../src/plugins/skills.js'
 import { llmMock } from '../src/plugins/llm-mock.js'
 import { toolEcho } from '../src/plugins/tools/tool-echo.js'
+import pse from '@resolve-studio/plugin-pse'
 
 async function buildContext(): Promise<Context> {
   const root = new Context()
   await root.plugin(ToolRegistry)
+  await root.plugin(pse)
   await root.plugin(AgentService)
   await root.plugin(FastPathService)
   await root.plugin(ApprovalService)

@@ -120,7 +120,16 @@ export class ToolRegistry extends Service {
   ): Promise<string> {
     const tool = this.registry.get(name)
     if (!tool) {
-      const result = `error: unknown tool "${name}"`
+      // 未注册的工具：友好提示，列出可用工具，避免 LLM 困惑或反复重试
+      // 注意：必须以 "error:" 开头，agent.ts 用 result.startsWith('error:') 判断失败
+      const availableTools = this.list().map(t => t.name).join(', ')
+      const result = [
+        `error: Tool "${name}" is not registered in the current environment.`,
+        `This may be a tool from another project or a hallucinated tool name.`,
+        `Available tools (${this.list().length}): ${availableTools}`,
+        `Please use one of the available tools above, or complete the task without this tool.`,
+        `Do not repeatedly call "${name}" — it will remain unavailable.`,
+      ].join('\n')
       this.ctx.events.emit('tools/call', { name, args, ok: false, result, internal: opts.internal })
       return result
     }

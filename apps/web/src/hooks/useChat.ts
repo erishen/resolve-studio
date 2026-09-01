@@ -121,6 +121,7 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
                   name: ev.call.name,
                   arguments: ev.call.arguments,
                   gated: isGated(ev.call.name),
+                  approvalSkipped: ev.call.approvalSkipped,
                 }
                 toolStates.set(ev.call.id, entry)
                 patchAssistant({ toolCalls: [...toolStates.values()] })
@@ -274,6 +275,7 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
               name: ev.call.name,
               arguments: ev.call.arguments,
               gated: isGated(ev.call.name),
+              approvalSkipped: ev.call.approvalSkipped,
             }
             toolStates.set(ev.call.id, entry)
             patchAssistant({ toolCalls: [...toolStates.values()] })

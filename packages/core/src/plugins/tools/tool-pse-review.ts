@@ -1,19 +1,17 @@
-import { execFile } from 'node:child_process'
-import { promisify } from 'node:util'
-import { basename, dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, basename } from 'node:path'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool } from '../../types.js'
+import { resolvePseDir, runPseTask, MAX_OUTPUT } from './util-pse.js'
 
-const execFileAsync = promisify(execFile)
-
-// …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = ***REMOVED***. Override with AUTOGEN_PSE_DIR in .env.
+// This file lives in …/resolve-studio/packages/core/src/plugins/tools.
+// 5 levels up = resolve-studio root (for the sandbox preview copy). Override
+// with RESOLVE_STUDIO_DIR.
 const HERE = dirname(fileURLToPath(import.meta.url))
-const AUTOGEN_PSE =
-  process.env.AUTOGEN_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')
+const AUTOGEN_PSE = resolvePseDir('autogen')
+
 const PREPARE = join('tasks', 'portfolio-review', 'prepare.py')
 const RUN = join('tasks', 'portfolio-review', 'run.py')
 
@@ -22,7 +20,9 @@ const RUN = join('tasks', 'portfolio-review', 'run.py')
 // give each step generous timeouts.
 const PREPARE_TIMEOUT_MS = 180_000
 const RUN_TIMEOUT_MS = 480_000
-const MAX_OUTPUT = 48 * 1024
+// Match the original `execFile` maxBuffer (4 MiB) so the "Review 已保存 →"
+// marker line is never truncated away before we can parse it.
+const RUN_MAX_OUTPUT = 4 << 20
 
 const REVIEW_SAVED_RE = /Review 已保存 →\s*(\S+)/
 
@@ -35,7 +35,7 @@ async function copyReviewToSandbox(srcPath: string, content: string): Promise<st
   const destDir = join(STUDIO_ROOT, 'sandbox', 'weekly-investment-review')
   await mkdir(destDir, { recursive: true })
   // 产物路径形如 output/<model>/weekly_review_<date>.md —— 把模型目录名嵌入副本
-  // 文件名，避免不同模型（agnes / deepseek）同一天的报告互相覆盖。
+  // 文件名，避免不同模型目录（free / deepseek）同一天的报告互相覆盖。
   const modelDir = basename(dirname(srcPath))
   const destName = `${modelDir}__${basename(srcPath)}`
   await writeFile(join(destDir, destName), content, 'utf8')
@@ -111,45 +111,55 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
       'personal knowledge-base retrieval to produce an in-depth weekly review. ' +
       'Takes 2-6 minutes and calls the configured LLM. Returns the complete review ' +
       'report (Markdown). Use for a serious, quality-gated weekly review. ' +
-      `[model provider: ${provider}${provider === 'deepseek' ? ' (PAID)' : ' (free)'}].`,
+      `[model provider: ${provider}${provider === 'deepseek' ? ' (PAID)' : ' (free)'}].` +
+      (provider === 'deepseek'
+        ? ' This deployment uses the PAID deepseek provider, so every run requires human approval.'
+        : ''),
     parameters: {
       type: 'object',
       properties: {},
       required: [],
     },
+    // Provider is fixed at registration (config/env), not a per-call argument —
+    // gate the whole tool when it is the paid deepseek provider.
+    needsApproval: provider === 'deepseek',
     async execute(): Promise<string> {
       // 1) regenerate the prompt file (this also refreshes analysis-lens returns)
-      try {
-        const prep = await execFileAsync('uv', ['run', 'python', PREPARE], {
-          cwd: AUTOGEN_PSE,
-          timeout: PREPARE_TIMEOUT_MS,
-          maxBuffer: 1 << 20,
-          env: runEnv,
-        })
-        ctx.logger('pse-review').info('prepare ok: %s', (prep.stdout ?? '').trim().slice(0, 160))
-      } catch (err) {
-        const e = err as { message?: string; stderr?: string }
-        return `error: pse-review prepare step failed — ${truncate(e.stderr ?? e.message ?? String(err), 600)}`
+      const prep = await runPseTask({
+        tool: 'pse-review',
+        framework: 'autogen',
+        task: 'portfolio-review',
+        runFile: PREPARE,
+        taskDir: AUTOGEN_PSE,
+        args: [],
+        env: runEnv,
+        timeoutMs: PREPARE_TIMEOUT_MS,
+        logger: (msg, ...a) => ctx.logger('pse-review').info(msg, ...a),
+      })
+      if (!prep.ok) {
+        return `error: pse-review prepare step failed — ${prep.error.replace(/^error:\s*/, '')}`
       }
+      ctx.logger('pse-review').info('prepare ok: %s', prep.stdout.trim().slice(0, 160))
 
       // 2) run the PSE team
-      let stdout = ''
-      try {
-        const run = await execFileAsync('uv', ['run', 'python', RUN], {
-          cwd: AUTOGEN_PSE,
-          timeout: RUN_TIMEOUT_MS,
-          maxBuffer: 4 << 20,
-          env: runEnv,
-        })
-        stdout = run.stdout ?? ''
-      } catch (err) {
-        const e = err as { message?: string; stdout?: string; stderr?: string }
-        const tail = (e.stdout ?? e.stderr ?? e.message ?? String(err)).slice(-800)
-        return `error: pse-review run step failed — ${truncate(tail, 800)}`
+      const run = await runPseTask({
+        tool: 'pse-review',
+        framework: 'autogen',
+        task: 'portfolio-review',
+        runFile: RUN,
+        taskDir: AUTOGEN_PSE,
+        args: [],
+        env: runEnv,
+        timeoutMs: RUN_TIMEOUT_MS,
+        maxOutput: RUN_MAX_OUTPUT,
+        logger: (msg, ...a) => ctx.logger('pse-review').info(msg, ...a),
+      })
+      if (!run.ok) {
+        return `error: pse-review run step failed — ${run.error.replace(/^error:\s*/, '')}`
       }
 
       // 3) return the saved review file (full report) if present
-      const m = REVIEW_SAVED_RE.exec(stdout)
+      const m = REVIEW_SAVED_RE.exec(run.stdout)
       if (m?.[1]) {
         try {
           const review = await readFile(m[1], { encoding: 'utf8' })
@@ -162,7 +172,7 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
           // fall through to stdout
         }
       }
-      return truncate(stdout || '(no output)', MAX_OUTPUT)
+      return truncate(run.stdout || '(no output)', MAX_OUTPUT)
     },
   } satisfies Tool)
 }

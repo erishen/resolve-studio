@@ -25,6 +25,7 @@ import { mcpPlugin } from '../src/plugins/mcp.js'
 import { llmMock } from '../src/plugins/llm-mock.js'
 import { toolEcho } from '../src/plugins/tools/tool-echo.js'
 import { webServer } from '../src/plugins/web-server.js'
+import pse from '@resolve-studio/plugin-pse'
 
 // Create a temp skills dir for testing
 const TMP_SKILLS = mkdtempSync(join(tmpdir(), 'resolve-studio-concurrency-'))
@@ -48,6 +49,7 @@ function makeBus() {
 async function buildRoot() {
   const root = new Context()
   await root.plugin(ToolRegistry)
+  await root.plugin(pse)
   await root.plugin(AgentService)
   await root.plugin(FastPathService)
   await root.plugin(ApprovalService)

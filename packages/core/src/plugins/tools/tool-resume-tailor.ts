@@ -1,23 +1,11 @@
-import { spawn } from 'node:child_process'
-import { dirname, join, resolve } from 'node:path'
-import { readFile, writeFile, mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import { readFile } from 'node:fs/promises'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
+import { runPseTask, writeTempText, gateNonFreeProvider } from './util-pse.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
-// …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = ***REMOVED***. Override with LLAMAINDEX_PSE_DIR in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const LLAMAINDEX_PSE =
-  process.env.LLAMAINDEX_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')
-const RESUME_TAILOR_DIR = join(LLAMAINDEX_PSE, 'tasks', 'resume-tailor')
-const RUN = join(RESUME_TAILOR_DIR, 'run.py')
-
-// Resume tailoring is a RAG + LLM pipeline — give it generous headroom.
-const RUN_TIMEOUT_MS = 300_000
-const MAX_OUTPUT = 64 * 1024
+// Resume tailoring is a RAG + LLM pipeline; runPseTask defaults to 5 minutes.
 
 const PROVIDERS = ['free', 'deepseek', 'scnet-kimi', 'scnet-minimax'] as const
 type Provider = (typeof PROVIDERS)[number]
@@ -36,6 +24,9 @@ const registerResumeTailor = (ctx: Context, _config: ResumeTailorConfig = {}) =>
       'Takes 1-5 minutes. Returns the generated resume (Markdown) and save path. ' +
       'Use when the user asks to tailor/optimize a resume for a job, or asks for ' +
       'job/career recommendations. Default provider: free (default). ' +
+      'Any non-free provider (deepseek / scnet-kimi / scnet-minimax) is PAID and triggers a human ' +
+      'approval prompt — wait for the user to approve before assuming it will run; if rejected, ' +
+      'do NOT retry with a paid provider. ' +
       'Do NOT read any files before calling this tool — all paths and configs are handled internally.',
     parameters: {
       type: 'object',
@@ -62,6 +53,8 @@ const registerResumeTailor = (ctx: Context, _config: ResumeTailorConfig = {}) =>
       },
       required: ['mode'],
     },
+    // Any non-free provider (deepseek / scnet-*) is paid and requires approval.
+    approvalWhen: gateNonFreeProvider('free'),
     async execute(
       args: { mode: 'customize' | 'recommend'; jd_text?: string; provider?: Provider },
       execCtx?: ToolExecutionContext,
@@ -74,76 +67,34 @@ const registerResumeTailor = (ctx: Context, _config: ResumeTailorConfig = {}) =>
         return 'error: resume-tailor customize mode requires jd_text (Job Description content).'
       }
 
-      // Guard: verify run.py exists
-      try {
-        await readFile(RUN)
-      } catch {
-        return `error: resume-tailor — run.py not found at ${RUN}. Check LLAMAINDEX_PSE_DIR path.`
-      }
-
-      // Build command args
-      const cmdArgs = ['run', 'python', RUN, `--provider=${provider}`]
-      let tempJdPath: string | null = null
+      // Build command args. runPseTask prepends `uv run python <run.py>`
+      // and owns the run.py guard.
+      const cmdArgs = [`--provider=${provider}`]
 
       if (mode === 'customize' && jd_text) {
-        // Write JD to temp file
-        const tmpDir = await mkdtemp(join(tmpdir(), 'resume-jd-'))
-        tempJdPath = join(tmpDir, 'jd.md')
-        await writeFile(tempJdPath, jd_text, 'utf8')
-        cmdArgs.push(`--jd=${tempJdPath}`)
+        // Stage the JD in a temp file — the pipeline takes a path, not text.
+        cmdArgs.push(`--jd=${await writeTempText('resume-jd-', 'jd.md', jd_text)}`)
       } else if (mode === 'recommend') {
         cmdArgs.push('--recommend')
       }
 
-      ctx
-        .logger('resume-tailor')
-        .info('starting mode=%s provider=%s cwd=%s', mode, provider, RESUME_TAILOR_DIR)
+      const res = await runPseTask({
+        tool: 'resume-tailor',
+        framework: 'llamaindex',
+        task: 'resume-tailor',
+        args: cmdArgs,
+        onProgress,
+        logger: (msg, ...a) => ctx.logger('resume-tailor').info(msg, ...a),
+      })
+      if (!res.ok) return res.error
 
-      let stdout = ''
-      let stderr = ''
-      try {
-        const child = spawn('uv', cmdArgs, {
-          cwd: RESUME_TAILOR_DIR,
-          env: { ...process.env },
-        })
-
-        const timeout = setTimeout(() => {
-          child.kill('SIGTERM')
-          setTimeout(() => child.kill('SIGKILL'), 5000)
-        }, RUN_TIMEOUT_MS)
-
-        child.stdout.on('data', (chunk: Buffer) => {
-          const text = chunk.toString()
-          stdout += text
-          if (stdout.length > MAX_OUTPUT) stdout = stdout.slice(-MAX_OUTPUT)
-          onProgress?.(text)
-        })
-        child.stderr.on('data', (chunk: Buffer) => {
-          const text = chunk.toString()
-          stderr += text
-          if (stderr.length > MAX_OUTPUT) stderr = stderr.slice(-MAX_OUTPUT)
-          onProgress?.(text)
-        })
-
-        const code = await new Promise<number>((resolve) => {
-          child.on('close', resolve)
-          child.on('error', () => resolve(-1))
-        })
-        clearTimeout(timeout)
-
-        if (code !== 0) {
-          const errTail = stderr.slice(-500) || stdout.slice(-500)
-          return `error: resume-tailor exited with code ${code}\n${errTail}`
-        }
-      } catch (e) {
-        return `error: resume-tailor spawn failed: ${(e as Error).message}`
-      }
+      const { stdout } = res
 
       // Determine output file
       const outFile =
         mode === 'recommend'
-          ? join(RESUME_TAILOR_DIR, `recommended_resume_${provider}.md`)
-          : join(RESUME_TAILOR_DIR, `tailored_resume_${provider}.md`)
+          ? join(res.taskDir, `recommended_resume_${provider}.md`)
+          : join(res.taskDir, `tailored_resume_${provider}.md`)
 
       // Read output
       let outputContent = ''

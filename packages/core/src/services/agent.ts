@@ -126,6 +126,11 @@ export class AgentService extends Service {
       ? (options.tools as unknown as Tool[])
       : this.ctx.tools.list()
     const toolSchemaByName = new Map<string, Tool>(toolDefs.map((t) => [t.name, t]))
+    // Per-run approval memo: a gated tool that has already been human-approved
+    // once in this run is not re-prompted on subsequent calls (e.g. the model
+    // re-invoking the same gated tool across iterations). Rejected tools are NOT
+    // memoized, so a retry still asks the human again.
+    const approvedTools = new Set<string>()
     // Per-run event sink: when the caller supplies one (the web bridge does,
     // once per HTTP request) every `agent/*` / `llm/*` event is scoped to that
     // run so concurrent chats don't cross-talk. Without it we fall back to the
@@ -278,16 +283,19 @@ export class AgentService extends Service {
           uniqIdx.map(async (idx): Promise<ExecutedCall> => {
             const call = toolCalls[idx]
             const nsId = this.ns(call.id, runId)
-            bus.emit('agent/tool-call', { ...call, id: nsId })
             const t0 = performance.now()
 
             const schema = toolSchemaByName.get(call.name)
             const needApproval = this.toolNeedsApproval(schema, call.arguments)
-            if (needApproval && this.ctx.approval) {
+            // Skip re-prompting a gated tool already approved once this run.
+            const approvalSkipped = needApproval && approvedTools.has(call.name)
+            bus.emit('agent/tool-call', { ...call, id: nsId, approvalSkipped: !!approvalSkipped })
+            if (needApproval && this.ctx.approval && !approvalSkipped) {
               const decision: ApprovalDecision = await this.ctx.approval.request(
                 { ...call, id: nsId },
                 bus,
               )
+              if (decision === 'approve') approvedTools.add(call.name)
               if (decision === 'reject') {
                 const result = `User rejected the tool call "${call.name}" (arguments: ${JSON.stringify(call.arguments)}). Do not call it again; explain or adjust.`
                 return { call, result, ok: false, nsId, durationMs: performance.now() - t0, idx }

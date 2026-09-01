@@ -1,24 +1,12 @@
-import { spawn } from 'node:child_process'
-import { dirname, join, resolve } from 'node:path'
-import { readFile, writeFile, mkdtemp } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import { readFile } from 'node:fs/promises'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
+import { runPseTask, writeTempText, gateNonFreeProvider } from './util-pse.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
-// …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = ***REMOVED***. Override with LANGGRAPH_PSE_DIR in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const LANGGRAPH_PSE =
-  process.env.LANGGRAPH_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')
-const TASK_DIR = join(LANGGRAPH_PSE, 'tasks', 'interview-questions')
-const RUN = join(TASK_DIR, 'run.py')
-
 // Interview question generation is a PSE pipeline (Planner + Specialist +
-// Evaluator + Verify) — give it generous headroom.
-const RUN_TIMEOUT_MS = 300_000
-const MAX_OUTPUT = 64 * 1024
+// Evaluator + Verify); runPseTask defaults to a generous 5-minute budget.
 
 const PROVIDERS = ['free', 'deepseek'] as const
 type Provider = (typeof PROVIDERS)[number]
@@ -55,6 +43,8 @@ const registerInterviewQuestions = (ctx: Context, _config: InterviewQuestionsCon
       'Takes 1-5 minutes. Returns the generated question set (Markdown) and save path. ' +
       'Use when the user asks to generate interview questions, prepare for an interview, or create a quiz. ' +
       'Default provider: free (default). ' +
+      'Switching to provider="deepseek" (PAID) triggers a human approval prompt — wait for the user ' +
+      'to approve before assuming it will run; if rejected, do NOT retry with deepseek. ' +
       'Do NOT read any files before calling this tool — all paths and configs are handled internally.',
     parameters: {
       type: 'object',
@@ -92,6 +82,8 @@ const registerInterviewQuestions = (ctx: Context, _config: InterviewQuestionsCon
       },
       required: ['mode'],
     },
+    // Paid (deepseek) runs require human approval; free runs pass through.
+    approvalWhen: gateNonFreeProvider('free'),
     async execute(
       args: {
         mode: 'subject' | 'jd' | 'resume'
@@ -113,74 +105,31 @@ const registerInterviewQuestions = (ctx: Context, _config: InterviewQuestionsCon
         return 'error: interview-questions resume mode requires resume_text.'
       }
 
-      // Guard: verify run.py exists
-      try {
-        await readFile(RUN)
-      } catch {
-        return `error: interview-questions — run.py not found at ${RUN}. Check LANGGRAPH_PSE_DIR path.`
-      }
-
-      // Build command args (always --llm to actually generate)
-      const cmdArgs = ['run', 'python', RUN, '--llm', `--provider=${provider}`]
-      let tempPath: string | null = null
+      // Build command args (always --llm to actually generate).
+      // runPseTask prepends `uv run python <run.py>` and owns the run.py guard.
+      const cmdArgs = ['--llm', `--provider=${provider}`]
 
       if (mode === 'subject') {
         cmdArgs.push(`--subject=${subject}`)
       } else if (mode === 'jd' && jd_text) {
-        const tmpDir = await mkdtemp(join(tmpdir(), 'interview-jd-'))
-        tempPath = join(tmpDir, 'jd.md')
-        await writeFile(tempPath, jd_text, 'utf8')
-        cmdArgs.push(`--jd=${tempPath}`)
+        const jdPath = await writeTempText('interview-jd-', 'jd.md', jd_text)
+        cmdArgs.push(`--jd=${jdPath}`)
       } else if (mode === 'resume' && resume_text) {
-        const tmpDir = await mkdtemp(join(tmpdir(), 'interview-resume-'))
-        tempPath = join(tmpDir, 'resume.md')
-        await writeFile(tempPath, resume_text, 'utf8')
-        cmdArgs.push(`--resume=${tempPath}`)
+        const resumePath = await writeTempText('interview-resume-', 'resume.md', resume_text)
+        cmdArgs.push(`--resume=${resumePath}`)
       }
 
-      ctx
-        .logger('interview-questions')
-        .info('starting mode=%s subject=%s provider=%s cwd=%s', mode, subject, provider, TASK_DIR)
+      const res = await runPseTask({
+        tool: 'interview-questions',
+        framework: 'langgraph',
+        task: 'interview-questions',
+        args: cmdArgs,
+        onProgress,
+        logger: (msg, ...a) => ctx.logger('interview-questions').info(msg, ...a),
+      })
+      if (!res.ok) return res.error
 
-      let stdout = ''
-      let stderr = ''
-      try {
-        const child = spawn('uv', cmdArgs, {
-          cwd: TASK_DIR,
-          env: { ...process.env },
-        })
-
-        const timeout = setTimeout(() => {
-          child.kill('SIGTERM')
-          setTimeout(() => child.kill('SIGKILL'), 5000)
-        }, RUN_TIMEOUT_MS)
-
-        child.stdout.on('data', (chunk: Buffer) => {
-          const text = chunk.toString()
-          stdout += text
-          if (stdout.length > MAX_OUTPUT) stdout = stdout.slice(-MAX_OUTPUT)
-          onProgress?.(text)
-        })
-        child.stderr.on('data', (chunk: Buffer) => {
-          const text = chunk.toString()
-          stderr += text
-          if (stderr.length > MAX_OUTPUT) stderr = stderr.slice(-MAX_OUTPUT)
-          onProgress?.(text)
-        })
-
-        const code = await new Promise<number>((resolve) => {
-          child.on('close', resolve)
-          child.on('error', () => resolve(-1))
-        })
-        clearTimeout(timeout)
-
-        if (code !== 0) {
-          const errTail = stderr.slice(-500) || stdout.slice(-500)
-          return `error: interview-questions exited with code ${code}\n${errTail}`
-        }
-      } catch (e) {
-        return `error: interview-questions spawn failed: ${(e as Error).message}`
-      }
+      const { stdout, taskDir: TASK_DIR } = res
 
       // Determine output file
       let outFile: string | null = null

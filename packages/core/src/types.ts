@@ -94,6 +94,8 @@ export interface ToolCall {
   name: string
   /** Raw JSON string or already-parsed object. */
   arguments: string | Record<string, unknown>
+  /** True when a gated tool's approval was skipped (already approved this run). */
+  approvalSkipped?: boolean
 }
 
 /**
