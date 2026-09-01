@@ -1,17 +1,12 @@
-import { spawn } from 'node:child_process'
-import { dirname, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
+import { resolvePseDir, runPseTask, MAX_OUTPUT, gateNonFreeProvider } from './util-pse.js'
 
-// …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = ***REMOVED***. Override with CREWAI_PSE_DIR in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const CREWAI_PSE =
-  process.env.CREWAI_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')
+const CREWAI_PSE = resolvePseDir('crewai')
 const RUN = join('tasks', 'project-articles', 'run.py')
 
 // Article writing is a long multi-agent pipeline (Planner + Specialist +
@@ -19,7 +14,6 @@ const RUN = join('tasks', 'project-articles', 'run.py')
 // tax-agent-platform 等大项目 Planner 要读 10+ 文件，加上写作和翻译，
 // 10 分钟容易超时；放宽到 20 分钟。
 const RUN_TIMEOUT_MS = 1_200_000
-const MAX_OUTPUT = 64 * 1024
 
 const ZH_SAVED_RE = /中文已保存 →\s*(\S+)/
 const EN_SAVED_RE = /英文已保存 →\s*(\S+)/
@@ -51,6 +45,31 @@ export interface ArticleWriteConfig {
   _placeholder?: never
 }
 
+/**
+ * Build the child env for crewai-pse's `run.py`, matching `make articles`
+ * (free, default) vs `make articles-paid` (deepseek).
+ *
+ * We cannot rely on inherited env vars because the harness `.env` model name
+ * may differ from what crewai-pse expects, and load_dotenv won't override. So
+ * we fork the env and either strip the `OPENAI_*` trio (let crewai-pse/.env's
+ * own deepseek creds take over via cwd-based load_dotenv) or pin it to the
+ * harness's OpenAI-compatible creds.
+ */
+function buildRunEnv(provider: 'free' | 'deepseek'): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  delete env.OPENAI_MODEL
+  delete env.OPENAI_BASE_URL
+  delete env.OPENAI_API_KEY
+  if (provider === 'deepseek') {
+    // crewai-pse/.env carries deepseek creds; load_dotenv will pick them up.
+  } else {
+    env.OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? ''
+    env.OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini'
+    env.OPENAI_BASE_URL = process.env.OPENAI_BASE_URL ?? ''
+  }
+  return env
+}
+
 const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) => {
   ctx.tools.register({
     name: 'article-write',
@@ -69,6 +88,9 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       'a specific project, ask them to pick ONE, then call once. Only iterate across projects ' +
       'when the user explicitly says "write for all / every project". ' +
       'Default provider: free (default); set provider="deepseek" for paid higher quality. ' +
+      'Switching to provider="deepseek" (PAID) triggers a human approval prompt — wait for the user ' +
+      'to approve before assuming it will run; if the user rejects, do NOT retry with deepseek, ' +
+      'explain and adjust instead. ' +
       'Do NOT read any files before calling this tool — all paths and configs are handled internally.',
     parameters: {
       type: 'object',
@@ -105,6 +127,9 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       // model lets the USER pick ONE instead of guessing or looping over the enum.
       required: [],
     },
+    // Paid (deepseek) runs hit a human-in-the-loop approval gate; free runs pass
+    // through. This is what gives the user a choice before spending money.
+    approvalWhen: gateNonFreeProvider('free'),
     async execute(
       args: { project?: string; publish?: boolean; style?: string; provider?: 'free' | 'deepseek' },
       execCtx?: ToolExecutionContext,
@@ -130,66 +155,42 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
         return `error: unknown project "${project}". Available: ${projectKeys.join(', ')}`
       }
 
-      const cmdArgs = ['run', 'python', RUN, project]
-      if (publish) cmdArgs.push('--publish')
+      const runArgs = [project]
+      if (publish) runArgs.push('--publish')
       if (style && STYLE_NAMES.includes(style as StyleLetter)) {
-        cmdArgs.push(`--style=${style}`)
+        runArgs.push(`--style=${style}`)
       }
 
       ctx
         .logger('article-write')
         .info(
-          'starting project=%s publish=%s style=%s cwd=%s',
+          'starting project=%s publish=%s style=%s provider=%s cwd=%s',
           project,
           publish,
           style ?? 'auto',
+          provider,
           CREWAI_PSE,
         )
 
-      // Guard: verify the crewai-pse directory and run.py exist before spawning.
-      // A missing cwd makes execFile throw with an unhelpful empty error.
-      const runPath = join(CREWAI_PSE, RUN)
-      try {
-        await readFile(runPath)
-      } catch {
-        return `error: article-write — crewai-pse not found at ${CREWAI_PSE} (run.py missing). Check the path resolution in tool-article-write.ts.`
-      }
+      // cwd stays at the crewai-pse root (matches the original `make articles`),
+      // with run.py addressed relative to it. runPseTask builds the final
+      // `uv run python <taskDir>/<runFile>` command and forks `env` for the
+      // free/deepseek provider switch.
+      const res = await runPseTask({
+        tool: 'article-write',
+        framework: 'crewai',
+        task: 'project-articles',
+        runFile: RUN,
+        taskDir: CREWAI_PSE,
+        args: runArgs,
+        env: buildRunEnv(provider),
+        timeoutMs: RUN_TIMEOUT_MS,
+        onProgress,
+        logger: (msg, ...a) => ctx.logger('article-write').info(msg, ...a),
+      })
+      if (!res.ok) return res.error
 
-      let stdout = ''
-      let stderr = ''
-      try {
-        // Build child env explicitly to match `make articles` (free, default) vs
-        // `make articles-paid` (deepseek). We cannot rely on inherited env vars
-        // because the harness `.env` model name may differ from what crewai-pse
-        // expects, and load_dotenv won't override.
-        const childEnv: NodeJS.ProcessEnv = { ...process.env }
-        delete childEnv.OPENAI_MODEL
-        delete childEnv.OPENAI_BASE_URL
-        delete childEnv.OPENAI_API_KEY
-        if (provider === 'deepseek') {
-          // crewai-pse/.env carries deepseek creds; load_dotenv will pick them up.
-          ctx.logger('article-write').info('provider=deepseek (paid)')
-        } else {
-          // free: use the harness's standard OpenAI-compatible creds from `.env`
-          // (OPENAI_*); no vendor-specific model prefix or private gateway.
-          childEnv.OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? ''
-          childEnv.OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini'
-          childEnv.OPENAI_BASE_URL = process.env.OPENAI_BASE_URL ?? ''
-          ctx.logger('article-write').info('provider=free (default)')
-        }
-        const { out, err } = await spawnStream('uv', cmdArgs, {
-          cwd: CREWAI_PSE,
-          timeoutMs: RUN_TIMEOUT_MS,
-          onProgress,
-          env: childEnv,
-        })
-        stdout = out
-        stderr = err
-      } catch (err) {
-        const e = err as { message?: string; code?: string; stdout?: string; stderr?: string }
-        const detail = e.stdout?.trim() || e.stderr?.trim() || e.message || e.code || String(err)
-        return `error: article-write failed (${e.code ?? 'unknown'}) — ${truncate(detail, 1200)}`
-      }
+      const { stdout, stderr } = res
 
       // Extract saved article paths
       const zhMatch = ZH_SAVED_RE.exec(stdout)
@@ -200,7 +201,7 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       // (/Users/.../file.md) and render as clickable preview buttons. Pass them
       // through unchanged. If a future run mode ever emits a relative path we
       // leave it as-is (no preview) instead of guessing a wrong base.
-      const toAbs = (p?: string): string | undefined => (p ?? undefined)
+      const toAbs = (p?: string): string | undefined => p ?? undefined
       const zhPath = toAbs(zhMatch?.[1])
       const enPath = toAbs(enMatch?.[1])
 
@@ -233,66 +234,6 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
 
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n…[truncated ${s.length - max} chars]`
-}
-
-interface SpawnStreamOptions {
-  cwd: string
-  timeoutMs: number
-  onProgress?: (chunk: string) => void
-  env?: NodeJS.ProcessEnv
-}
-
-/**
- * Spawn a process and stream stdout/stderr in real time. Returns the full
- * accumulated stdout/stderr when the process exits. Each stdout line is also
- * forwarded to `onProgress` so the UI can show live progress.
- */
-function spawnStream(
-  cmd: string,
-  args: string[],
-  opts: SpawnStreamOptions,
-): Promise<{ out: string; err: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: opts.cwd, env: opts.env })
-    let out = ''
-    let err = ''
-    const timer = setTimeout(() => {
-      child.kill('SIGTERM')
-      // Give it 5s to die gracefully, then SIGKILL
-      setTimeout(() => child.kill('SIGKILL'), 5000)
-      reject(new Error(`timeout after ${opts.timeoutMs}ms`))
-    }, opts.timeoutMs)
-
-    child.stdout?.on('data', (chunk: Buffer) => {
-      const text = chunk.toString()
-      out += text
-      opts.onProgress?.(text)
-    })
-    child.stderr?.on('data', (chunk: Buffer) => {
-      const text = chunk.toString()
-      err += text
-      // Also surface stderr as progress so errors are visible in real time
-      opts.onProgress?.(text)
-    })
-    child.on('error', (e) => {
-      clearTimeout(timer)
-      reject(e)
-    })
-    child.on('close', (code) => {
-      clearTimeout(timer)
-      if (code === 0) {
-        resolve({ out, err })
-      } else {
-        reject(
-          Object.assign(new Error(`process exited with code ${code}`), {
-            code,
-            stdout: out,
-            stderr: err,
-          }),
-        )
-      }
-    })
-  })
 }
 
 export const toolArticleWrite = definePlugin(registerArticleWrite, 'tool-article-write', ['tools'])
