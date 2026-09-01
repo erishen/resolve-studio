@@ -43,6 +43,15 @@
   box-sizing: border-box;
 }
 
+/* ---- 隐藏所有滚动条（内容仍可滚，鼠标滚轮/触控板滚动不受影响） ---- */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* 旧 Edge/IE */
+}
+*::-webkit-scrollbar {
+  display: none; /* Chrome / Edge / Safari */
+}
+
 html,
 body,
 #root {
@@ -66,6 +75,10 @@ body {
 .sidebar-right {
   border-left: 1px solid var(--border);
   border-right: none;
+  flex-shrink: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .sidebar-head-title {
@@ -81,6 +94,7 @@ body {
 .sidebar {
   width: 230px;
   flex-shrink: 0;
+  min-height: 0;
   border-right: 1px solid var(--border);
   background: var(--panel);
   display: flex;
@@ -286,9 +300,10 @@ body {
 
 .main {
   flex: 1;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  min-width: 0;
 }
 
 .app-header {
