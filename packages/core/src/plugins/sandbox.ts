@@ -134,6 +134,18 @@ export class SandboxService extends Service {
     sb += '(allow iokit-open)\n'
     sb += '(allow file-read*)\n'
     sb += '(deny file-write*)\n'
+    // Character devices: shell redirects (`2>&1`, `>/dev/null`) and RNG/TTY
+    // access need data writes to /dev even though it is outside writable
+    // roots — without this, EVERY redirecting command dies with
+    // "/dev/null: Operation not permitted". data-only grants (no create).
+    sb +=
+      '(allow file-write-data\n' +
+      '  (literal "/dev/null")\n' +
+      '  (literal "/dev/zero")\n' +
+      '  (literal "/dev/random")\n' +
+      '  (literal "/dev/urandom")\n' +
+      '  (literal "/dev/tty")\n' +
+      '  (literal "/dev/dtracehelper"))\n'
     for (const root of this.writableRoots) {
       // Use literal path; Seatbelt matches subpath.
       sb += `(allow file-write* (subpath "${root}"))\n`
