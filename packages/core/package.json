@@ -2,6 +2,7 @@
   "name": "@resolve-studio/core",
   "version": "0.1.0",
   "description": "Core runtime for resolve-studio: Cordis-powered agent runtime (loader, services, plugins)",
+  "private": true,
   "type": "module",
   "license": "MIT",
   "engines": {

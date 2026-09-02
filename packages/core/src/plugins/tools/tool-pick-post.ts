@@ -1,5 +1,6 @@
 /**
- * `pick-post` tool — pick a random published post from erishen.cn (read-only).
+ * `pick-post` tool — pick a random published post from the user's WordPress
+ * blog (read-only).
  *
  * Read-only helper for the post-comment skill: it just does a GET against the
  * WordPress REST API and returns `{ id, title, link }`. Because it never
@@ -9,13 +10,17 @@
  * This keeps the skill's read step frictionless: the model can call it as
  * often as it wants with zero prompts, and approval only appears for the
  * actual comment submission.
+ *
+ * The blog base URL is read from `ERISHEN_BASE` (set in .env, gitignored). It
+ * deliberately has no hardcoded fallback so no personal URL leaks into the
+ * repo.
  */
 
 import type { Context } from 'cordis'
 import type { Tool } from '../../types.js'
 import { definePlugin } from '../util.js'
 
-const BASE = process.env.ERISHEN_BASE ?? 'https://erishen.cn'
+const BASE = process.env.ERISHEN_BASE
 const TIMEOUT = 15_000
 
 interface WpPost {
@@ -31,8 +36,9 @@ interface WpPost {
  */
 export async function pickRandomPost(
   fetchImpl: typeof fetch = fetch,
-  base: string = BASE,
+  base: string | undefined = BASE,
 ): Promise<string> {
+  if (!base) throw new Error('ERISHEN_BASE is not set — add it to .env (your WordPress site base URL)')
   const res = await fetchImpl(`${base}/wp-json/wp/v2/posts?per_page=100&status=publish`, {
     signal: AbortSignal.timeout(TIMEOUT),
   })
@@ -51,7 +57,7 @@ const registerPickPost = (ctx: Context) => {
   ctx.tools.register({
     name: 'pick-post',
     description:
-      'Randomly pick one published post from erishen.cn (read-only, no approval). Returns JSON { id, title, link }. Use before commenting, or when the user wants a random blog post.',
+      'Randomly pick one published post from the user\'s WordPress blog (read-only, no approval). Returns JSON { id, title, link }. Requires ERISHEN_BASE in .env. Use before commenting, or when the user wants a random blog post.',
     parameters: { type: 'object', properties: {} },
     async execute() {
       return pickRandomPost()

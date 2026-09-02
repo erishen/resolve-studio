@@ -93,11 +93,11 @@ node --import tsx packages/core/src/index.ts --config cordis.patch.yml
 
 | 输入 | 预期 |
 | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `看看今天全市场有哪些值得关注的技术信号` | 模型调用 `stock-scan` → 全市场信号扫描 → JSON 列表（趋势/买入/卖出，秒级返回，无需审批） |
-| `帮我对最近持有的组合做一次周度分析，出一份周报` | 触发 `weekly-investment-review` 技能 → `analysis-lens` 组合分析 → 输出结构化周报 |
-| `看看茅台这几天走势咋样` | 模型调用行情工具 → 简表（CLI/成交量/涨跌） |
-| `帮我把这个 CSV 分析一下，给我一份报告` | 模型调用 `csv-analyze`（langgraph-csv-analyst）→ 剖析/趋势/异常 → HTML 报告 |
-| `帮我研究一下 Notion AI 这个产品` | 模型调用 `product-analyze`（crewai-product-analyst）→ 产品/竞品分析 → Markdown 报告 |
+| `看看今天全市场有哪些值得关注的技术信号` | 模型调用 `stock-scan` → 全市场信号扫描 → JSON 列表（趋势/买入/卖出，秒级返回，无需审批） ✅ 已实现 |
+| `帮我对最近持有的组合做一次周度分析，出一份周报` | 触发 `weekly-investment-review` 技能 → `analysis-lens` 组合分析 → 输出结构化周报 🔜 待落地 |
+| `看看茅台这几天走势咋样` | 模型调用行情工具 → 简表（CLI/成交量/涨跌） 🔜 待落地 |
+| `帮我把这个 CSV 分析一下，给我一份报告` | 模型调用 `csv-analyze`（langgraph-csv-analyst）→ 剖析/趋势/异常 → HTML 报告 ✅ 已实现 |
+| `帮我研究一下 Notion AI 这个产品` | 模型调用 `product-analyze`（crewai-product-analyst）→ 产品/竞品分析 → Markdown 报告 ✅ 已实现 |
 
 > 提示：`stock-scan` / `csv-analyze` / `product-analyze` 都是"输入 → 产出文件/JSON 报告"的只读分析工具，默认无需审批；写文件型命令（如决策记录落库）会挂在审批后。
 
@@ -107,10 +107,10 @@ node --import tsx packages/core/src/index.ts --config cordis.patch.yml
 
 | 输入 | 预期 |
 | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `帮我审计一下当前 repo 有没有隐私泄露` | 模型调用 `privacy-audit` → 9 项检查（.gitignore 覆盖/硬编码密钥/历史提交敏感文件等）→ 输出审计报告（有 FAIL 项则弹审批提示） |
-| `这个 PDF 转成 Markdown 给我看看` | 模型调用 `pdf-to-markdown` → 生成同名 `.md` → 返回内容摘要 |
+| `帮我审计一下当前 repo 有没有隐私泄露` | 模型调用 `privacy-audit` → 9 项检查（.gitignore 覆盖/硬编码密钥/历史提交敏感文件等）→ 有 FAIL 项则输出风险清单（退出码 1 标识风险） ✅ 已实现 |
+| `这个 PDF 转成 Markdown 给我看看` | 模型调用 `pdf-to-markdown`（tools/pdf_to_markdown.py）→ 生成同名 `.md` → 返回内容摘要 🔜 待落地 |
 
-> 提示：`privacy-audit` 是只读扫描，默认无需审批；发现高严重度项（如已入库的 `.env` / 密钥）时模型应主动停下手头工作先报告。
+> 提示：`privacy-audit` 是只读扫描，默认无需审批、多次运行幂等；发现高严重度项（如已入库的 `.env` / 密钥）时模型应主动停下手头工作先报告。
 
 ## L. 内容采编 / SEO（make dev；wordpress-tools）
 
@@ -131,12 +131,12 @@ wordpress-tools 已有完整的 "MD → 多平台分发" 流水线（掘金 / �
 
 | 输入 | 预期 |
 | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `在我的 markdown 文档库里搜一下 xxx` | 模型调用 `markdown-library` FTS5 全文检索（:3100 只读）→ 命中片段 + 来源路径 |
-| `照片库里有没有重复的照片` | 模型调用 `photo-library` `/api/duplicates`（:3100 只读）→ 重复照片分组列表 |
-| `这批文档做个 RAG，我问问它` | 模型调用 `rag-task-service`（:3000）→ 上传文档 → 混合检索 → 问答 |
-| `视频库里有哪些视频，帮我列个清单` | 模型调用 `video-library`（:3200 只读）→ 视频清单（编解码/时长/旁路缩略图） |
+| `在我的 markdown 文档库里搜一下 xxx` | 模型调用 `doc-library-search`（markdown-library :3100 FTS5，服务离线则回退启动指引）→ 命中片段 + 来源路径 ✅ 已实现 |
+| `照片库里有没有重复的照片` | 模型调用 `photo-duplicates`（photo-library :3100 `/duplicates`+`/stats`）→ 重复照片分组列表 ✅ 已实现 |
+| `这批文档做个 RAG，我问问它` | 模型调用 `rag-task-service`（:3000）→ 上传文档 → 混合检索 → 问答 🔜 待落地 |
+| `视频库里有哪些视频，帮我列个清单` | 模型调用 `video-library-list`（video-library :3200）→ 视频清单（编解码/时长/分辨率） ✅ 已实现 |
 
-> 提示：这四个服务都是 local-first、只读优先，契合 resolve-studio 的沙箱/本地工具定位；接入方式二选一——作为 MCP server 挂 `mcp.servers`，或直接用 shell/curl 封装成 `tool-*`。
+> 提示：三个已实现的 library 工具都封装为 `tool-*`（REST 只读 + `/health` 探测，服务不在线时返回启动指引而非崩溃），URL 可用 `MARKDOWN_LIBRARY_URL`/`PHOTO_LIBRARY_URL`/`VIDEO_LIBRARY_URL` 覆盖；`rag-task-service` 交互式会话待落地。
 
 ## N. 工程纪律（make dev；github/agent-skills 移植技能）
 

@@ -31,14 +31,25 @@ function extractMarkdownPaths(text: string): string[] {
 }
 
 /**
+ * Extract local http(s) preview URLs (e.g. csv-analyze's report server at
+ * http://127.0.0.1:PORT/data/xxx.html) so the UI can offer an iframe preview.
+ * Matches URLs whose path ends in .html/.htm/.json/.png — same set the backend
+ * static preview server serves.
+ */
+function extractPreviewUrls(text: string): string[] {
+  const out = new Set<string>()
+  const re = /(https?:\/\/[^\s'"<>)]+\.(?:html?|json|png|jpe?g|svg))/g
+  let m
+  while ((m = re.exec(text)) !== null) out.add(m[1])
+  return [...out]
+}
+
+/**
  * 提取消息正文里可预览的 .md 路径。模型回复里可能用相对路径（如
  * `tasks/hot-news/articles/x.md`），后端按 cwd 解析会失败；这里用同一条消息里
  * 工具结果的**绝对路径**按文件名做匹配替换，匹配不到的相对路径直接丢弃。
  */
-function extractPreviewPaths(
-  content: string,
-  toolResults: (string | undefined)[],
-): string[] {
+function extractPreviewPaths(content: string, toolResults: (string | undefined)[]): string[] {
   const candidates = extractMarkdownPaths(content)
   const absByBase = new Map<string, string>()
   for (const r of toolResults) {
@@ -94,6 +105,8 @@ export function MessageList({
     crm: [],
     pse: [],
     code: [],
+    library: [],
+    privacy: [],
     other: [],
   }
   const hasExamples = CATEGORY_ORDER.some((c) => grouped[c].length > 0)
@@ -202,10 +215,11 @@ export function MessageList({
               {m.role === 'assistant' &&
                 onPreview &&
                 (() => {
-                  const previews = extractPreviewPaths(
-                    m.content,
-                    (m.toolCalls ?? []).map((tc) => tc.result),
-                  )
+                  const results = (m.toolCalls ?? []).map((tc) => tc.result)
+                  const previews = [
+                    ...extractPreviewPaths(m.content, results),
+                    ...extractPreviewUrls(`${m.content}\n${results.join('\n')}`),
+                  ]
                   return previews.length > 0 ? (
                     <div className="message-file-links">
                       {previews.map((p) => (
@@ -213,9 +227,9 @@ export function MessageList({
                           key={p}
                           className="btn btn-sm btn-preview"
                           onClick={() => onPreview(p)}
-                          title="预览文件内容"
+                          title={/^https?:/.test(p) ? '预览报告 (iframe)' : '预览文件内容'}
                         >
-                          📄 {p.split('/').pop()}
+                          {/^https?:/.test(p) ? '🖥️' : '📄'} {p.split('/').pop()}
                         </button>
                       ))}
                     </div>

@@ -10,12 +10,14 @@ function fakeFetch(json: unknown, ok = true): typeof fetch {
   })) as unknown as typeof fetch
 }
 
+const BASE = 'http://example.test'
+
 test('pickRandomPost returns a random post as JSON', async () => {
   const posts = [
     { id: 1, title: { rendered: 'Hello' }, link: 'http://x/1' },
     { id: 2, title: { rendered: 'World' }, link: 'http://x/2' },
   ]
-  const out = await pickRandomPost(fakeFetch(posts))
+  const out = await pickRandomPost(fakeFetch(posts), BASE)
   const parsed = JSON.parse(out) as { id: number; title: string; link: string }
   assert.ok([1, 2].includes(parsed.id))
   assert.ok(parsed.title.length > 0)
@@ -23,9 +25,13 @@ test('pickRandomPost returns a random post as JSON', async () => {
 })
 
 test('pickRandomPost throws on a non-ok HTTP response', async () => {
-  await assert.rejects(() => pickRandomPost(fakeFetch([], false)))
+  await assert.rejects(() => pickRandomPost(fakeFetch([], false), BASE))
 })
 
 test('pickRandomPost throws when no posts are returned', async () => {
-  await assert.rejects(() => pickRandomPost(fakeFetch([])))
+  await assert.rejects(() => pickRandomPost(fakeFetch([]), BASE))
+})
+
+test('pickRandomPost throws when ERISHEN_BASE is not configured', async () => {
+  await assert.rejects(() => pickRandomPost(fakeFetch([])), /ERISHEN_BASE/)
 })

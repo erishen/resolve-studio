@@ -33,7 +33,10 @@ function parseFrontMatter(content: string): { meta: FrontMatter; body: string } 
       currentKey = kv[1]
       let val = kv[2].trim()
       // Strip surrounding quotes
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
         val = val.slice(1, -1)
       }
       // Parse JSON arrays like ["a", "b"]
@@ -49,7 +52,10 @@ function parseFrontMatter(content: string): { meta: FrontMatter; body: string } 
     } else if (currentKey && line.trim().startsWith('- ')) {
       // YAML list item
       const existing = meta[currentKey]
-      const item = line.trim().slice(2).replace(/^["']|["']$/g, '')
+      const item = line
+        .trim()
+        .slice(2)
+        .replace(/^["']|["']$/g, '')
       if (Array.isArray(existing)) existing.push(item)
       else meta[currentKey] = [item]
     }
@@ -63,16 +69,26 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'rendered' | 'source'>('rendered')
 
-  const isMarkdown = /\.md$/i.test(path)
+  // http(s) preview URLs (e.g. the csv-analyze local report server) are rendered
+  // in an iframe as-is; local files go through the /api/file text proxy below.
+  const isHttpUrl = /^https?:\/\//i.test(path)
+  const isMarkdown = /\.md$/i.test(path) && !isHttpUrl
+  const isHtmlUrl = isHttpUrl && /\.html?$/i.test(new URL(path, window.location.href).pathname)
 
   const { meta, body } = useMemo(
-    () => (isMarkdown ? parseFrontMatter(rawContent) : { meta: {} as FrontMatter, body: rawContent }),
+    () =>
+      isMarkdown ? parseFrontMatter(rawContent) : { meta: {} as FrontMatter, body: rawContent },
     [rawContent, isMarkdown],
   )
 
   const hasFrontMatter = Object.keys(meta).length > 0
 
   useEffect(() => {
+    if (isHttpUrl) {
+      setLoading(false)
+      setError(null)
+      return
+    }
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -92,7 +108,7 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
     return () => {
       cancelled = true
     }
-  }, [path])
+  }, [path, isHttpUrl])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -111,7 +127,7 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
         <div className="file-preview-header">
           <span className="file-preview-title">{displayTitle}</span>
           <span className="file-preview-path">{path}</span>
-          {isMarkdown && (
+          {isMarkdown && !isHtmlUrl && (
             <div className="file-preview-toggle">
               <button
                 className={`btn btn-sm${viewMode === 'rendered' ? ' btn-active' : ''}`}
@@ -152,7 +168,15 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
               </div>
             </>
           )}
-          {!loading && !error && (!isMarkdown || viewMode === 'source') && (
+          {!loading && !error && isHtmlUrl && (
+            <iframe
+              className="file-preview-iframe"
+              src={path}
+              title="HTML 报告预览"
+              sandbox="allow-scripts allow-same-origin"
+            />
+          )}
+          {!loading && !error && (!isMarkdown || viewMode === 'source') && !isHtmlUrl && (
             <pre className="file-preview-content">{rawContent}</pre>
           )}
         </div>

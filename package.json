@@ -4,6 +4,7 @@
   "private": true,
   "description": "Resolve Studio — a Cordis-powered agent harness monorepo (pnpm workspace) where everything is a plugin",
   "license": "MIT",
+  "packageManager": "pnpm@9",
   "engines": {
     "node": ">=22"
   },

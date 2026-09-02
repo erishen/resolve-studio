@@ -31,6 +31,13 @@ import { toolBrowser } from './tools/tool-browser.js'
 import { toolPickPost } from './tools/tool-pick-post.js'
 import { toolSkillRun } from './tools/tool-skill-run.js'
 import { toolPortfolioCheck } from './tools/tool-portfolio-check.js'
+import { toolStockScan } from './tools/tool-stock-scan.js'
+import { toolCsvAnalyze } from './tools/tool-csv-analyze.js'
+import { toolProductAnalyze } from './tools/tool-product-analyze.js'
+import { toolDocLibrarySearch } from './tools/tool-doc-library-search.js'
+import { toolPhotoDuplicates } from './tools/tool-photo-duplicates.js'
+import { toolVideoLibraryList } from './tools/tool-video-library-list.js'
+import { toolPrivacyAudit } from './tools/tool-privacy-audit.js'
 import { toolPseReview } from './tools/tool-pse-review.js'
 import { toolArticleWrite } from './tools/tool-article-write.js'
 import { toolResumeTailor } from './tools/tool-resume-tailor.js'
@@ -73,6 +80,13 @@ export const PLUGINS: Record<string, Plugin> = {
   'tool-pick-post': toolPickPost as unknown as Plugin,
   'tool-skill-run': toolSkillRun as unknown as Plugin,
   'tool-portfolio-check': toolPortfolioCheck as unknown as Plugin,
+  'tool-stock-scan': toolStockScan as unknown as Plugin,
+  'tool-csv-analyze': toolCsvAnalyze as unknown as Plugin,
+  'tool-product-analyze': toolProductAnalyze as unknown as Plugin,
+  'tool-doc-library-search': toolDocLibrarySearch as unknown as Plugin,
+  'tool-photo-duplicates': toolPhotoDuplicates as unknown as Plugin,
+  'tool-video-library-list': toolVideoLibraryList as unknown as Plugin,
+  'tool-privacy-audit': toolPrivacyAudit as unknown as Plugin,
   'tool-pse-review': toolPseReview as unknown as Plugin,
   'tool-article-write': toolArticleWrite as unknown as Plugin,
   'tool-resume-tailor': toolResumeTailor as unknown as Plugin,

@@ -2,7 +2,16 @@ import type { SkillInfo } from './api'
 import type { ToolSchema } from './types'
 
 export type ExampleCategory =
-  'article' | 'hot-news' | 'invest' | 'interview' | 'crm' | 'pse' | 'code' | 'other'
+  | 'article'
+  | 'hot-news'
+  | 'invest'
+  | 'interview'
+  | 'crm'
+  | 'pse'
+  | 'code'
+  | 'library'
+  | 'privacy'
+  | 'other'
 
 export interface ExampleItem {
   id: string
@@ -22,6 +31,8 @@ export const CATEGORY_LABELS: Record<ExampleCategory, string> = {
   crm: 'CRM 相关',
   pse: 'PSE 三角色',
   code: '代码工具',
+  library: '本地资料库',
+  privacy: '隐私自查',
   other: '其他',
 }
 
@@ -33,6 +44,8 @@ export const CATEGORY_ORDER: ExampleCategory[] = [
   'crm',
   'pse',
   'code',
+  'library',
+  'privacy',
   'other',
 ]
 
@@ -55,6 +68,15 @@ const ZH_TITLES: Record<string, string> = {
   // 投资
   'pse-review': '深度投资复盘',
   'portfolio-check': '投资前数据体检',
+  'stock-scan': '全市场技术信号扫描',
+  'csv-analyze': 'CSV 数据分析报告',
+  'product-analyze': '产品研究',
+  // 本地资料库
+  'doc-library-search': '文档库检索',
+  'photo-duplicates': '照片去重检查',
+  'video-library-list': '视频清单',
+  // 隐私自查
+  'privacy-audit': '隐私泄露审计',
   // 面试 / CRM
   'resume-tailor': '定制简历',
   'interview-questions': '生成面试题库',
@@ -189,6 +211,44 @@ function toolExample(t: ToolSchema): ExampleItem | null {
       prompt:
         '帮我做一次投资前数据体检：用 portfolio-check 工具在 analysis-lens 执行 make calculate / analyze / compare 刷新快照并扫描异常，确认数据无误后再做投资复盘。',
       category: 'invest',
+    },
+    'stock-scan': {
+      title: '全市场技术信号扫描',
+      prompt:
+        '看看今天全市场有哪些值得关注的技术信号，用 stock-scan 工具扫一遍并列出趋势/买入/卖出信号。',
+      category: 'invest',
+    },
+    'csv-analyze': {
+      title: 'CSV 数据分析报告',
+      prompt: '帮我把这个 CSV 分析一下，用 csv-analyze 工具给我一份带剖视/趋势/异常的报告。',
+      category: 'invest',
+    },
+    'product-analyze': {
+      title: '产品研究',
+      prompt: '帮我研究一下 Notion AI 这个产品，用 product-analyze 工具做产品与竞品分析。',
+      category: 'invest',
+    },
+    'doc-library-search': {
+      title: '文档库检索',
+      prompt:
+        '在我的 markdown 文档库里搜一下 xxx，用 doc-library-search 工具给我命中的片段和来源路径。',
+      category: 'library',
+    },
+    'photo-duplicates': {
+      title: '照片去重检查',
+      prompt: '照片库里有没有重复的照片，用 photo-duplicates 工具帮我检查并分组列出。',
+      category: 'library',
+    },
+    'video-library-list': {
+      title: '视频清单',
+      prompt: '视频库里有哪些视频，用 video-library-list 工具帮我列个清单（编解码/时长/分辨率）。',
+      category: 'library',
+    },
+    'privacy-audit': {
+      title: '隐私泄露审计',
+      prompt:
+        '帮我审计一下当前 repo 有没有隐私泄露，用 privacy-audit 工具跑一遍 9 项检查并报告风险项。',
+      category: 'privacy',
     },
     'resume-tailor': {
       title: '定制简历',
@@ -349,9 +409,12 @@ export function buildExamples(
   // each category's natural workflow (e.g. hot-news: fetch → topics → generate
   // → check; article: discover → write → validate → publish → archive).
   const priorityTools = [
-    // invest: 数据体检 → 深度复盘
+    // invest: 数据体检 → 深度复盘 → 信号扫描/CSV/产品
     'portfolio-check',
     'pse-review',
+    'stock-scan',
+    'csv-analyze',
+    'product-analyze',
     // article: 发现项目 → 写作 → 校验 → 发布 WP → 草稿 → 思否 → 归档 → 随机选文
     'article-discover',
     'article-write',
@@ -484,6 +547,8 @@ export function buildExamples(
     crm: [],
     pse: [],
     code: [],
+    library: [],
+    privacy: [],
     other: [],
   }
   for (const e of uniq) {

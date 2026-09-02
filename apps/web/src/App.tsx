@@ -156,6 +156,8 @@ export function App() {
           crm: [],
           pse: [],
           code: [],
+          library: [],
+          privacy: [],
           other: [],
         }
   }, [tools, skills])
@@ -794,10 +796,10 @@ export function App() {
                       }}
                     >
                       Clear all
-                     </button>
-                   )}
-                 </div>
-               </details>
+                    </button>
+                  )}
+                </div>
+              </details>
             </div>
           </aside>
           {exportToast && <div className="toast">{exportToast}</div>}

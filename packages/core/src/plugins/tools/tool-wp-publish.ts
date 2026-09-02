@@ -1,19 +1,14 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
 
-// …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = ***REMOVED***. Override with WORDPRESS_TOOLS_DIR in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const WP_TOOLS =
-  process.env.WORDPRESS_TOOLS_DIR ??
-  resolve(HERE, '***REMOVED******REMOVED***/wordpress-tools')
+// WP tools live outside this repo (wordpress-tools). Require WORDPRESS_TOOLS_DIR
+// from .env so no personal filesystem path leaks into the source.
+const WP_TOOLS = process.env.WORDPRESS_TOOLS_DIR
 
 // These tasks may launch a browser (sf-pw-publish) or hit external APIs
 // (juejin/wechat). Give them generous timeouts.
@@ -65,6 +60,9 @@ function registerWpTask(ctx: Context, task: WpTaskDef) {
       required: [],
     },
     async execute(_args: Record<string, never>, execCtx?: ToolExecutionContext): Promise<string> {
+      if (!WP_TOOLS) {
+        return `error: ${task.name} 不可用 — WORDPRESS_TOOLS_DIR 未设置，请在 .env 中配置 wordpress-tools 的路径。`
+      }
       const onProgress = execCtx?.onProgress
 
       ctx.logger(task.name).info('running make %s (cwd=%s)', task.makeTarget, WP_TOOLS)

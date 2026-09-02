@@ -67,6 +67,20 @@ plugins:
     name: tool-skill-run
   - id: tool-portfolio-check
     name: tool-portfolio-check
+  - id: tool-stock-scan
+    name: tool-stock-scan
+  - id: tool-csv-analyze
+    name: tool-csv-analyze
+  - id: tool-product-analyze
+    name: tool-product-analyze
+  - id: tool-doc-library-search
+    name: tool-doc-library-search
+  - id: tool-photo-duplicates
+    name: tool-photo-duplicates
+  - id: tool-video-library-list
+    name: tool-video-library-list
+  - id: tool-privacy-audit
+    name: tool-privacy-audit
   - id: tool-pse-review
     name: tool-pse-review
     config:
