@@ -1,19 +1,12 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dirname, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { readFileSync, readdirSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
-
-// …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = ***REMOVED***. Override with CREWAI_PSE_DIR in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const CREWAI_PSE =
-  process.env.CREWAI_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')
 
 const PUBLISH = join('tasks', 'project-articles', 'publish.py')
 const ARCHIVE = join('tasks', 'project-articles', 'archive.py')
@@ -23,22 +16,26 @@ const VALIDATE = join('tasks', 'project-articles', 'validate.py')
 const TASK_TIMEOUT_MS = 300_000
 const MAX_OUTPUT = 32 * 1024
 
-// Pending queue (projects.json) — articles not yet published.
-const PROJECTS_FILE = join(CREWAI_PSE, 'tasks', 'project-articles', 'projects.json')
+/** crewai-pse framework root, from CREWAI_PSE_DIR (env-only). Null if unset. */
+function crewAiPseDir(): string | null {
+  return process.env.CREWAI_PSE_DIR ?? null
+}
 
-// Generated articles live here (including already-published ones like
-// resolve-tui that remain as files but are absent from the pending queue).
-const PSE_ARTICLES_DIR = join(
-  CREWAI_PSE,
-  '..',
-  '..',
-  'personal',
-  'personal-site',
-  'wordpress-tools',
-  'articles',
-  'pse',
-  'zh',
-)
+/** Pending queue (projects.json) — articles not yet published. Null if unset. */
+function projectsFile(): string | null {
+  const dir = crewAiPseDir()
+  return dir ? join(dir, 'tasks', 'project-articles', 'projects.json') : null
+}
+
+/**
+ * Generated PSE article directory (zh). Derived from WORDPRESS_TOOLS_DIR
+ * (env-only) rather than a hardcoded walk up from the framework root.
+ * Null if unset.
+ */
+function pseArticlesDir(): string | null {
+  const wp = process.env.WORDPRESS_TOOLS_DIR
+  return wp ? join(wp, 'articles', 'pse', 'zh') : null
+}
 
 function loadJsonKeys(file: string): string[] {
   try {
@@ -54,17 +51,21 @@ function loadJsonKeys(file: string): string[] {
 // listed; already-published articles still present as files stay publishable.
 // projects-published.json is deliberately NOT read here.
 function loadArticleKeys(): string[] {
-  const keys = new Set<string>(loadJsonKeys(PROJECTS_FILE))
-  try {
-    for (const name of readdirSync(PSE_ARTICLES_DIR)) {
+  const projects = projectsFile()
+  const keys = new Set<string>(projects ? loadJsonKeys(projects) : [])
+  const articles = pseArticlesDir()
+  if (articles) {
+    try {
+      for (const name of readdirSync(articles)) {
       const m = /^(.+?)-zh\.md$/.exec(name)
       if (!m) continue
       const slug = m[1]
       // 下划线 slug（resolve_tui）→ 连字符 project key（resolve-tui）
       keys.add(slug.replace(/_/g, '-'))
     }
-  } catch {
-    // 目录不存在/不可读：仅用 json 队列
+    } catch {
+      // 目录不存在/不可读：仅用 json 队列
+    }
   }
   return [...keys].sort()
 }
@@ -177,6 +178,11 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
       // Enforce one article per call: reject comma/space-separated multi-project.
       if (/[,\s]/.test(project)) {
         return `error: ${task.name} 每次只能处理一篇文章（一个 project）。收到 "${project}" 疑似含多个项目；请只传单个 project，需要多篇时分别调用本工具。`
+      }
+
+      const CREWAI_PSE = crewAiPseDir()
+      if (!CREWAI_PSE) {
+        return 'error: CREWAI_PSE_DIR is not set. Export it to the absolute path of the crewai-pse framework root (e.g. in .env).'
       }
 
       // Preview gate: without explicit confirm=true, NEVER POST. Run the

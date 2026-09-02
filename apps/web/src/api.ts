@@ -321,7 +321,7 @@ export async function fetchUsage(): Promise<{
   return (data.usage as never) ?? null
 }
 
-// ---- workspace analysis (projects under ***REMOVED***) ----
+// ---- workspace analysis (projects under the workspace) ----
 
 export interface WorkspaceProject {
   key: string

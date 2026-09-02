@@ -1,14 +1,13 @@
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool } from '../../types.js'
 
-// …/resolve-studio/packages/core/src/plugins/tools, 8 levels up = the workspace
-// root hosting ***REMOVED***/. Override with MARKDOWN_LIBRARY_URL in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const LIB_DIR = resolve(HERE, '***REMOVED******REMOVED***/markdown-library')
 const BASE_URL = process.env.MARKDOWN_LIBRARY_URL ?? 'http://127.0.0.1:3100'
+
+/** Root of the markdown-library service, from MARKDOWN_LIBRARY_DIR (env-only). */
+function markdownLibraryDir(): string {
+  return process.env.MARKDOWN_LIBRARY_DIR ?? ''
+}
 
 // The service is a long-running local REST server. Guard each call with a cheap
 // /health probe so a stopped service yields a useful "start it" hint instead of
@@ -44,7 +43,7 @@ const registerDocLibrarySearch = (ctx: Context) => {
       if (!probe.ok) {
         return (
           `error: markdown-library 服务未运行（${BASE_URL}/health 不可达）。\n` +
-          `启动：cd ${LIB_DIR} && make run（需先 cp .env.example .env）`
+          `启动：cd ${markdownLibraryDir() || '<markdown-library 根目录 (设置 MARKDOWN_LIBRARY_DIR)>'} && make run（需先 cp .env.example .env）`
         )
       }
 

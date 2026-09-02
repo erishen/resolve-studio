@@ -5,18 +5,14 @@ import { definePlugin } from '../util.js'
 import { runPseTask, resolvePseDir, gateNonFreeProvider } from './util-pse.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
-// Override with LANGGRAPH_PSE_DIR in .env; defaults to the workspace's
-// ***REMOVED*** (see util-pse.ts for the resolution rules).
-const TASKS_DIR = join(resolvePseDir('langgraph'), 'tasks')
-
-// CRM tasks hit a local backend/DB rather than long LLM pipelines, so they
-// get a tighter budget than runPseTask's 5-minute default.
-const RUN_TIMEOUT_MS = 180_000
-
+// The langgraph-pse framework root is resolved from LANGGRAPH_PSE_DIR in .env
+// (env-only; util-pse.resolvePseDir throws if unset — there is no relative-path
+// default). Each pipeline's scripts live under that root's `tasks/<task>/`
+// directory; runPseTask resolves the run.py path itself, and we resolve the
+// output path lazily (see langgraphTasksDir) only when actually reading it.
 const TASKS = {
   'crm-qa': {
-    run: join(TASKS_DIR, 'crm-qa', 'run.py'),
-    output: join(TASKS_DIR, 'crm-qa', 'qa_report.md'),
+    outputRel: 'crm-qa/qa_report.md',
     label: 'CRM 数据质量报告',
     description:
       'Run the langgraph-pse crm-qa pipeline to generate a personal-CRM data quality report. ' +
@@ -25,8 +21,7 @@ const TASKS = {
       'duplicate contacts, missing fields, or data hygiene.',
   },
   'follow-up-draft': {
-    run: join(TASKS_DIR, 'follow-up-draft', 'run.py'),
-    output: join(TASKS_DIR, 'follow-up-draft', 'follow_up_drafts.md'),
+    outputRel: 'follow-up-draft/follow_up_drafts.md',
     label: '跟进消息草稿',
     description:
       'Run the langgraph-pse follow-up-draft pipeline to generate personalized follow-up ' +
@@ -35,8 +30,7 @@ const TASKS = {
       'messages, check-in texts, or relationship maintenance content.',
   },
   'weekly-review': {
-    run: join(TASKS_DIR, 'weekly-review', 'run.py'),
-    output: join(TASKS_DIR, 'weekly-review', 'weekly_review.md'),
+    outputRel: 'weekly-review/weekly_review.md',
     label: '每周关系复盘',
     description:
       'Run the langgraph-pse weekly-review pipeline to generate a weekly relationship review ' +
@@ -45,6 +39,11 @@ const TASKS = {
       'review, relationship summary, or catch-up on contacts.',
   },
 } as const
+
+/** langgraph-pse `tasks/` directory, from LANGGRAPH_PSE_DIR (env-only). */
+function langgraphTasksDir(): string {
+  return join(resolvePseDir('langgraph'), 'tasks')
+}
 
 type TaskKey = keyof typeof TASKS
 const PROVIDERS = ['free', 'deepseek'] as const
@@ -115,6 +114,13 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
         return `error: unknown crm-task "${task}". Available: ${Object.keys(TASKS).join(', ')}`
       }
 
+      let tasksDir: string
+      try {
+        tasksDir = langgraphTasksDir()
+      } catch (e) {
+        return `error: crm-task — ${(e as Error).message}`
+      }
+
       // Build command args (always --llm to generate natural language output).
       // runPseTask prepends `uv run python <run.py>` and owns the guard.
       const cmdArgs = ['--llm', `--provider=${provider}`]
@@ -143,14 +149,14 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
       // Read output file
       let outputContent = ''
       try {
-        outputContent = await readFile(cfg.output, 'utf8')
+        outputContent = await readFile(join(tasksDir, cfg.outputRel), 'utf8')
       } catch {
         // File might not exist
       }
 
       const result = [
         `> crm-task 完成（任务：${cfg.label}，模型：${provider}）`,
-        `> 输出文件：${cfg.output}`,
+        `> 输出文件：${join(tasksDir, cfg.outputRel)}`,
         '',
       ]
 

@@ -2,39 +2,33 @@
  * Shared bridge for invoking the Python PSE engines.
  *
  * Every `tool-*.ts` that shells out to a `*-pse` framework was repeating the
- * same five things: resolve the framework root (env override + 8-levels-up
- * fallback), guard that `run.py` exists, spawn `uv run python run.py`, apply a
+ * same five things: resolve the framework root (from its dedicated env var),
+ * guard that `run.py` exists, spawn `uv run python run.py`, apply a
  * SIGTERM→SIGKILL timeout, and cap/forward stdout+stderr. This module owns
  * that once so the tools only describe what makes them different.
  *
- * Path resolution: this file lives in
- * `…/resolve-studio/packages/core/src/plugins/tools`, so 8 levels up is the
- * workspace root that hosts `frameworks/`.
+ * Path resolution is env-driven only: each framework root comes from its own
+ * environment variable (see `PSE_FRAMEWORK_ENVS`). No relative path into the
+ * surrounding workspace is assumed — if the variable is unset the tool fails
+ * fast with an actionable message instead of guessing a location.
  */
 
 import { spawn } from 'node:child_process'
 import { writeFile, mkdtemp, readFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
 
 /** PSE frameworks reachable from this workspace. */
 export const PSE_FRAMEWORKS = ['autogen', 'crewai', 'langgraph', 'llamaindex'] as const
 export type PseFramework = (typeof PSE_FRAMEWORKS)[number]
 
-/** Env var + default location for each framework. */
-const FRAMEWORK_DIRS: Record<PseFramework, { env: string; rel: string }> = {
-  autogen: { env: 'AUTOGEN_PSE_DIR', rel: '***REMOVED***' },
-  crewai: { env: 'CREWAI_PSE_DIR', rel: '***REMOVED***' },
-  langgraph: { env: 'LANGGRAPH_PSE_DIR', rel: '***REMOVED***' },
-  llamaindex: { env: 'LLAMAINDEX_PSE_DIR', rel: '***REMOVED***' },
+/** Env var that points at each framework's root directory. */
+export const PSE_FRAMEWORK_ENVS: Record<PseFramework, string> = {
+  autogen: 'AUTOGEN_PSE_DIR',
+  crewai: 'CREWAI_PSE_DIR',
+  langgraph: 'LANGGRAPH_PSE_DIR',
+  llamaindex: 'LLAMAINDEX_PSE_DIR',
 }
-
-// 8 levels up from …/plugins/tools = the workspace root, the directory that
-// hosts `frameworks/`. Written as a repeat so the depth is unambiguous (the
-// old copy-pasted literal was easy to miscount).
-const HERE = dirname(fileURLToPath(import.meta.url))
-const WORKSPACE_ROOT = resolve(HERE, '../'.repeat(8))
 
 /** Default cap for accumulated stdout/stderr (64 KiB). */
 export const MAX_OUTPUT = 64 * 1024
@@ -52,10 +46,22 @@ export function gateNonFreeProvider(freeProvider: string) {
     args.provider !== undefined && args.provider !== freeProvider
 }
 
-/** Root directory of a PSE framework, honouring its env override. */
+/**
+ * Root directory of a PSE framework, resolved from its dedicated env var.
+ *
+ * Throws if the variable is unset so misconfiguration surfaces immediately
+ * with an actionable message, rather than a confusing `uv` stack trace later
+ * (or a silently wrong path into the surrounding workspace).
+ */
 export function resolvePseDir(framework: PseFramework): string {
-  const { env, rel } = FRAMEWORK_DIRS[framework]
-  return process.env[env] ?? resolve(WORKSPACE_ROOT, rel)
+  const env = PSE_FRAMEWORK_ENVS[framework]
+  const dir = process.env[env]
+  if (!dir) {
+    throw new Error(
+      `${env} is not set. Export it to the absolute path of the ${framework}-pse framework root (e.g. in .env).`,
+    )
+  }
+  return dir
 }
 
 /** Directory of a task inside a framework: `<framework>/tasks/<task>`. */
@@ -230,7 +236,7 @@ export async function runPseTask(options: RunPseTaskOptions): Promise<PseRunResu
   try {
     await readFile(run)
   } catch {
-    const { env } = FRAMEWORK_DIRS[framework]
+    const env = PSE_FRAMEWORK_ENVS[framework]
     return {
       ok: false,
       error: `error: ${tool} — ${runFile} not found at ${run}. Check ${env} path.`,

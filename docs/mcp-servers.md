@@ -72,7 +72,7 @@ stdio 类多数用 `npx` 拉取官方 `@modelcontextprotocol/server-*` 包。
 }
 ```
 
-> ⚠️ **allowed directory 必须覆盖实际访问路径**：`@modelcontextprotocol/server-filesystem` 只允许访问启动参数里列出的根目录（可传多个，如 `"...filesystem", "/path/A", "/path/B"`）。若 Agent 要访问的路径不在其中，会报 `Access denied - path outside allowed directories`。上面示例用 invest 工作区根目录，已覆盖 `frameworks/`、`work/` 等子目录；只写 `Desktop` 这类单一目录是常见踩坑点。
+> ⚠️ **allowed directory 必须覆盖实际访问路径**：`@modelcontextprotocol/server-filesystem` 只允许访问启动参数里列出的根目录（可传多个，如 `"...filesystem", "/path/A", "/path/B"`）。若 Agent 要访问的路径不在其中，会报 `Access denied - path outside allowed directories`。上面示例用项目根目录，已覆盖其下所有子目录；只写 `Desktop` 这类单一目录是常见踩坑点（会漏掉项目内其他路径）。
 
 > ⚠️ **`directory_tree` 对大仓库会撑爆上下文**：该 MCP 的 `directory_tree` / `list_directory` 会**无限制**返回整棵递归目录树，对含 `.venv` / `node_modules` 的大仓库（数万文件）会产出几十万 token，直接触发 `400 ... exceeds the model's maximum context length`。**分析大型目录请用 harness 自带的 `analyze_directory` 工具**——它的输出有硬上限（树行数 / 文件数 / 总字节都封顶），安全且更有用。
 

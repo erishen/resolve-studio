@@ -1,20 +1,17 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { readFileSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
 
-// …/resolve-studio/packages/core/src/plugins/tools, 8 levels up = the workspace
-// root hosting ***REMOVED***/. Override with STOCK_ANALYZER_DIR in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const STOCK_ANALYZER =
-  process.env.STOCK_ANALYZER_DIR ??
-  resolve(HERE, '***REMOVED******REMOVED***/apps/market-analyzer')
+/** market-analyzer project root, from STOCK_ANALYZER_DIR (env-only). Null if unset. */
+function stockAnalyzerDir(): string | null {
+  return process.env.STOCK_ANALYZER_DIR ?? null
+}
 
 const STEP_TIMEOUT_MS = 300_000
 const STEP_MAX_BUFFER = 16 << 20
@@ -41,10 +38,14 @@ const registerStockScan = (ctx: Context) => {
     },
     needsApproval: false,
     async execute(args): Promise<string> {
+      const stockAnalyzer = stockAnalyzerDir()
+      if (!stockAnalyzer) {
+        return 'error: STOCK_ANALYZER_DIR is not set. Export it to the absolute path of the market-analyzer project root (e.g. in .env).'
+      }
       const output =
         (args.output as string | undefined)?.trim() || 'output/reports/scan_result.json'
 
-      const logs: string[] = [`扫描目录：${STOCK_ANALYZER}`, '']
+      const logs: string[] = [`扫描目录：${stockAnalyzer}`, '']
       let stdout = ''
       let stderr = ''
       try {
@@ -52,7 +53,7 @@ const registerStockScan = (ctx: Context) => {
           'uv',
           ['run', 'python', '-m', 'src.main', 'scan', '--output', output],
           {
-            cwd: STOCK_ANALYZER,
+            cwd: stockAnalyzer,
             timeout: STEP_TIMEOUT_MS,
             maxBuffer: STEP_MAX_BUFFER,
             env: process.env,
@@ -76,8 +77,8 @@ const registerStockScan = (ctx: Context) => {
       // The scan writes an up-to-~4MB JSON report too large for read-file
       // (64KiB cap). Embed a compact top-N table + signal-type distribution
       // directly so the agent can list signals without a follow-up read.
-      logs.push(...renderSummary(join(STOCK_ANALYZER, output)))
-      logs.push('', `> 信号报告已写 → ${join(STOCK_ANALYZER, output)}`)
+      logs.push(...renderSummary(join(stockAnalyzer, output)))
+      logs.push('', `> 信号报告已写 → ${join(stockAnalyzer, output)}`)
       logs.push('> 下一步：对感兴趣的信号可用 stock-backtest 回测，或 stock-score 看排名。')
       return logs.join('\n')
     },

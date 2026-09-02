@@ -1,18 +1,19 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
 
-// …/resolve-studio/packages/core/src/plugins/tools →
-// 8 levels up = ***REMOVED***. Override with CREWAI_PSE_DIR in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const CREWAI_PSE =
-  process.env.CREWAI_PSE_DIR ?? resolve(HERE, '***REMOVED******REMOVED***')
+/**
+ * crewai-pse framework root, resolved from CREWAI_PSE_DIR (env-only).
+ * Returns null when the variable is unset, so the tool can surface an
+ * actionable error instead of guessing a location 8 levels up the tree.
+ */
+function crewAiPseDir(): string | null {
+  return process.env.CREWAI_PSE_DIR ?? null
+}
 
 const TASK_TIMEOUT_MS = 120_000
 const MAX_OUTPUT = 64 * 1024
@@ -25,7 +26,7 @@ const registerCrewAiDiscover = (ctx: Context) => {
   ctx.tools.register({
     name: 'article-discover',
     description:
-      '扫描大项目（***REMOVED***）下所有有 github remote 的子项目，对比已有 projects.json，输出建议新增的项目列表（含 desc/highlights/source_dir 自动生成）。用于发现可写技术文章的新项目。默认扫出后即写入 projects.json；传 add=false 仅 dry-run 输出建议不写入。' +
+      '扫描大项目（工作区）下所有有 github remote 的子项目，对比已有 projects.json，输出建议新增的项目列表（含 desc/highlights/source_dir 自动生成）。用于发现可写技术文章的新项目。默认扫出后即写入 projects.json；传 add=false 仅 dry-run 输出建议不写入。' +
       '⚠️ 此工具仅用于发现【尚未撰写】的新项目以生成文章，不负责发布；要发布已生成的待发文章请改用 article-publish（不传 project 即可列出待发布清单）。',
     parameters: {
       type: 'object',
@@ -44,6 +45,11 @@ const registerCrewAiDiscover = (ctx: Context) => {
     ): Promise<string> {
       const { add = true } = args
       const onProgress = execCtx?.onProgress
+
+      const CREWAI_PSE = crewAiPseDir()
+      if (!CREWAI_PSE) {
+        return 'error: article-discover — CREWAI_PSE_DIR is not set. Export it to the absolute path of the crewai-pse framework root (e.g. in .env).'
+      }
 
       // NOTE: pass --add as a *make variable* (FLAGS=--add), NOT as a bare
       // `make discover --add` argument — GNU Make treats a leading `--` as its

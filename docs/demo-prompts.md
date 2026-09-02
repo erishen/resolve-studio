@@ -63,7 +63,7 @@ node --import tsx packages/core/src/index.ts --config cordis.patch.yml
 
 ## H. 文章写作（make dev + article-* 工具）
 
-这些工具依赖 `CREWAI_PSE_DIR`（默认指向 `***REMOVED***/***REMOVED***`），需在 `.env` 配好 crewai-pse 的模型密钥；运行 `make dev`（真实模型）才能跑通流水线。
+这些工具依赖 `CREWAI_PSE_DIR`（指向 crewai-pse 项目根目录的绝对路径），需在 `.env` 配好 crewai-pse 的模型密钥；运行 `make dev`（真实模型）才能跑通流水线。
 
 | 输入                                            | 预期                                                                                       |
 | ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -72,11 +72,11 @@ node --import tsx packages/core/src/index.ts --config cordis.patch.yml
 | `帮我写一篇技术文章，用 crewai-pse 三角色流水线生成` | 模型调用 `article-write` → 跑 PSE 流水线生成中英双语草稿（耗时较长，长项目可能弹审批）      |
 | `帮我把一篇已生成的文章发布到 WordPress`         | 模型调用 `article-publish` → 发布（通常弹审批一次）                                        |
 
-> 提示：`article-discover` 扫描的是 `***REMOVED***` 下「有 github remote」的子项目，对比 `projects.json` 找出还没写文章的项目；**默认扫出即写入** `projects.json`，传 `add=false` 可先只看建议不写入。
+> 提示：`article-discover` 扫描的是工作区下「有 github remote」的子项目，对比 `projects.json` 找出还没写文章的项目；**默认扫出即写入** `projects.json`，传 `add=false` 可先只看建议不写入。
 
 ## I. 热点营销内容（make dev + hot-news 系列）
 
-热点流水线：抓素材 → 选话题 → 生成 → 校验，四步对应四个工具。依赖 `LLAMAINDEX_PSE_DIR`（默认指向 `***REMOVED***/***REMOVED***`），其 `tasks/hot-news` 用 `uv run` 驱动，需在 `.env` 配好 llamaindex-pse 的模型密钥。
+热点流水线：抓素材 → 选话题 → 生成 → 校验，四步对应四个工具。依赖 `LLAMAINDEX_PSE_DIR`（指向 llamaindex-pse 项目根目录的绝对路径），其 `tasks/hot-news` 用 `uv run` 驱动，需在 `.env` 配好 llamaindex-pse 的模型密钥。
 
 | 输入                                                        | 预期                                                                                       |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
@@ -87,9 +87,9 @@ node --import tsx packages/core/src/index.ts --config cordis.patch.yml
 
 > 提示：发布动作（小红书草稿、知乎/头条填稿）由 Makefile 侧的人工流程接管，harness 工具**刻意不做自动发布**——内容生成与合规校验全自动化，发布永远留给人眼。
 
-## J. 投资分析（make dev；***REMOVED***）
+## J. 投资分析（make dev）
 
-这些示例用 `market-analyzer` / `analysis-lens`（***REMOVED***）的现成 CLI 产出 JSON/报告，聚合方式与现有 `portfolio-check` 一致——输入请求 → 调工具 → 回报产出路径。依赖 `INVEST_KIT_DIR`（默认指向 `***REMOVED***/***REMOVED***`），报告与数据为本地私有，模型密钥走 `.env` 的 `OPENAI_*`。
+这些示例用 `market-analyzer` / `analysis-lens` 的现成 CLI 产出 JSON/报告，聚合方式与现有 `portfolio-check` 一致——输入请求 → 调工具 → 回报产出路径。依赖 `PRODUCT_ANALYST_DIR`（指向 crewai-product-analyst 项目根目录的绝对路径），报告与数据为本地私有，模型密钥走 `.env` 的 `OPENAI_*`。
 
 | 输入 | 预期 |
 | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -125,9 +125,9 @@ wordpress-tools 已有完整的 "MD → 多平台分发" 流水线（掘金 / �
 
 > 提示：`md-to-wechat` / `seo-health-check` / `doc-converter` 都是本地只读转换；平台发布类工具（juejin/sf/wechat）写操作默认背书审批——即使模型自己触发也需人点批准。
 
-## M. 本地资料库（make dev；***REMOVED*** 只读服务）
+## M. 本地资料库（make dev；本地只读服务）
 
-***REMOVED*** 下有四个独立二进制只读服务，均已有 REST API，可作为 MCP 或本地 curl 工具接入，几乎零代码。示例展示 "本地只读服务当工具" 的新范式。
+工作区下有四个独立二进制只读服务，均已有 REST API，可作为 MCP 或本地 curl 工具接入，几乎零代码。示例展示 "本地只读服务当工具" 的新范式。
 
 | 输入 | 预期 |
 | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |

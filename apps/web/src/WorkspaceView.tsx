@@ -148,7 +148,7 @@ function getQuickTasks(projectKey: string): QuickTask[] {
 }
 
 /**
- * Workspace view: surfaces the ***REMOVED*** code-analysis report inside
+ * Workspace view: surfaces the workspace code-analysis report inside
  * the app. Lists every tracked project as a card (languages, symbol/diagnostic
  * counts, status, links) and lets the user trigger a background re-scan whose
  * progress is polled from `/api/workspace/status`.
@@ -262,7 +262,7 @@ export function WorkspaceView({ onRunTask }: WorkspaceViewProps = {}) {
         <div>
           <h2 className="ws-title">工作区项目分析</h2>
           <p className="ws-sub">
-            ***REMOVED*** 下「有 GitHub 链接 + 已写文章」的项目 ·
+            工作区下「有 GitHub 链接 + 已写文章」的项目 ·
             {data.generatedAt
               ? ` 报告生成于 ${new Date(data.generatedAt).toLocaleString()}`
               : ' 尚未生成报告'}

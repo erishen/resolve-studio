@@ -524,7 +524,7 @@ export function buildExamples(
       id: 'article-check-links',
       title: '校验文章回链',
       prompt:
-        '在 ***REMOVED***/***REMOVED*** 目录运行一次 make check-links，校验各项目 README 的 erishen.cn 文章回链是否完整。若全绿（0 issues）：直接报告结论收工，不要执行其他命令。仅当有缺失时：列出具体项目和缺的链接，再运行一次 make sync-links FLAGS=--dry 预览修复动作（不要真正写入）。每条命令最多执行一次，失败或超时不要重复同一条命令，直接把现象报告给我。',
+        '在 crewai-pse 项目根目录运行一次 make check-links，校验各项目 README 的 erishen.cn 文章回链是否完整。若全绿（0 issues）：直接报告结论收工，不要执行其他命令。仅当有缺失时：列出具体项目和缺的链接，再运行一次 make sync-links FLAGS=--dry 预览修复动作（不要真正写入）。每条命令最多执行一次，失败或超时不要重复同一条命令，直接把现象报告给我。',
       category: 'article',
     },
   ]

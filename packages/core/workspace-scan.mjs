@@ -1,7 +1,7 @@
 // resolve-studio 工作区代码分析合集生成器（v3：语言单元化 + 混仓分别激活）
 //
 // 收录规则（来自用户）：
-//   - 仅收录「有 GitHub 链接 + 已写文章」的项目，清单即 ***REMOVED*** 的
+//   - 仅收录「有 GitHub 链接 + 已写文章」的项目，清单即 crewai-pse 的
 //     tasks/project-articles/projects-published.json（该清单本身已排除 github/、cnb/ 下的 fork/镜像副本）。
 //   - 逐项目探测「语言分析单元」：根目录 + 深度≤2 子目录内的构建标记，每个语言各成一个单元。
 //     单语言仓库 → 单一 serena 进程（行为同 v2）；混仓（如 market-analyzer：根 pyproject + frontend/ package.json）
@@ -16,7 +16,7 @@
 //
 // 所有机器相关路径一律走环境变量，默认值对一份全新 clone 即可用（不写死任何用户目录）：
 //   WORKSPACE_ROOT     要扫描的工作区根目录（默认：本仓库根）
-//   WORKSPACE_MANIFEST 项目清单 JSON（默认：<WORKSPACE_ROOT>/***REMOVED***/...）
+//   WORKSPACE_MANIFEST 项目清单 JSON（必填：projects-published.json 的绝对路径；无默认值）
 //   WORKSPACE_OUT      产物输出目录（默认：<本仓库根>/workspace-analysis）
 //   SERENA_DIR         serena 源码目录（默认：~/Github/serena）
 //   WORKSPACE_LLM_ENV  读取 OPENAI_* 的 .env（默认：<本仓库根>/.env）
@@ -32,9 +32,14 @@ const UV = process.env.SERENA_UV || 'uv'
 // 本仓库根（workspace-scan.mjs 位于 packages/core/ 下）
 const REPO_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)))
 const ROOT = process.env.WORKSPACE_ROOT || REPO_ROOT
-const MANIFEST =
-  process.env.WORKSPACE_MANIFEST ||
-  join(ROOT, '***REMOVED***/tasks/project-articles/projects-published.json')
+const MANIFEST = process.env.WORKSPACE_MANIFEST
+if (!MANIFEST) {
+  console.error(
+    'WORKSPACE_MANIFEST is not set. Export it to the absolute path of projects-published.json ' +
+      '(the published-articles manifest, e.g. $CREWAI_PSE_DIR/tasks/project-articles/projects-published.json).'
+  )
+  process.exit(1)
+}
 const OUT_DIR = process.env.WORKSPACE_OUT || join(REPO_ROOT, 'workspace-analysis')
 const SERENA_DIR = process.env.SERENA_DIR || join(homedir(), 'Github', 'serena')
 const LLM_ENV = process.env.WORKSPACE_LLM_ENV || join(REPO_ROOT, '.env')
@@ -528,7 +533,7 @@ function isCoreEntry(rel, symbols) {
 
 // 从 .env 加载 LLM API 配置（OpenAI 兼容端点）
 function loadLlmConfig() {
-  const envPath = join(ROOT, '***REMOVED***/.env')
+  const envPath = LLM_ENV
   try {
     const content = readFileSync(envPath, 'utf8')
     const cfg = {}

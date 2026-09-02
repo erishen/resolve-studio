@@ -4,9 +4,13 @@ import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
-import { resolvePseDir, runPseTask, MAX_OUTPUT, gateNonFreeProvider } from './util-pse.js'
+import { runPseTask, MAX_OUTPUT, gateNonFreeProvider } from './util-pse.js'
 
-const CREWAI_PSE = resolvePseDir('crewai')
+/** crewai-pse framework root, from CREWAI_PSE_DIR (env-only). Null if unset. */
+function crewaiPseDir(): string | null {
+  return process.env.CREWAI_PSE_DIR ?? null
+}
+
 const RUN = join('tasks', 'project-articles', 'run.py')
 
 // Article writing is a long multi-agent pipeline (Planner + Specialist +
@@ -20,14 +24,21 @@ const EN_SAVED_RE = /英文已保存 →\s*(\S+)/
 
 // Project keys are read from projects.json at registration time so the enum
 // stays in sync without manual edits.
-const PROJECTS_FILE = join(CREWAI_PSE, 'tasks', 'project-articles', 'projects.json')
+function projectsFile(): string | null {
+  const dir = crewaiPseDir()
+  return dir ? join(dir, 'tasks', 'project-articles', 'projects.json') : null
+}
 
 // Loaded synchronously at module-eval so the `project` enum is populated in the
 // tool schema at registration time. An async load would leave the enum empty,
 // hiding the choices from the model and causing repeated no-project calls.
+// When CREWAI_PSE_DIR is unset the file path is unknown, so the enum is empty
+// (the tool then tells the caller to set the env).
 function loadProjectKeys(): string[] {
+  const file = projectsFile()
+  if (!file) return []
   try {
-    const raw = readFileSync(PROJECTS_FILE, 'utf8')
+    const raw = readFileSync(file, 'utf8')
     const obj = JSON.parse(raw) as Record<string, unknown>
     return Object.keys(obj).sort()
   } catch {
@@ -136,6 +147,11 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
     ): Promise<string> {
       const { project, publish = false, style, provider = 'free' } = args
       const onProgress = execCtx?.onProgress
+
+      const CREWAI_PSE = crewaiPseDir()
+      if (!CREWAI_PSE) {
+        return 'error: CREWAI_PSE_DIR is not set. Export it to the absolute path of the crewai-pse framework root (e.g. in .env).'
+      }
 
       // If no project specified, return the candidate list so the user can choose
       // ONE — this is the intended "pick a project" flow, not a re-list loop.

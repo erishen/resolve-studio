@@ -1,20 +1,17 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dirname, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { readdir, readFile } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
 
-// Resolve the sibling analysis-lens project from this file's location
-// (…/resolve-studio/packages/core/src/plugins/tools), independent of cwd.
-// Override with ASSET_LENS_DIR in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const ASSET_LENS =
-  process.env.ASSET_LENS_DIR ?? resolve(HERE, '***REMOVED******REMOVED***/apps/analysis-lens')
+/** analysis-lens project root, from ASSET_LENS_DIR (env-only). Null if unset. */
+function assetLensDir(): string | null {
+  return process.env.ASSET_LENS_DIR ?? null
+}
 
 // Each `make` step can take a while on a cold cache; give each generous headroom.
 const STEP_TIMEOUT_MS = 300_000
@@ -51,14 +48,18 @@ const registerPortfolioCheck = (ctx: Context) => {
     },
     needsApproval: false,
     async execute(): Promise<string> {
+      const assetLens = assetLensDir()
+      if (!assetLens) {
+        return 'error: ASSET_LENS_DIR is not set. Export it to the absolute path of the asset-lens project root (e.g. in .env).'
+      }
       const steps = ['calculate', 'analyze', 'compare']
-      const logs: string[] = [`数据目录：${ASSET_LENS}`, '']
+      const logs: string[] = [`数据目录：${assetLens}`, '']
 
       for (const step of steps) {
         logs.push(`🔄 make ${step} ...`)
         try {
           const { stdout, stderr } = await execFileAsync('make', [step], {
-            cwd: ASSET_LENS,
+            cwd: assetLens,
             timeout: STEP_TIMEOUT_MS,
             maxBuffer: STEP_MAX_BUFFER,
             env: process.env,
@@ -78,7 +79,7 @@ const registerPortfolioCheck = (ctx: Context) => {
       }
 
       logs.push('', '## 体检结论')
-      const findings = await scanAnomalies(ASSET_LENS)
+      const findings = await scanAnomalies(assetLens)
       logs.push(findings)
       return logs.join('\n')
     },

@@ -286,7 +286,7 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       return
     }
 
-    // ---- workspace analysis (projects under ***REMOVED***) ----
+    // ---- workspace analysis (projects under the workspace) ----
     if (path === '/api/workspace' && req.method === 'GET') {
       const data = await workspace.getProjects()
       sendJson(res, 200, data)

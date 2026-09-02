@@ -1,19 +1,29 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
 
-// …/resolve-studio/packages/core/src/plugins/tools, 8 levels up = the workspace
-// root (***REMOVED***). Override with PRIVACY_AUDIT_DIR in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const WORKSPACE_ROOT = resolve(HERE, '***REMOVED***')
-const AUDIT_SCRIPT =
-  process.env.PRIVACY_AUDIT_DIR ?? resolve(WORKSPACE_ROOT, 'tools/privacy/privacy_audit.py')
+/**
+ * Path to the privacy audit script, from PRIVACY_AUDIT_DIR (env-only).
+ * Throws if unset so the tool fails fast with an actionable message.
+ */
+function privacyAuditScript(): string {
+  const s = process.env.PRIVACY_AUDIT_DIR
+  if (!s) {
+    throw new Error(
+      'PRIVACY_AUDIT_DIR is not set. Export it to the absolute path of privacy_audit.py (e.g. in .env).',
+    )
+  }
+  return s
+}
+
+/** Root directory to audit by default, from WORKSPACE_ROOT (env-only). Null if unset. */
+function workspaceRoot(): string | null {
+  return process.env.WORKSPACE_ROOT ?? null
+}
 
 const STEP_TIMEOUT_MS = 300_000
 const STEP_MAX_BUFFER = 16 << 20
@@ -37,7 +47,7 @@ const registerPrivacyAudit = (ctx: Context) => {
       properties: {
         target: {
           type: 'string',
-          description: `要审计的 git 仓库或根目录（默认 ${WORKSPACE_ROOT}）。传单仓库则只审计它。`,
+          description: '要审计的 git 仓库或根目录（默认 WORKSPACE_ROOT 环境变量指向的整个工作区；不传 target 且未设置 WORKSPACE_ROOT 则报错）。传单仓库则只审计它。',
         },
         exclude_path: {
           type: 'string',
@@ -49,10 +59,20 @@ const registerPrivacyAudit = (ctx: Context) => {
     },
     needsApproval: false,
     async execute(args): Promise<string> {
-      const target = (args.target as string | undefined)?.trim() || WORKSPACE_ROOT
+      let auditScript: string
+      try {
+        auditScript = privacyAuditScript()
+      } catch (e) {
+        return `error: privacy-audit — ${(e as Error).message}`
+      }
+      const root = workspaceRoot()
+      const target = (args.target as string | undefined)?.trim() || root
+      if (!target) {
+        return 'error: privacy-audit 需要 target 参数，或设置 WORKSPACE_ROOT 环境变量以审计整个工作区。'
+      }
       const excludePath = (args.exclude_path as string | undefined)?.trim()
 
-      const cmdArgs = [AUDIT_SCRIPT, target, '--json', '--no-color']
+      const cmdArgs = [auditScript, target, '--json', '--no-color']
       if (excludePath) cmdArgs.push('--exclude-path', excludePath)
 
       let stdout: string

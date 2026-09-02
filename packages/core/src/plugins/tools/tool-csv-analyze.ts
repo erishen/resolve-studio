@@ -3,23 +3,20 @@ import { promisify } from 'node:util'
 import { createServer, type Server } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
 
-// …/resolve-studio/packages/core/src/plugins/tools, 8 levels up = the workspace
-// root hosting ***REMOVED***/. Override with LANGGRAPH_CSV_ANALYST_DIR in .env.
-const HERE = dirname(fileURLToPath(import.meta.url))
-const CSV_ANALYST =
-  process.env.LANGGRAPH_CSV_ANALYST_DIR ??
-  resolve(HERE, '***REMOVED******REMOVED***/apps/langgraph-csv-analyst')
-
-// Bundled sample so the tool works out-of-the-box when no file is given
-// (e.g. the demo prompt "帮我把这个 CSV 分析一下" without a path).
-const SAMPLE_CSV = resolve(CSV_ANALYST, 'data/sample_sales.csv')
+/**
+ * langgraph-csv-analyst project root, resolved from LANGGRAPH_CSV_ANALYST_DIR
+ * (env-only). Returns null when the variable is unset, so callers can fall
+ * back to a caller-supplied file or surface an actionable error.
+ */
+function csvAnalystDir(): string | null {
+  return process.env.LANGGRAPH_CSV_ANALYST_DIR ?? null
+}
 
 const STEP_TIMEOUT_MS = 300_000
 const STEP_MAX_BUFFER = 16 << 20
@@ -54,14 +51,19 @@ const registerCsvAnalyze = (ctx: Context) => {
     },
     needsApproval: false,
     async execute(args): Promise<string> {
-      const file = (args.file as string | undefined)?.trim() || SAMPLE_CSV
-      const usingSample = file === SAMPLE_CSV
+      const dir = csvAnalystDir()
+      const sampleCsv = dir ? resolve(dir, 'data/sample_sales.csv') : null
+      const file = (args.file as string | undefined)?.trim() || sampleCsv
+      if (!file) {
+        return 'error: csv-analyze 需要 file 参数，或设置 LANGGRAPH_CSV_ANALYST_DIR 以使用内置样例 data/sample_sales.csv。'
+      }
+      const usingSample = file === sampleCsv
 
       const profile = !!args.profile
       const output = (args.output as string | undefined)?.trim()
 
       const logs: string[] = [
-        `分析目录：${CSV_ANALYST}`,
+        `分析目录：${dir ?? '(未设置 LANGGRAPH_CSV_ANALYST_DIR)'}`,
         `输入：${file}`,
         usingSample ? '> 未指定 CSV，使用内置样例 data/sample_sales.csv。' : '',
         '',
@@ -80,7 +82,7 @@ const registerCsvAnalyze = (ctx: Context) => {
 
       try {
         const { stdout, stderr } = await execFileAsync('uv', cmdArgs, {
-          cwd: CSV_ANALYST,
+          cwd: dir,
           timeout: STEP_TIMEOUT_MS,
           maxBuffer: STEP_MAX_BUFFER,
           env: process.env,
@@ -150,7 +152,9 @@ let previewBase: string | null = null
 
 async function ensurePreviewServer(): Promise<string | null> {
   if (previewServer && previewBase) return previewBase
-  const root = resolve(CSV_ANALYST)
+  const d = csvAnalystDir()
+  if (!d) return null
+  const root = resolve(d)
   const server = createServer((req, res) => {
     void (async () => {
       try {
@@ -185,7 +189,9 @@ async function ensurePreviewServer(): Promise<string | null> {
 /** Map an absolute report path to its http:// preview URL, or null if unsupported. */
 function toPreviewUrl(reportPath: string): string | null {
   if (!previewBase) return null
-  const root = resolve(CSV_ANALYST)
+  const d = csvAnalystDir()
+  if (!d) return null
+  const root = resolve(d)
   const rel = relative(root, resolve(reportPath))
   if (rel.startsWith('..') || rel.includes('..') || !HTML_SAFE_EXT.test(rel)) return null
   return `${previewBase}/${rel.split('\\').join('/')}`

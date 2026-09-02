@@ -8,15 +8,24 @@ import type { Tool } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
 
-// …/resolve-studio/packages/core/src/plugins/tools, 8 levels up = the workspace
-// root hosting ***REMOVED***/. Override with PRODUCT_ANALYST_DIR in .env.
+// …/resolve-studio/packages/core/src/plugins/tools. The crewai-product-analyst
+// root is resolved from PRODUCT_ANALYST_DIR in .env (env-only; see
+// productAnalystDir below).
 const HERE = dirname(fileURLToPath(import.meta.url))
-const PRODUCT_ANALYST =
-  process.env.PRODUCT_ANALYST_DIR ??
-  resolve(HERE, '***REMOVED******REMOVED***/apps/crewai-product-analyst')
 
 // 4 levels up = resolve-studio root, where the web preview serves sandbox/.
 const STUDIO_ROOT = resolve(HERE, '../../../../..')
+
+/** crewai-product-analyst project root, from PRODUCT_ANALYST_DIR (env-only). */
+function productAnalystDir(): string {
+  const dir = process.env.PRODUCT_ANALYST_DIR
+  if (!dir) {
+    throw new Error(
+      'PRODUCT_ANALYST_DIR is not set. Export it to the absolute path of the crewai-product-analyst project root (e.g. in .env).',
+    )
+  }
+  return dir
+}
 
 // Multi-agent research takes several minutes; allow up to 20 min so the crew
 // can finish web research + strategy + writing without the tool timing out.
@@ -59,6 +68,13 @@ const registerProductAnalyze = (ctx: Context) => {
     async execute(args): Promise<string> {
       const product = (args.product as string | undefined)?.trim()
       if (!product) return 'error: product-analyze 需要 product 参数（产品名）。'
+
+      let PRODUCT_ANALYST: string
+      try {
+        PRODUCT_ANALYST = productAnalystDir()
+      } catch (e) {
+        return `error: product-analyze — ${(e as Error).message}`
+      }
 
       // Always persist a report file so the run produces something on disk.
       const output = (args.output as string | undefined)?.trim() ?? join('sandbox', `${slug(product)}-product-analysis.md`)

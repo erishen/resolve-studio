@@ -1,12 +1,13 @@
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool } from '../../types.js'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-const LIB_DIR = resolve(HERE, '***REMOVED******REMOVED***/photo-library')
 const BASE_URL = process.env.PHOTO_LIBRARY_URL ?? 'http://127.0.0.1:3100'
+
+/** Root of the photo-library service, from PHOTO_LIBRARY_DIR (env-only). */
+function photoLibraryDir(): string {
+  return process.env.PHOTO_LIBRARY_DIR ?? ''
+}
 
 const registerPhotoDuplicates = (ctx: Context) => {
   ctx.tools.register({
@@ -37,7 +38,7 @@ const registerPhotoDuplicates = (ctx: Context) => {
       if (!probe.ok) {
         return (
           `error: photo-library 服务未运行（${BASE_URL}/health 不可达）。\n` +
-          `启动：cd ${LIB_DIR} && make run（需先 cp .env.example .env）`
+          `启动：cd ${photoLibraryDir() || '<photo-library 根目录 (设置 PHOTO_LIBRARY_DIR)>'} && make run（需先 cp .env.example .env）`
         )
       }
 

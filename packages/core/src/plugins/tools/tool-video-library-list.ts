@@ -1,12 +1,13 @@
-import { dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool } from '../../types.js'
 
-const HERE = dirname(fileURLToPath(import.meta.url))
-const LIB_DIR = resolve(HERE, '***REMOVED******REMOVED***/video-library')
 const BASE_URL = process.env.VIDEO_LIBRARY_URL ?? 'http://127.0.0.1:3200'
+
+/** Root of the video-library service, from VIDEO_LIBRARY_DIR (env-only). */
+function videoLibraryDir(): string {
+  return process.env.VIDEO_LIBRARY_DIR ?? ''
+}
 
 const registerVideoLibraryList = (ctx: Context) => {
   ctx.tools.register({
@@ -32,7 +33,7 @@ const registerVideoLibraryList = (ctx: Context) => {
       if (!probe.ok) {
         return (
           `error: video-library 服务未运行（${BASE_URL}/health 不可达）。\n` +
-          `启动：cd ${LIB_DIR} && make run（需先 cp .env.example .env）`
+          `启动：cd ${videoLibraryDir() || '<video-library 根目录 (设置 VIDEO_LIBRARY_DIR)>'} && make run（需先 cp .env.example .env）`
         )
       }
 

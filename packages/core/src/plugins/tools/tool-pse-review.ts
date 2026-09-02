@@ -10,7 +10,6 @@ import { resolvePseDir, runPseTask, MAX_OUTPUT } from './util-pse.js'
 // 5 levels up = resolve-studio root (for the sandbox preview copy). Override
 // with RESOLVE_STUDIO_DIR.
 const HERE = dirname(fileURLToPath(import.meta.url))
-const AUTOGEN_PSE = resolvePseDir('autogen')
 
 const PREPARE = join('tasks', 'portfolio-review', 'prepare.py')
 const RUN = join('tasks', 'portfolio-review', 'run.py')
@@ -124,13 +123,19 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
     // gate the whole tool when it is the paid deepseek provider.
     needsApproval: provider === 'deepseek',
     async execute(): Promise<string> {
+      let autogenPse: string
+      try {
+        autogenPse = resolvePseDir('autogen')
+      } catch (e) {
+        return `error: pse-review — ${(e as Error).message}`
+      }
       // 1) regenerate the prompt file (this also refreshes analysis-lens returns)
       const prep = await runPseTask({
         tool: 'pse-review',
         framework: 'autogen',
         task: 'portfolio-review',
         runFile: PREPARE,
-        taskDir: AUTOGEN_PSE,
+        taskDir: autogenPse,
         args: [],
         env: runEnv,
         timeoutMs: PREPARE_TIMEOUT_MS,
@@ -147,7 +152,7 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
         framework: 'autogen',
         task: 'portfolio-review',
         runFile: RUN,
-        taskDir: AUTOGEN_PSE,
+        taskDir: autogenPse,
         args: [],
         env: runEnv,
         timeoutMs: RUN_TIMEOUT_MS,
