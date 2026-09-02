@@ -1,4 +1,4 @@
-// ***REMOVED*** 代码分析合集生成器（v3：语言单元化 + 混仓分别激活）
+// resolve-studio 工作区代码分析合集生成器（v3：语言单元化 + 混仓分别激活）
 //
 // 收录规则（来自用户）：
 //   - 仅收录「有 GitHub 链接 + 已写文章」的项目，清单即 ***REMOVED*** 的
@@ -11,20 +11,33 @@
 //
 // 运行（须从 packages/core，gopls 在 ~/go/bin 须进 PATH）：
 //   export PATH="$HOME/go/bin:$PATH"
-//   SERENA_UV=uv \
-//     node workspace-scan.mjs
+//   SERENA_UV=/path/to/uv node workspace-scan.mjs
 //   # 仅验证部分项目：追加  SCAN_ONLY=photo-library,cicdkit,market-analyzer
+//
+// 所有机器相关路径一律走环境变量，默认值对一份全新 clone 即可用（不写死任何用户目录）：
+//   WORKSPACE_ROOT     要扫描的工作区根目录（默认：本仓库根）
+//   WORKSPACE_MANIFEST 项目清单 JSON（默认：<WORKSPACE_ROOT>/***REMOVED***/...）
+//   WORKSPACE_OUT      产物输出目录（默认：<本仓库根>/workspace-analysis）
+//   SERENA_DIR         serena 源码目录（默认：~/Github/serena）
+//   WORKSPACE_LLM_ENV  读取 OPENAI_* 的 .env（默认：<本仓库根>/.env）
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { readFileSync, existsSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join, relative, basename, extname } from 'node:path'
+import { join, relative, basename, extname, resolve } from 'node:path'
 import { execSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+import { homedir } from 'node:os'
 
 const UV = process.env.SERENA_UV || 'uv'
-const ROOT = 'WORKSPACE'
-const MANIFEST = ROOT + '/***REMOVED***/tasks/project-articles/projects-published.json'
-const OUT_DIR = ROOT + '/***REMOVED***/workspace-analysis'
-const SERENA_DIR = 'serena'
+// 本仓库根（workspace-scan.mjs 位于 packages/core/ 下）
+const REPO_ROOT = resolve(fileURLToPath(new URL('../..', import.meta.url)))
+const ROOT = process.env.WORKSPACE_ROOT || REPO_ROOT
+const MANIFEST =
+  process.env.WORKSPACE_MANIFEST ||
+  join(ROOT, '***REMOVED***/tasks/project-articles/projects-published.json')
+const OUT_DIR = process.env.WORKSPACE_OUT || join(REPO_ROOT, 'workspace-analysis')
+const SERENA_DIR = process.env.SERENA_DIR || join(homedir(), 'Github', 'serena')
+const LLM_ENV = process.env.WORKSPACE_LLM_ENV || join(REPO_ROOT, '.env')
 
 const MAX_FILES = 10 // 每语言单元抽样分析的文件数
 const SYM_CHARS = 1800
@@ -1511,7 +1524,7 @@ function renderHtml(projects) {
   </section>`
   }
 
-  const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>***REMOVED*** · 代码分析合集</title><style>
+  const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>resolve-studio · 工作区代码分析</title><style>
   :root{color-scheme:light;--bg:#f7f8fa;--card:#fff;--ink:#1f2328;--muted:#6b7280;--line:#e5e7eb;--accent:#2563eb;--diag:#991b1b;--warn:#92400e}
   *{box-sizing:border-box} html{background:#ffffff!important} body{margin:0 auto;max-width:1140px;font:15px/1.75 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg)!important;color:var(--ink)!important;padding:32px 20px}
   h1{font-size:22px;margin:0 0 4px} .meta{color:var(--muted);margin:0 0 8px}
@@ -1586,7 +1599,7 @@ function renderHtml(projects) {
   .ai-summary-title{font-weight:600;font-size:13px;color:#4338ca;margin-bottom:6px}
   .ai-summary-body{font-size:13px;line-height:1.7;color:#374151}
 </style></head><body>
-  <h1>***REMOVED*** · 代码分析合集</h1>
+  <h1>resolve-studio · 工作区代码分析</h1>
   <p class="meta">生成时间 ${esc(new Date().toLocaleString('zh-CN'))} · 引擎：serena (LSP) · 收录自 crewai-pse 文章清单（仅含「有 GitHub 链接 + 已写文章」的项目）</p>
   <div class="legend">
     <span><b>${results.length}</b> 个项目</span>
