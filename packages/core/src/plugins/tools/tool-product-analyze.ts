@@ -18,7 +18,9 @@ const PRODUCT_ANALYST =
 // 4 levels up = resolve-studio root, where the web preview serves sandbox/.
 const STUDIO_ROOT = resolve(HERE, '../../../../..')
 
-const STEP_TIMEOUT_MS = 300_000
+// Multi-agent research takes several minutes; allow up to 20 min so the crew
+// can finish web research + strategy + writing without the tool timing out.
+const STEP_TIMEOUT_MS = 1_200_000
 const STEP_MAX_BUFFER = 16 << 20
 
 /** Lowercase, slugify a product name into a safe filename segment. */
@@ -95,11 +97,18 @@ const registerProductAnalyze = (ctx: Context) => {
           .join('\n')
         if (notable) logs.push(notable)
       } catch (err) {
-        const e = err as { message?: string; stderr?: string; stdout?: string }
-        return `error: product-analyze 失败 — ${truncate(ansi(e.stderr ?? e.stdout ?? e.message ?? String(err)), 800)}`
+        const e = err as Error & { stderr?: string; stdout?: string; killed?: boolean }
+        const timedOut = e.killed || /timed? out|SIGKILL|ETIMEDOUT/i.test(e.message ?? '')
+        const detail = ansi(e.stderr ?? e.stdout ?? e.message ?? String(err)).trim()
+        return (
+          'error: product-analyze 失败 — ' +
+          (timedOut
+            ? `分析超出 20 分钟仍未完成（已中止）。可重试，或让 agent 指定更聚焦的产品名。`
+            : truncate(detail || '未知错误（无输出）', 800))
+        )
       }
 
-      logs.push('', `> 分析报告已保存 → sandbox/${slug(product)}-product-analysis.md`)
+      logs.push('', `> 分析报告已保存 → ${outputAbs}`)
       logs.push('> 下一步：可在网页用 🖥️ 预览，或以 <file 内容> 形式返回。')
       return logs.join('\n')
     },
