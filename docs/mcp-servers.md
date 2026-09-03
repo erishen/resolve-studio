@@ -63,11 +63,7 @@ stdio 类多数用 `npx` 拉取官方 `@modelcontextprotocol/server-*` 包。
   "id": "fs",
   "transport": "stdio",
   "command": "npx",
-  "args": [
-    "-y",
-    "@modelcontextprotocol/server-filesystem",
-    "/path/to/your/workspace"
-  ],
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/your/workspace"],
   "approval": true
 }
 ```
@@ -110,12 +106,7 @@ stdio 类多数用 `npx` 拉取官方 `@modelcontextprotocol/server-*` 包。
   "id": "git",
   "transport": "stdio",
   "command": "npx",
-  "args": [
-    "-y",
-    "@modelcontextprotocol/server-git",
-    "--repository",
-    "/path/to/your/workspace"
-  ],
+  "args": ["-y", "@modelcontextprotocol/server-git", "--repository", "/path/to/your/workspace"],
   "approval": true
 }
 ```

@@ -10,23 +10,25 @@
 
 ## 特性一览
 
-| 能力              | 说明                                                                                   |
-| ----------------- | -------------------------------------------------------------------------------------- |
-| **Agent 循环**    | LLM ⇄ 工具多轮循环（普通 8 轮 / PSE 模式 15 轮），流式输出，事件驱动                   |
-| **PSE 三角色**    | Planner-Specialist-Evaluator 工作流，UI 一键开关，角色定义从 souls 目录加载             |
-| **OS 级沙箱**     | shell 命令在 macOS Seatbelt / Linux bwrap 沙箱中执行，可写目录受限                     |
-| **沙箱工作区**    | write-file 默认写入 `sandbox/<task>/`，任务级目录隔离，路径自动规范化                  |
-| **Fast Path**     | 纯算术等确定性输入**零模型调用**秒回（`3+4` → `7`）                                    |
-| **工具审批**      | `needsApproval` 工具执行前挂起，UI 上 Approve/Reject，超时自动拒绝（60s）              |
-| **流式输出**      | SSE `delta` 逐 token 打字机；DeepSeek 系 `reasoning_content` 思考过程单独显示          |
-| **联网探索**      | Playwright 驱动系统 Chrome（零下载）：`browser-open`（提取正文）/ `browser-screenshot` |
-| **技能 Skills**   | 外部 `resolve-skills/skills/<name>/SKILL.md` 指令包，索引注入 system prompt             |
-| **会话持久化**    | 会话历史（含工具卡与思考块）JSON 落盘，刷新恢复                                        |
-| **Markdown 渲染** | 表格/代码块/列表（react-markdown + remark-gfm）                                        |
-| **插件脚手架**    | `make new-plugin name=x` 一键生成插件包并接线                                          |
-| **跨生态加载**    | 支持按 npm 包名动态加载纯 Cordis 插件（dsh `cordis.patch.yml` 格式）                   |
-| **MCP 接入**      | 连接任意 MCP Server（stdio/http），工具以 `<id>:<tool>` 注册，默认需审批               |
-| **专用工具集**    | 文章写作/发布、简历定制、面试题生成、CRM 任务、投资组合汇总、热点内容、项目发现等 60+ 工具        |
+| 能力              | 说明                                                                                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Agent 循环**    | LLM ⇄ 工具多轮循环（普通 8 轮 / PSE 模式 15 轮），流式输出，事件驱动                                         |
+| **PSE 三角色**    | Planner-Specialist-Evaluator 工作流，UI 一键开关，角色定义从 souls 目录加载                                  |
+| **OS 级沙箱**     | shell 命令在 macOS Seatbelt / Linux bwrap 沙箱中执行，可写目录受限                                           |
+| **沙箱工作区**    | write-file 默认写入 `sandbox/<task>/`，任务级目录隔离，路径自动规范化                                        |
+| **Fast Path**     | 纯算术等确定性输入**零模型调用**秒回（`3+4` → `7`）                                                          |
+| **工具审批**      | `needsApproval` 工具执行前挂起，UI 上 Approve/Reject，超时自动拒绝（60s）                                    |
+| **任务模式**      | 专业工具集自动匹配（业务任务 + 能力档位）；对话内任务卡固定后白名单工具并过滤示例问题                        |
+| **后台长时任务**  | 「任务」Tab 独立管理；脱离 HTTP 请求的长任务，独立沙箱工作区 + 工具白名单 + 免审批，产物可浏览、支持一键续跑 |
+| **流式输出**      | SSE `delta` 逐 token 打字机；DeepSeek 系 `reasoning_content` 思考过程单独显示                                |
+| **联网探索**      | Playwright 驱动系统 Chrome（零下载）：`browser-open`（提取正文）/ `browser-screenshot`                       |
+| **技能 Skills**   | 外部 `resolve-skills/skills/<name>/SKILL.md` 指令包，索引注入 system prompt                                  |
+| **会话持久化**    | 会话历史（含工具卡与思考块）JSON 落盘，刷新恢复                                                              |
+| **Markdown 渲染** | 表格/代码块/列表（react-markdown + remark-gfm）                                                              |
+| **插件脚手架**    | `make new-plugin name=x` 一键生成插件包并接线                                                                |
+| **跨生态加载**    | 支持按 npm 包名动态加载纯 Cordis 插件（dsh `cordis.patch.yml` 格式）                                         |
+| **MCP 接入**      | 连接任意 MCP Server（stdio/http），工具以 `<id>:<tool>` 注册，默认需审批                                     |
+| **专用工具集**    | 文章写作/发布、简历定制、面试题生成、CRM 任务、投资组合汇总、热点内容、项目发现等 60+ 工具                   |
 
 ## 快速开始
 
@@ -47,13 +49,14 @@ pnpm run chat -- --config cordis.openai.yml   # 真实模型
 
 resolve-studio 提供多层安全机制，防止 LLM 误操作破坏系统：
 
-| 层级 | 机制 | 说明 |
-|------|------|------|
-| **OS 级沙箱** | macOS Seatbelt / Linux bwrap | shell 命令只能写入工作目录 + 系统临时目录，无法访问其他位置 |
-| **路径守卫** | fs-roots 服务 | write-file 受白名单目录限制，越界路径直接拒绝 |
-| **沙箱工作区** | `sandbox/<task>/` | write-file 相对路径自动写入任务隔离目录，路径自动去重 |
-| **人工审批** | approval 服务 | shell 等高危工具执行前需人工确认，60s 超时自动拒绝 |
-| **MCP 隔离** | fs MCP 限制 | fs MCP server 只暴露 sandbox 目录，不暴露整个文件系统 |
+| 层级           | 机制                         | 说明                                                            |
+| -------------- | ---------------------------- | --------------------------------------------------------------- |
+| **OS 级沙箱**  | macOS Seatbelt / Linux bwrap | shell 命令只能写入工作目录 + 系统临时目录，无法访问其他位置     |
+| **路径守卫**   | fs-roots 服务                | write-file 受白名单目录限制，越界路径直接拒绝                   |
+| **沙箱工作区** | `sandbox/<task>/`            | write-file 相对路径自动写入任务隔离目录，路径自动去重           |
+| **任务工作区** | `.data/jobs/<id>/workspace/` | 每个后台任务独立目录（write-file/shell 锚定于此）+ 专属 profile |
+| **人工审批**   | approval 服务                | shell 等高危工具执行前需人工确认，60s 超时自动拒绝              |
+| **MCP 隔离**   | fs MCP 限制                  | fs MCP server 只暴露 sandbox 目录，不暴露整个文件系统           |
 
 开启沙箱：`.env` 中设置 `SANDBOX_ENABLED=true`。
 
@@ -71,24 +74,24 @@ UI 顶部一键开关，或 `.env` 中设置 `PSE_ENABLED=true`。PSE 模式下 
 
 复制 `.env.example` 为 `.env` 并按需填写：
 
-| 变量                            | 说明                                    | 默认值                     |
-| ------------------------------- | --------------------------------------- | -------------------------- |
-| `OPENAI_BASE_URL`               | OpenAI 兼容 API 地址                    | —                          |
-| `OPENAI_API_KEY`                | API Key                                 | —                          |
-| `OPENAI_MODEL`                  | 默认模型                                | —                          |
-| `WORKSPACE_OUT`                 | 工作区扫描报告输出目录                  | `<cwd>/workspace-analysis` |
-| `SERENA_UV`                     | `uv` 二进制路径（运行 serena 代码分析） | `uv`（PATH 查找）          |
-| `HARNESS_EXTRA_ROOTS`           | 额外允许的文件系统根目录（逗号分隔）    | —                          |
-| `HARNESS_SHELL_ALLOW_TRAVERSAL` | 设为 `1` 允许 shell 工具目录跳转        | `0`                        |
-| `HARNESS_PRICES`                | 自定义模型价格表（JSON）                | 内置价格表                 |
-| `SANDBOX_ENABLED`               | 开启 OS 级沙箱（macOS Seatbelt/Linux bwrap） | `false`               |
-| `SANDBOX_ALLOW_NETWORK`         | 沙箱中允许网络访问                      | `true`                     |
-| `PSE_ENABLED`                   | 开启 PSE 三角色模式                     | `false`                    |
-| `PSE_SOULS_DIR`                 | PSE 角色定义目录                        | `HARNESS_SKILLS_DIR/../souls` |
-| `CREWAI_PSE_DIR`                | crewai-pse 项目路径                     | 相对路径自动推导           |
-| `AUTOGEN_PSE_DIR`               | autogen-pse 项目路径                    | 相对路径自动推导           |
-| `LLAMAINDEX_PSE_DIR`            | llamaindex-pse 项目路径                 | 相对路径自动推导           |
-| `LANGGRAPH_PSE_DIR`             | langgraph-pse 项目路径                  | 相对路径自动推导           |
+| 变量                            | 说明                                         | 默认值                        |
+| ------------------------------- | -------------------------------------------- | ----------------------------- |
+| `OPENAI_BASE_URL`               | OpenAI 兼容 API 地址                         | —                             |
+| `OPENAI_API_KEY`                | API Key                                      | —                             |
+| `OPENAI_MODEL`                  | 默认模型                                     | —                             |
+| `WORKSPACE_OUT`                 | 工作区扫描报告输出目录                       | `<cwd>/workspace-analysis`    |
+| `SERENA_UV`                     | `uv` 二进制路径（运行 serena 代码分析）      | `uv`（PATH 查找）             |
+| `HARNESS_EXTRA_ROOTS`           | 额外允许的文件系统根目录（逗号分隔）         | —                             |
+| `HARNESS_SHELL_ALLOW_TRAVERSAL` | 设为 `1` 允许 shell 工具目录跳转             | `0`                           |
+| `HARNESS_PRICES`                | 自定义模型价格表（JSON）                     | 内置价格表                    |
+| `SANDBOX_ENABLED`               | 开启 OS 级沙箱（macOS Seatbelt/Linux bwrap） | `false`                       |
+| `SANDBOX_ALLOW_NETWORK`         | 沙箱中允许网络访问                           | `true`                        |
+| `PSE_ENABLED`                   | 开启 PSE 三角色模式                          | `false`                       |
+| `PSE_SOULS_DIR`                 | PSE 角色定义目录                             | `HARNESS_SKILLS_DIR/../souls` |
+| `CREWAI_PSE_DIR`                | crewai-pse 项目路径                          | 相对路径自动推导              |
+| `AUTOGEN_PSE_DIR`               | autogen-pse 项目路径                         | 相对路径自动推导              |
+| `LLAMAINDEX_PSE_DIR`            | llamaindex-pse 项目路径                      | 相对路径自动推导              |
+| `LANGGRAPH_PSE_DIR`             | langgraph-pse 项目路径                       | 相对路径自动推导              |
 
 > 所有路径类配置都支持环境变量覆盖，无需修改代码即可在不同机器间迁移。
 
@@ -107,28 +110,32 @@ UI 顶部一键开关，或 `.env` 中设置 `PSE_ENABLED=true`。PSE 模式下 
 
 ## 运行时服务（ctx.*）
 
-| 服务             | 职责                                                                   |
-| ---------------- | ---------------------------------------------------------------------- |
-| `ctx.llm`        | 聊天补全契约，`chat` + `chatStream`（流式，默认 fallback）             |
-| `ctx.tools`      | 工具注册表（register/list/schemas/call），异常转 `error:` 前缀不崩循环 |
-| `ctx.agent`      | Agent 循环：Fast Path → 技能注入 → LLM ⇄ 工具（含审批挂起）            |
-| `ctx.approval`   | 人机审批：挂起等待 / 外部 resolve / 超时自动拒绝                       |
-| `ctx.fastpath`   | 确定性预处理器（纯算术短路）                                           |
+| 服务             | 职责                                                                      |
+| ---------------- | ------------------------------------------------------------------------- |
+| `ctx.llm`        | 聊天补全契约，`chat` + `chatStream`（流式，默认 fallback）                |
+| `ctx.tools`      | 工具注册表（register/list/schemas/call），异常转 `error:` 前缀不崩循环    |
+| `ctx.agent`      | Agent 循环：Fast Path → 技能注入 → LLM ⇄ 工具（含审批挂起）               |
+| `ctx.approval`   | 人机审批：挂起等待 / 外部 resolve / 超时自动拒绝                          |
+| `ctx.fastpath`   | 确定性预处理器（纯算术短路）                                              |
 | `ctx.skills`     | 技能索引（扫描外部 `resolve-skills/skills/*/SKILL.md`，frontmatter 解析） |
-| `ctx.pse`        | PSE 三角色模式：开关状态、角色定义加载、系统提示词注入                 |
-| `ctx.sandbox`    | OS 级沙箱：Seatbelt/bwrap profile 生成、shell 命令包装                 |
-| `ctx.mcp`        | MCP 客户端：连接/断开 server，工具动态注册                             |
-| `ctx.systemInfo` | 运行时诊断（内存/CPU/uptime/平台，定时采集 + 事件发射）                |
+| `ctx.tasks`      | 专业工具集注册表：业务任务 + 能力档位，意图匹配                           |
+| `ctx.jobs`       | 后台长时任务：独立工作区、工具白名单、免审批、转录续跑                    |
+| `ctx.pse`        | PSE 三角色模式：开关状态、角色定义加载、系统提示词注入                    |
+| `ctx.sandbox`    | OS 级沙箱：Seatbelt/bwrap profile 生成、shell 命令包装                    |
+| `ctx.mcp`        | MCP 客户端：连接/断开 server，工具动态注册                                |
+| `ctx.systemInfo` | 运行时诊断（内存/CPU/uptime/平台，定时采集 + 事件发射）                   |
 
 ## 内置工具（60+，⚠ = 需审批）
 
 基础工具：
+
 ```
 hello · echo · calculator⚠ · read-file · write-file · shell⚠
 browser-open · browser-screenshot · pick-post · system-info · skill-run
 ```
 
 专用工具（文章/投资/面试/CRM）：
+
 ```
 article-write · article-validate · article-publish · article-archive · article-discover
 resume-tailor · interview-questions · crm-task · portfolio-check · pse-review
@@ -165,7 +172,7 @@ hot-news-fetch · hot-news-topics · hot-news · hot-news-check
 | 命令                                  | 作用                                      |
 | ------------------------------------- | ----------------------------------------- |
 | `make install`                        | 装全部依赖                                |
-| `make check`                          | typecheck + test（**57 个用例**）         |
+| `make check`                          | typecheck + test（**94 个用例**）         |
 | `make lint` / `make lint-fix`         | ESLint 检查 / 自动修复                    |
 | `make format` / `make format-check`   | Prettier 格式化 / 格式检查                |
 | `make build` / `make build-web`       | 构建后端 / 前端                           |
@@ -184,11 +191,31 @@ hot-news-fetch · hot-news-topics · hot-news · hot-news-check
 - `GET /health` → 健康检查（uptime / 内存 / 工具数 / MCP server 数）
 - `POST /api/chat` → SSE：`step / tool-call / tool-result / approval-request / delta / reasoning / usage / done / error`
 - `GET /api/tools` · `GET /api/models` · `GET /api/skills`
+- `GET /api/tasks` · `POST /api/tasks/match` → 专业任务/能力档位目录 + 意图匹配
+- `POST/GET /api/jobs` · `GET/DELETE /api/jobs/:id` → 后台任务 CRUD
+- `POST /api/jobs/:id/cancel` · `POST /api/jobs/:id/resume` → 停止 / 续跑任务
+- `GET /api/jobs/:id/stream` → SSE 重连：快照 + 实时事件
+- `GET /api/jobs/:id/files` → 列出任务工作区产物
 - `POST /api/approval`（`{callId, decision}`）
 - `GET/POST /api/sessions` · `GET/DELETE /api/sessions/:id`（持久化）
 - `GET /api/usage?sessionId=<id>` → 全局或按会话的 token/费用统计
 
-前端结构：`api.ts`（SSE 客户端）· `App.tsx`（布局 + 组合）· `hooks/useChat.ts`（消息状态机 + 流式 + 审批）· `hooks/useSessions.ts`（会话 CRUD + 自动保存）· `hooks/useMcp.ts`（MCP server 管理）· `MessageList.tsx`（thinking→工具卡→总结）· `ToolCallCard.tsx`（工具卡 + 审批按钮）· `Composer.tsx` · `ErrorBoundary.tsx`（根级错误兜底）。
+前端结构：`api.ts`（SSE 客户端）· `App.tsx`（布局 + 组合）· `hooks/useChat.ts`（消息状态机 + 流式 + 审批）· `hooks/useSessions.ts`（会话 CRUD + 自动保存）· `hooks/useMcp.ts`（MCP server 管理）· `hooks/useJobs.ts`（任务列表 + 实时详情）· `MessageList.tsx`（thinking→工具卡→总结 + 对话内任务卡）· `ToolCallCard.tsx`（工具卡 + 审批按钮）· `JobsPanel.tsx`（后台任务管理）· `Composer.tsx` · `ErrorBoundary.tsx`（根级错误兜底）。
+
+## 后台长时任务
+
+耗时的工作（多步分析、文章流水线、报告生成）可以作为**后台任务**运行——`jobs` 插件把 `ctx.agent.run()` 与 HTTP 请求解耦，关掉浏览器标签页也不会中断。每个任务拥有：
+
+- **并发上限** —— `jobs` 插件同时最多运行 `maxConcurrent` 个任务（默认 `3`）；超出的任务保持 `queued` 并按 FIFO 排队，等空位释放后再跑，避免重型 PSE/LLM 管道撑爆内存或触发服务商限流；
+- **默认开启 PSE** —— 后台长时任务默认走 Planner-Specialist-Evaluator 三角色模式，即使交互式聊天保持全局 PSE 关闭（单次运行可用 `agent.run({ pse })` 覆盖）；
+- **独立工作区** `.data/jobs/<id>/workspace/` —— write-file / read-file / shell 的相对路径与 shell cwd 都锚定到此目录，并作为额外沙箱可写根（按任务生成 Seatbelt profile）；
+- **工具白名单**（`includeTools` / `excludeTools`）—— 任务只能看到它需要的工具；
+- **免审批**（`skipApproval`）—— 无人值守运行，不弹审批、不等超时；
+- **实时、可重连的进度** —— 事件经 SSE（`/api/jobs/:id/stream`）推送并落盘到 SQLite（`.data/jobs/jobs.db`），关页面后可回来重连；
+- **中间产物** —— `/api/jobs/:id/files` 列出写入工作区的所有文件，UI 可直接预览；
+- **续跑** —— 完整消息转录落盘；失败 / 取消 / 重启的任务可用 `POST /api/jobs/:id/resume` 基于同一工作区从断点继续。
+
+在「任务」Tab → 后台长时任务 里创建，或直接 `POST /api/jobs`（`{ prompt, taskId?, includeTools?, excludeTools? }`）。
 
 ## 扩展
 
@@ -208,6 +235,9 @@ hot-news-fetch · hot-news-topics · hot-news · hot-news-check
 - `definePlugin` 用 `Object.defineProperty` 把 `name` 设为可写，绕开 tsx/esbuild 对 class/function `name` 的只读限制。
 - SSE 用每请求独立的短时监听器（`ctx.events.on` 返回 disposer），请求结束回收，并发会话不串台。
 - pnpm workspace 注意：根命令行用的工具（tsx 等）必须声明在根；子包 tsconfig 引用的 `@types/*` 必须在自己 devDeps 声明。
+- 后台任务通过工具执行上下文把 per-run `workspace` 透传给 write-file / read-file / shell（相对路径与 shell cwd 锚定到工作区），并作为额外沙箱可写根（Seatbelt profile 按 root-set 缓存）。
+- `skipApproval`（后台任务）短路审批门，无人值守运行永不阻塞；任务转录由 `agent/step` 事件累积，失败后可在同一工作区续跑。
+- Ctrl+C 一次退出：CLI 中止在跑任务并 exit 130；web-server 的 SIGINT 处理器关 server 后退出（仅 `server.close()` 会让进程残留）。
 
 ## 工程化
 
@@ -224,4 +254,5 @@ make docker-down
 ```
 
 ## 相关文章
+
 - [Cordis 插件化 Agent 运行时：用 DI 容器把 LLM 后端、工具、审批流全部变成配置](https://erishen.cn/resolve_studio/)

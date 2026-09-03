@@ -2,6 +2,7 @@
   "name": "resolve-studio",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Resolve Studio — a Cordis-powered agent harness monorepo (pnpm workspace) where everything is a plugin",
   "license": "MIT",
   "engines": {

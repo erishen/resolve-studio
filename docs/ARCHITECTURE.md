@@ -55,33 +55,33 @@ cordis.yml  ──▶  loader.ts  ──▶  registry.ts  ──▶  ctx.registr
 
 `PLUGINS` 是一张 `name → Cordis Plugin` 的字典，目前收录 30+ 插件，分为几类：
 
-| 类别 | name | 类型 | 真实实现 |
-|------|------|------|----------|
-| **核心服务** | `tools` | 服务 | `ToolRegistry` |
-| | `agent` | 服务 | `AgentService` |
-| | `fastpath` | 服务 | `FastPathService` |
-| | `approval` | 服务 | `ApprovalService` |
-| | `usage` | 服务 | `UsageService` |
-| | `fs-roots` | 服务 | `FsRootsService` |
-| | `skills` | 插件 | `skills` |
-| | `sandbox` | 服务 | `SandboxService` |
-| | `mcp` | 服务 | `McpService` |
-| **LLM 适配器** | `llm-mock` | 适配器 | `llmMock` |
-| | `llm-openai` | 适配器 | `llmOpenAi` |
-| **基础工具** | `tool-echo` / `tool-calculator` / `tool-hello` | 工具插件 | 对应实现 |
-| | `tool-read-file` / `tool-write-file` / `tool-shell` | 工具插件 | 对应实现 |
-| | `tool-browser` / `tool-pick-post` / `tool-skill-run` | 工具插件 | 对应实现 |
-| | `tool-analyze-dir` / `tool-analyze-code-dir` | 工具插件 | 对应实现 |
-| **专用工具** | `tool-article-write` / `tool-article-validate` / `tool-article-publish` | 工具插件 | 文章流水线 |
-| | `tool-article-archive` / `tool-crewai-discover` | 工具插件 | 文章管理 |
-| | `tool-resume-tailor` / `tool-interview-questions` | 工具插件 | 求职辅助 |
-| | `tool-crm-task` / `tool-portfolio-summary` | 工具插件 | 业务工具 |
-| | `tool-pse-review` / `tool-wp-publish` | 工具插件 | 审查/发布 |
-| | `tool-system-info` | 外部插件 | `@resolve-studio/plugin-system-info` |
-| **前端** | `cli-chat` | 前端插件 | `cliChat` |
-| | `web-server` | 前端插件 | `webServer` |
-| **外部插件** | `@resolve-studio/plugin-pse` | npm 包 | PSE 三角色模式 |
-| | `@resolve-studio/plugin-hello` | npm 包 | 示例插件 |
+| 类别           | name                                                                    | 类型     | 真实实现                             |
+| -------------- | ----------------------------------------------------------------------- | -------- | ------------------------------------ |
+| **核心服务**   | `tools`                                                                 | 服务     | `ToolRegistry`                       |
+|                | `agent`                                                                 | 服务     | `AgentService`                       |
+|                | `fastpath`                                                              | 服务     | `FastPathService`                    |
+|                | `approval`                                                              | 服务     | `ApprovalService`                    |
+|                | `usage`                                                                 | 服务     | `UsageService`                       |
+|                | `fs-roots`                                                              | 服务     | `FsRootsService`                     |
+|                | `skills`                                                                | 插件     | `skills`                             |
+|                | `sandbox`                                                               | 服务     | `SandboxService`                     |
+|                | `mcp`                                                                   | 服务     | `McpService`                         |
+| **LLM 适配器** | `llm-mock`                                                              | 适配器   | `llmMock`                            |
+|                | `llm-openai`                                                            | 适配器   | `llmOpenAi`                          |
+| **基础工具**   | `tool-echo` / `tool-calculator` / `tool-hello`                          | 工具插件 | 对应实现                             |
+|                | `tool-read-file` / `tool-write-file` / `tool-shell`                     | 工具插件 | 对应实现                             |
+|                | `tool-browser` / `tool-pick-post` / `tool-skill-run`                    | 工具插件 | 对应实现                             |
+|                | `tool-analyze-dir` / `tool-analyze-code-dir`                            | 工具插件 | 对应实现                             |
+| **专用工具**   | `tool-article-write` / `tool-article-validate` / `tool-article-publish` | 工具插件 | 文章流水线                           |
+|                | `tool-article-archive` / `tool-crewai-discover`                         | 工具插件 | 文章管理                             |
+|                | `tool-resume-tailor` / `tool-interview-questions`                       | 工具插件 | 求职辅助                             |
+|                | `tool-crm-task` / `tool-portfolio-summary`                              | 工具插件 | 业务工具                             |
+|                | `tool-pse-review` / `tool-wp-publish`                                   | 工具插件 | 审查/发布                            |
+|                | `tool-system-info`                                                      | 外部插件 | `@resolve-studio/plugin-system-info` |
+| **前端**       | `cli-chat`                                                              | 前端插件 | `cliChat`                            |
+|                | `web-server`                                                            | 前端插件 | `webServer`                          |
+| **外部插件**   | `@resolve-studio/plugin-pse`                                            | npm 包   | PSE 三角色模式                       |
+|                | `@resolve-studio/plugin-hello`                                          | npm 包   | 示例插件                             |
 
 ### 2.4 插件元数据 `src/plugins/util.ts`
 
@@ -130,11 +130,11 @@ resolve-studio/
 
 **服务 vs 工具 vs 技能（可见性分层）**：
 
-| 层 | 注册处 | UI 可见性 | 例子 |
+| 层       | 注册处                    | UI 可见性                         | 例子                                             |
 | -------- | ------------------------- | --------------------------------- | ------------------------------------------------ |
 | **服务** | `ctx.xxx = new Service()` | 一般不可见（通过事件间接影响 UI） | approval（事件→审批按钮）、skills（索引→prompt） |
-| **工具** | `ctx.tools.register(...)` | 工具列表 + 消息流工具卡 | echo、browser-open |
-| **技能** | `skills/<name>/SKILL.md` | 侧栏 chip（可展开描述） | code-review、post-comment |
+| **工具** | `ctx.tools.register(...)` | 工具列表 + 消息流工具卡           | echo、browser-open                               |
+| **技能** | `skills/<name>/SKILL.md`  | 侧栏 chip（可展开描述）           | code-review、post-comment                        |
 
 工具 = 给模型的可调用函数；服务 = 插件间的内部 API；技能 = 给模型的「说明书」（模型读 SKILL.md 后照做，可带 scripts/ 脚本由 shell 执行）。
 
@@ -280,18 +280,18 @@ run(messages)
 
 Cordis 的 `ctx.events` 是连接「循环内部」与「前端观察者」的**解耦层**。所有事件类型在 `declare module 'cordis' { interface Events }` 里声明：
 
-| 事件                | 载荷                         | 发射方         |
-| ------------------- | ---------------------------- | -------------- |
-| `agent/step`        | `AgentStep`                  | `AgentService` |
-| `agent/tool-call`   | `ToolCall`                   | `AgentService` |
-| `agent/tool-result` | `{ call, result, ok }`       | `AgentService` |
-| `agent/done`        | `string`（最终答案）         | `AgentService` |
-| `agent/approval-request` | `{ callId, tool, args }` | `AgentService` |
-| `llm/stream`        | `{ delta, reasoning }`       | `LlmService`   |
-| `llm/usage`         | `{ promptTokens, completionTokens }` | `LlmService` |
-| `tools/call`        | `{ name, args, ok, result }` | `ToolRegistry` |
-| `mcp/connected`     | `{ serverId, toolCount }`    | `McpService`   |
-| `pse/toggled`       | `{ enabled }`                | `PseService`   |
+| 事件                     | 载荷                                 | 发射方         |
+| ------------------------ | ------------------------------------ | -------------- |
+| `agent/step`             | `AgentStep`                          | `AgentService` |
+| `agent/tool-call`        | `ToolCall`                           | `AgentService` |
+| `agent/tool-result`      | `{ call, result, ok }`               | `AgentService` |
+| `agent/done`             | `string`（最终答案）                 | `AgentService` |
+| `agent/approval-request` | `{ callId, tool, args }`             | `AgentService` |
+| `llm/stream`             | `{ delta, reasoning }`               | `LlmService`   |
+| `llm/usage`              | `{ promptTokens, completionTokens }` | `LlmService`   |
+| `tools/call`             | `{ name, args, ok, result }`         | `ToolRegistry` |
+| `mcp/connected`          | `{ serverId, toolCount }`            | `McpService`   |
+| `pse/toggled`            | `{ enabled }`                        | `PseService`   |
 
 设计意图：**前端不需要知道循环内部细节**，只要监听这些事件就能流式渲染进度。CLI、Web、测试都是同一套事件的消费者。
 
@@ -309,20 +309,20 @@ Cordis 的 `ctx.events` 是连接「循环内部」与「前端观察者」的**
 
 基于 Node 内置 `http`（零额外依赖）的 HTTP 桥：
 
-| 端点          | 方法 | 作用                           |
-| ------------- | ---- | ------------------------------ |
-| `/health`     | GET  | 健康检查（uptime/内存/工具数/MCP数） |
-| `/api/tools`  | GET  | 返回 `ctx.tools.schemas()`     |
-| `/api/models` | GET  | 返回 `ctx.llm.models()`        |
-| `/api/skills` | GET  | 返回技能列表                   |
-| `/api/chat`   | POST | `{ messages, model, systemPrompt }` → SSE 流 |
-| `/api/approval` | POST | `{ callId, decision }` 审批工具调用 |
-| `/api/sessions` | GET/POST | 会话 CRUD（持久化） |
-| `/api/sessions/:id` | GET/DELETE | 单会话读取/删除 |
-| `/api/usage`  | GET  | token/费用统计（全局或按会话） |
-| `/api/mcp`    | GET/POST/DELETE | MCP server 管理 |
-| `/api/pse`    | GET/POST | PSE 模式状态查询/切换 |
-| `/api/workspace/report` | GET | 工作区项目分析报告 |
+| 端点                    | 方法            | 作用                                         |
+| ----------------------- | --------------- | -------------------------------------------- |
+| `/health`               | GET             | 健康检查（uptime/内存/工具数/MCP数）         |
+| `/api/tools`            | GET             | 返回 `ctx.tools.schemas()`                   |
+| `/api/models`           | GET             | 返回 `ctx.llm.models()`                      |
+| `/api/skills`           | GET             | 返回技能列表                                 |
+| `/api/chat`             | POST            | `{ messages, model, systemPrompt }` → SSE 流 |
+| `/api/approval`         | POST            | `{ callId, decision }` 审批工具调用          |
+| `/api/sessions`         | GET/POST        | 会话 CRUD（持久化）                          |
+| `/api/sessions/:id`     | GET/DELETE      | 单会话读取/删除                              |
+| `/api/usage`            | GET             | token/费用统计（全局或按会话）               |
+| `/api/mcp`              | GET/POST/DELETE | MCP server 管理                              |
+| `/api/pse`              | GET/POST        | PSE 模式状态查询/切换                        |
+| `/api/workspace/report` | GET             | 工作区项目分析报告                           |
 
 `POST /api/chat` 是核心：
 
@@ -445,14 +445,14 @@ plugins:
 
 ### 每个模块的「为什么这么设计」
 
-| 模块       | 讲什么                                                                                                 | 常见追问                                        |
-| ---------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
-| Agent 循环 | Fast Path 短路（能算的不问模型）、流式优先（chatStream 统一，chat 兜底）、tool_calls 按 index 增量合并 | 为什么最多 8 轮？→ 防死循环                     |
-| 审批流     | Promise 挂起 + 超时自动拒绝（循环永不 hang）；拒绝结果喂回模型（模型可调整）而非中断                   | 审批怎么跨请求？→ 全局 callId 注册表            |
-| 流式       | delta 事件逐 token；step 事件在流式下跳过 append（防重复）；reasoning_content 单独通道                 | 为什么要有 reasoning？→ 部分模型思考过程         |
-| 插件化     | definePlugin 解决 tsx 把 class name 设为只读的坑；包名加载跨生态                                       | inject 是什么？→ Cordis 依赖声明                |
-| 工具       | `error:` 前缀约定让循环容错；读/写/跑 三档权限（只读无审批，写/跑审批）                                | 为什么 shell 必须审批？                         |
-| 技能       | 索引注入 system prompt + 模型用 read-file 读 SKILL.md；scripts/ 由 shell 执行                          | 技能和工具的区别？                              |
+| 模块       | 讲什么                                                                                                 | 常见追问                                 |
+| ---------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
+| Agent 循环 | Fast Path 短路（能算的不问模型）、流式优先（chatStream 统一，chat 兜底）、tool_calls 按 index 增量合并 | 为什么最多 8 轮？→ 防死循环              |
+| 审批流     | Promise 挂起 + 超时自动拒绝（循环永不 hang）；拒绝结果喂回模型（模型可调整）而非中断                   | 审批怎么跨请求？→ 全局 callId 注册表     |
+| 流式       | delta 事件逐 token；step 事件在流式下跳过 append（防重复）；reasoning_content 单独通道                 | 为什么要有 reasoning？→ 部分模型思考过程 |
+| 插件化     | definePlugin 解决 tsx 把 class name 设为只读的坑；包名加载跨生态                                       | inject 是什么？→ Cordis 依赖声明         |
+| 工具       | `error:` 前缀约定让循环容错；读/写/跑 三档权限（只读无审批，写/跑审批）                                | 为什么 shell 必须审批？                  |
+| 技能       | 索引注入 system prompt + 模型用 read-file 读 SKILL.md；scripts/ 由 shell 执行                          | 技能和工具的区别？                       |
 
 ### 你踩过的坑（面试弹药）
 
