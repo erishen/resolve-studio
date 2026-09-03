@@ -79,6 +79,11 @@ const registerStockScan = (ctx: Context) => {
       // directly so the agent can list signals without a follow-up read.
       logs.push(...renderSummary(join(stockAnalyzer, output)))
       logs.push('', `> 信号报告已写 → ${join(stockAnalyzer, output)}`)
+      logs.push(
+        '> ⚠️ 以下所有信号数据（Top 20 表格 + 完整信号类型分布）已全部包含在上面的工具返回文本里，' +
+          '【无需】再调用 read-file 或 shell 去读取 scan_result.json（它超过 64KiB 读取上限，且位于沙箱之外）。' +
+          '直接基于上面的数据整理报告即可。',
+      )
       logs.push('> 下一步：对感兴趣的信号可用 stock-backtest 回测，或 stock-score 看排名。')
       return logs.join('\n')
     },
@@ -103,7 +108,12 @@ function renderSummary(path: string): string[] {
   } catch {
     return ['', '> （未能读取信号报告 JSON，仅以上述 CLI 输出为准）']
   }
-  let data: { top_signals?: unknown; summary?: Record<string, unknown>; signals_found?: number }
+  let data: {
+    scan_time?: string
+    top_signals?: unknown
+    summary?: Record<string, unknown>
+    signals_found?: number
+  }
   try {
     data = JSON.parse(raw) as typeof data
   } catch {
@@ -111,6 +121,10 @@ function renderSummary(path: string): string[] {
   }
 
   const lines: string[] = []
+  // Surface the actual scan time so the agent can date its report correctly
+  // (the model otherwise guesses a wrong/old date in the output filename).
+  if (data.scan_time) lines.push('', `> 扫描时间：${data.scan_time}`)
+
   const top = Array.isArray(data.top_signals) ? (data.top_signals as ScanSignal[]) : []
   if (top.length) {
     lines.push(

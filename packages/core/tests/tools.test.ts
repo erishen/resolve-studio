@@ -36,7 +36,8 @@ test('read-file reads text and rejects binary / missing files', async () => {
     'read-file',
     JSON.stringify({ path: 'src/plugins/tools/tool-read-file.ts' }),
   )
-  assert.ok(self.startsWith('/**'), 'expected source text')
+  assert.match(self, /`read-file` tool/, 'expected source text in the reply')
+  assert.match(self, /bytes 0\.\./, 'expected the slice-range header')
 
   const missing = await root.tools.call('read-file', JSON.stringify({ path: 'no-such-file.ts' }))
   assert.match(missing, /^error:/)
@@ -60,7 +61,27 @@ test('write-file writes content and creates parent directories', async () => {
   assert.match(res, /wrote 11 chars/)
 
   const readBack = await root.tools.call('read-file', JSON.stringify({ path: absPath }))
-  assert.equal(readBack, 'hello write')
+  assert.match(readBack, /hello write/)
+
+  // Large-file slicing: page through a file bigger than one slice, then past
+  // the end.
+  const big = resolve(tmpDir, 'big.txt')
+  await writeFile(big, 'a'.repeat(200_000))
+  const first = await root.tools.call(
+    'read-file',
+    JSON.stringify({ path: big, limit: 64 * 1024 }),
+  )
+  assert.match(first, /bytes 0..65536/, 'first slice range reported')
+  const second = await root.tools.call(
+    'read-file',
+    JSON.stringify({ path: big, offset: 65536, limit: 65536 }),
+  )
+  assert.match(second, /bytes 65536\.\.131072/, 'second slice range reported')
+  const pastEnd = await root.tools.call(
+    'read-file',
+    JSON.stringify({ path: big, offset: 1_000_000 }),
+  )
+  assert.match(pastEnd, /已到文件末尾/, 'read past EOF reports the end')
 
   await rm(tmpDir, { recursive: true, force: true })
   await root.fiber.dispose()
