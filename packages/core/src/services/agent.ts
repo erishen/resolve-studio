@@ -42,6 +42,12 @@ function safeParseArgs(raw: string): Record<string, unknown> {
   }
 }
 
+/** Shorten a (tool-error) string for embedding in a nudge message. */
+function truncateForNudge(s: string, max = 240): string {
+  const t = (s ?? '').replace(/\s+/g, ' ').trim()
+  return t.length <= max ? t : `${t.slice(0, max)}…`
+}
+
 /** Canonical, deterministic string for a tool call's arguments — used to detect
  *  duplicate calls within a round. Strings are parsed to objects so the same
  *  args in either form compare equal; object keys are sorted. */
@@ -314,6 +320,15 @@ export class AgentService extends Service {
     const recentToolCounts: number[] = []
     const LOOP_WINDOW = 3
 
+    // Repeated-failure guard: when the same tool fails N times consecutively
+    // the model is usually banging against an unavoidable wall (file too big,
+    // sandbox path, provider error). Nudge it to change approach instead of
+    // letting it burn iteration budget retrying. A success resets the streak;
+    // each tool is only nudged once per run.
+    const failedStreaks = new Map<string, number>()
+    const toolNudged = new Set<string>()
+    const FAIL_THRESHOLD = 2
+
     for (let i = 0; i < maxIterations; i++) {
       // Allow an in-flight run to be cancelled between steps.
       if (options.signal?.aborted) {
@@ -394,6 +409,20 @@ export class AgentService extends Service {
             // auto-reject on the 60s timeout.
             const needApproval =
               !options.skipApproval && this.toolNeedsApproval(schema, call.arguments)
+            // Empty-arguments guard: the model sometimes emits a tool-call with
+            // no args at all (e.g. `write-file` with `{}`). Running it is
+            // guaranteed to fail with a terse "path is required". Instead,
+            // short-circuit with a clear message listing the missing required
+            // fields so the model can fix the call in one go. Only applied to
+            // non-gated tools — a gated call still goes through the approval
+            // flow so the human stays in the loop.
+            if (!needApproval) {
+              const missing = this.missingRequiredArgs(schema, call.arguments)
+              if (missing.length) {
+                const result = `error: 工具 "${call.name}" 缺少必填参数：${missing.join(', ')}。请带上这些参数重新调用（参数说明见工具定义）。`
+                return { call, result, ok: false, nsId, durationMs: performance.now() - t0, idx }
+              }
+            }
             // Skip re-prompting a gated tool already approved once this run.
             const approvalSkipped = needApproval && approvedTools.has(call.name)
             bus.emit('agent/tool-call', { ...call, id: nsId, approvalSkipped: !!approvalSkipped })
@@ -445,6 +474,29 @@ export class AgentService extends Service {
             name: call.name,
             content: result,
           })
+          // Repeated-failure guard: reset the streak on success, otherwise
+          // count up and inject a "change approach" nudge at the threshold.
+          if (ok) {
+            failedStreaks.delete(call.name)
+          } else {
+            const streak = (failedStreaks.get(call.name) ?? 0) + 1
+            failedStreaks.set(call.name, streak)
+            if (streak >= FAIL_THRESHOLD && !toolNudged.has(call.name)) {
+              toolNudged.add(call.name)
+              this.ctx.logger('agent').warn(
+                'tool "%s" failed %d× consecutively — nudging the model to change approach',
+                call.name,
+                streak,
+              )
+              messages.push({
+                role: 'user',
+                content:
+                  `工具 \`${call.name}\` 已连续失败 ${streak} 次（最近一次错误：${truncateForNudge(result)}）。` +
+                  `不要再用相同参数重试它。请换一种方式完成任务，或直接基于已有结果继续并汇报；` +
+                  `如果确实需要该能力但被限制（如文件过大 / 路径在沙箱外），就明确说明并给出替代方案。`,
+              })
+            }
+          }
         }
       }
 
@@ -633,6 +685,25 @@ export class AgentService extends Service {
   /** Namespace a tool call id with the run id (no-op when there's no run id). */
   private ns(callId: string, runId?: string): string {
     return runId ? `${runId}:${callId}` : callId
+  }
+
+  /**
+   * Required top-level parameters declared by the tool's schema that are
+   * missing from the call arguments. Used to short-circuit an empty/partial
+   * tool-call (the model firing a call with `{}` args) with a precise error
+   * instead of letting the tool fail with a terse message. Only the top-level
+   * `parameters.required` list is checked.
+   */
+  private missingRequiredArgs(
+    schema: Tool | undefined,
+    args: string | Record<string, unknown>,
+  ): string[] {
+    if (!schema) return []
+    const required = schema.parameters?.required
+    if (!required?.length) return []
+    const parsed: Record<string, unknown> =
+      typeof args === 'string' ? safeParseArgs(args) : (args ?? {})
+    return required.filter((k) => k in parsed === false)
   }
 
   /** Best-effort answer recovered from a partially-run conversation. */

@@ -828,3 +828,143 @@ test('a final answer that merely mentions an already-run tool is not nudged', as
 
   await root.fiber.dispose()
 })
+
+test('a tool failing repeatedly is nudged to change approach (not retried forever)', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService)
+  await root.plugin(skills, { dir: '../../skills' })
+  await root.plugin(toolEcho)
+  // A tool that always fails — stands in for the "file too big / sandbox
+  // outside" wall the model kept hitting in the stock-scan run.
+  root.tools.register({
+    name: 'always-fail',
+    description: 'Always fails.',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string' } },
+      required: ['path'],
+    },
+    async execute() {
+      return 'error: file is 4358586 bytes, exceeds the 64 KiB read limit'
+    },
+    needsApproval: false,
+  })
+
+  const calls: string[] = []
+  // The model stubbornly retries always-fail twice; only after the guard's
+  // nudge message lands does it finally give up and answer.
+  class StubbornRetry extends LlmService {
+    private round = 0
+    async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+      this.round++
+      const last = [...messages].reverse().find((m) => m.role === 'user')
+      const lastText = typeof last?.content === 'string' ? last.content : ''
+      if (lastText.includes('连续失败')) {
+        // The guard's nudge reached the model — change approach.
+        return { content: '好的，换个方式，直接基于已有结果汇报。' }
+      }
+      return {
+        toolCalls: [
+          {
+            id: `fail-${this.round}`,
+            name: 'always-fail',
+            arguments: JSON.stringify({ path: 'scan_result.json' }),
+          },
+        ],
+      }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(StubbornRetry)
+  root.on('agent/tool-call', (call) => calls.push(call.name))
+
+  const answer = await root.agent.run({
+    messages: [{ role: 'user', content: '读取 scan 结果并汇报' }],
+  })
+
+  // The failing tool was retried at most FAIL_THRESHOLD times; after the nudge
+  // the model changed approach instead of burning the whole iteration budget.
+  assert.ok(calls.length <= 3, `retried too many times: ${calls.length}`)
+  assert.ok(calls.every((c) => c === 'always-fail'))
+  assert.match(answer, /换个方式/)
+
+  await root.fiber.dispose()
+})
+
+test('a tool-call with empty arguments is short-circuited with a precise missing-args error', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService)
+  await root.plugin(skills, { dir: '../../skills' })
+  await root.plugin(toolEcho)
+  let executed = 0
+  root.tools.register({
+    name: 'save-copy',
+    description: 'Persist copy to a file.',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string' }, content: { type: 'string' } },
+      required: ['path', 'content'],
+    },
+    async execute(args) {
+      executed++
+      return `saved ${String(args['content'] ?? '').length} chars`
+    },
+    needsApproval: false,
+  })
+
+  // The model fires save-copy with NO arguments (the observed write-file
+  // failure mode). The guard short-circuits it (tool never runs) and pushes a
+  // tool-role message listing the missing fields; the model then fixes the call
+  // and, once it succeeds, answers.
+  class EmptyArgsThenFix extends LlmService {
+    private round = 0
+    async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+      this.round++
+      const lastTool = [...messages].reverse().find((m) => m.role === 'tool')
+      const sawMissing = typeof lastTool?.content === 'string' && lastTool.content.includes('缺少必填参数')
+      const sawSuccess = typeof lastTool?.content === 'string' && lastTool.content.includes('saved')
+      if (sawSuccess) {
+        return { content: '文案已保存。' }
+      }
+      if (sawMissing) {
+        return {
+          toolCalls: [
+            {
+              id: `ok-${this.round}`,
+              name: 'save-copy',
+              arguments: JSON.stringify({ path: 'copy.md', content: 'hello' }),
+            },
+          ],
+        }
+      }
+      return {
+        toolCalls: [{ id: `empty-${this.round}`, name: 'save-copy', arguments: '{}' }],
+      }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(EmptyArgsThenFix)
+
+  const answer = await root.agent.run({
+    messages: [{ role: 'user', content: '写营销文案并保存' }],
+  })
+
+  // The empty-arguments call was short-circuited (execute never ran for it),
+  // and only the second, parameter-complete call actually executed.
+  assert.equal(executed, 1, 'only the well-formed call executed')
+  assert.match(answer, /保存/)
+
+  await root.fiber.dispose()
+})
