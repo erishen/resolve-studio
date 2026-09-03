@@ -31,6 +31,7 @@ interface SpawnTarget {
   cmd: string
   args: string[]
   shell: boolean
+  cwd?: string
 }
 
 function runCommand(target: SpawnTarget): Promise<string> {
@@ -40,6 +41,7 @@ function runCommand(target: SpawnTarget): Promise<string> {
     // sandboxed, keep `shell: true` for pipelines/redirects.
     const child = spawn(target.cmd, target.args, {
       shell: target.shell,
+      cwd: target.cwd,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -125,17 +127,25 @@ const registerShell = (ctx: Context) => {
       },
       required: ['command'],
     },
-    async execute(args) {
+    async execute(args, execCtx) {
       const command = String(args['command'] ?? '').trim()
       if (!command) throw new Error('command is required')
       if (command.length > 2000) throw new Error('command too long (max 2000 chars)')
       ctx.fsRoots.assertShellWithin(command)
+      // A per-run workspace (background jobs) becomes the shell's cwd and an
+      // extra sandbox writable root, so artifacts land in the job's dir.
+      const workspace = execCtx?.workspace
       // Wrap for OS-level sandbox if enabled. When sandboxed, we get an
       // explicit {cmd, args} target (sandbox-exec -f profile /bin/sh -c ...);
       // otherwise fall back to shell:true mode.
-      const target: SpawnTarget = ctx.sandbox?.enabled
-        ? { ...ctx.sandbox.wrapShell(command), shell: false }
-        : { cmd: command, args: [], shell: true }
+      const sandbox = ctx.sandbox?.enabled
+      const target: SpawnTarget = sandbox
+        ? {
+            ...ctx.sandbox!.wrapShell(command, workspace ? { writableRoots: [workspace] } : {}),
+            shell: false,
+            cwd: workspace,
+          }
+        : { cmd: command, args: [], shell: true, cwd: workspace }
       const raw = await runCommand(target)
       if (raw.length > MAX_OUTPUT) {
         return `${raw.slice(0, MAX_OUTPUT)}\n… [output truncated at ${MAX_OUTPUT} chars]`

@@ -19,7 +19,9 @@ import { SandboxService } from '../src/plugins/sandbox.js'
 
 function seatbeltProfile(svc: SandboxService): string {
   // private-by-type but reachable at runtime; tests assert the generated text.
-  const gen = (svc as unknown as { ensureSeatbeltProfile(): string }).ensureSeatbeltProfile.bind(svc)
+  const gen = (svc as unknown as { ensureSeatbeltProfile(): string }).ensureSeatbeltProfile.bind(
+    svc,
+  )
   return readFileSync(gen(), 'utf8')
 }
 

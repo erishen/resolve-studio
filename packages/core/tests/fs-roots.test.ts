@@ -73,10 +73,7 @@ test('loader expands ${ENV} references in fs roots from process.env', async () =
   // instead of an absolute path committed to the public manifest.
   process.env['FS_ROOTS_TEST_DIR'] = ROOT_A
   const root = new Context()
-  await loadConfig(
-    root,
-    fileURLToPath(new URL('./fixtures/fs-roots-env.yml', import.meta.url)),
-  )
+  await loadConfig(root, fileURLToPath(new URL('./fixtures/fs-roots-env.yml', import.meta.url)))
   assert.ok(
     root.fsRoots.shell.includes(resolve(ROOT_A)),
     'shell root should expand ${FS_ROOTS_TEST_DIR} to the env value',

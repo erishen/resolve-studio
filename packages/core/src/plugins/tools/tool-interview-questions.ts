@@ -8,23 +8,10 @@ import type { Tool, ToolExecutionContext } from '../../types.js'
 // Interview question generation is a PSE pipeline (Planner + Specialist +
 // Evaluator + Verify); runPseTask defaults to a generous 5-minute budget.
 
-const PROVIDERS = ['free', 'deepseek'] as const
+const PROVIDERS = ['agnes', 'deepseek'] as const
 type Provider = (typeof PROVIDERS)[number]
 
-const SUBJECTS = [
-  'python',
-  'java',
-  'javascript',
-  'typescript',
-  'go',
-  'rust',
-  'backend',
-  'frontend',
-  'fullstack',
-  'devops',
-  'data',
-  'ai',
-] as const
+const SUBJECTS = ['python', 'go', 'java', 'typescript', 'backend', 'frontend', 'sre'] as const
 
 export interface InterviewQuestionsConfig {
   _placeholder?: never
@@ -42,7 +29,7 @@ const registerInterviewQuestions = (ctx: Context, _config: InterviewQuestionsCon
       'Generates 9 questions (3 easy / 3 medium / 3 hard) with anti-hallucination topic verification. ' +
       'Takes 1-5 minutes. Returns the generated question set (Markdown) and save path. ' +
       'Use when the user asks to generate interview questions, prepare for an interview, or create a quiz. ' +
-      'Default provider: free (default). ' +
+      'Default provider: agnes (free). ' +
       'Switching to provider="deepseek" (PAID) triggers a human approval prompt — wait for the user ' +
       'to approve before assuming it will run; if rejected, do NOT retry with deepseek. ' +
       'Do NOT read any files before calling this tool — all paths and configs are handled internally.',
@@ -75,15 +62,15 @@ const registerInterviewQuestions = (ctx: Context, _config: InterviewQuestionsCon
         },
         provider: {
           type: 'string',
-          description: 'Model provider: free (default) or deepseek (paid, higher quality).',
+          description: 'Model provider: agnes (default/free) or deepseek (paid, higher quality).',
           enum: [...PROVIDERS],
-          default: 'free',
+          default: 'agnes',
         },
       },
       required: ['mode'],
     },
-    // Paid (deepseek) runs require human approval; free runs pass through.
-    approvalWhen: gateNonFreeProvider('free'),
+    // Paid (deepseek) runs require human approval; free (agnes) runs pass through.
+    approvalWhen: gateNonFreeProvider('agnes'),
     async execute(
       args: {
         mode: 'subject' | 'jd' | 'resume'
@@ -94,7 +81,7 @@ const registerInterviewQuestions = (ctx: Context, _config: InterviewQuestionsCon
       },
       execCtx?: ToolExecutionContext,
     ): Promise<string> {
-      const { mode, subject = 'python', jd_text, resume_text, provider = 'free' } = args
+      const { mode, subject = 'python', jd_text, resume_text, provider = 'agnes' } = args
       const onProgress = execCtx?.onProgress
 
       // Validate
@@ -160,7 +147,8 @@ const registerInterviewQuestions = (ctx: Context, _config: InterviewQuestionsCon
       const questionCount = questionMatches.length
       const EXPECTED = 9
 
-      const modeLabel = mode === 'subject' ? `按主题(${subject})` : mode === 'jd' ? '按JD' : '按简历'
+      const modeLabel =
+        mode === 'subject' ? `按主题(${subject})` : mode === 'jd' ? '按JD' : '按简历'
       const result = [
         `> interview-questions 完成（模式：${modeLabel}，模型：${provider}）`,
         outFile ? `> 输出文件：${outFile}` : '> 注意：未找到输出文件',

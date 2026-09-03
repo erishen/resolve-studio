@@ -33,16 +33,14 @@ const registerCrewAiDiscover = (ctx: Context) => {
       properties: {
         add: {
           type: 'boolean',
-          description: 'If true (default), write discovered new projects into projects.json directly. Set false for a dry-run that only prints suggestions.',
+          description:
+            'If true (default), write discovered new projects into projects.json directly. Set false for a dry-run that only prints suggestions.',
           default: true,
         },
       },
       required: [],
     },
-    async execute(
-      args: { add?: boolean },
-      execCtx?: ToolExecutionContext,
-    ): Promise<string> {
+    async execute(args: { add?: boolean }, execCtx?: ToolExecutionContext): Promise<string> {
       const { add = true } = args
       const onProgress = execCtx?.onProgress
 
@@ -59,22 +57,21 @@ const registerCrewAiDiscover = (ctx: Context) => {
       ctx.logger('article-discover').info('running make discover (add=%s, cwd=%s)', add, CREWAI_PSE)
 
       try {
-        const { stdout, stderr } = await execFileAsync(
-          'make',
-          ['discover', ...flags],
-          {
-            cwd: CREWAI_PSE,
-            timeout: TASK_TIMEOUT_MS,
-            maxBuffer: 8 << 20,
-          },
-        )
+        const { stdout, stderr } = await execFileAsync('make', ['discover', ...flags], {
+          cwd: CREWAI_PSE,
+          timeout: TASK_TIMEOUT_MS,
+          maxBuffer: 8 << 20,
+        })
         const combined = (stdout || '') + (stderr ? '\n--- stderr ---\n' + stderr : '')
         onProgress?.(combined)
         const header = add ? '> 已写入 projects.json\n\n' : '> 扫描结果（dry-run，未写入）\n\n'
         return header + truncate(combined, MAX_OUTPUT)
       } catch (err) {
         const e = err as { message?: string; stdout?: string; stderr?: string; code?: number }
-        const tail = (e.stdout || '') + (e.stderr ? '\n--- stderr ---\n' + e.stderr : '') || e.message || String(err)
+        const tail =
+          (e.stdout || '') + (e.stderr ? '\n--- stderr ---\n' + e.stderr : '') ||
+          e.message ||
+          String(err)
         return `error: article-discover failed (exit ${e.code ?? 'unknown'}) — ${truncate(tail, 4000)}`
       }
     },
@@ -83,4 +80,6 @@ const registerCrewAiDiscover = (ctx: Context) => {
   ctx.logger('crewai-discover').info('registered article-discover tool')
 }
 
-export const toolCrewAiDiscover = definePlugin(registerCrewAiDiscover, 'tool-crewai-discover', ['tools'])
+export const toolCrewAiDiscover = definePlugin(registerCrewAiDiscover, 'tool-crewai-discover', [
+  'tools',
+])

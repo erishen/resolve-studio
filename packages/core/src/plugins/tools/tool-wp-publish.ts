@@ -78,7 +78,10 @@ function registerWpTask(ctx: Context, task: WpTaskDef) {
         return `> ${task.label} 完成 (make ${task.makeTarget})\n\n` + truncate(combined, MAX_OUTPUT)
       } catch (err) {
         const e = err as { message?: string; stdout?: string; stderr?: string; code?: number }
-        const tail = (e.stdout || '') + (e.stderr ? '\n--- stderr ---\n' + e.stderr : '') || e.message || String(err)
+        const tail =
+          (e.stdout || '') + (e.stderr ? '\n--- stderr ---\n' + e.stderr : '') ||
+          e.message ||
+          String(err)
         return `error: ${task.name} failed (exit ${e.code ?? 'unknown'}) — ${truncate(tail, 2000)}`
       }
     },
@@ -89,7 +92,13 @@ const registerWpPublish = (ctx: Context) => {
   for (const task of TASKS) {
     registerWpTask(ctx, task)
   }
-  ctx.logger('wp-publish').info('registered %d wordpress-tools tasks: %s', TASKS.length, TASKS.map((t) => t.name).join(', '))
+  ctx
+    .logger('wp-publish')
+    .info(
+      'registered %d wordpress-tools tasks: %s',
+      TASKS.length,
+      TASKS.map((t) => t.name).join(', '),
+    )
 }
 
 export const toolWpPublish = definePlugin(registerWpPublish, 'tool-wp-publish', ['tools'])

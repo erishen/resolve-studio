@@ -2,7 +2,12 @@ import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
-import { runPseTask, resolvePseDir, gateNonFreeProvider } from './util-pse.js'
+import {
+  runPseTask,
+  resolvePseDir,
+  gateNonFreeProvider,
+  DEFAULT_RUN_TIMEOUT_MS,
+} from './util-pse.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
 // The langgraph-pse framework root is resolved from LANGGRAPH_PSE_DIR in .env
@@ -90,7 +95,7 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
           type: 'string',
           description:
             'Path to CRM SQLite database (for follow-up-draft and weekly-review tasks). ' +
-            'Defaults to CRM_DB_PATH env or the task\'s default DB path.',
+            "Defaults to CRM_DB_PATH env or the task's default DB path.",
         },
       },
       required: ['task'],
@@ -138,7 +143,7 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
         framework: 'langgraph',
         task,
         args: cmdArgs,
-        timeoutMs: RUN_TIMEOUT_MS,
+        timeoutMs: DEFAULT_RUN_TIMEOUT_MS,
         onProgress,
         logger: (msg, ...a) => ctx.logger('crm-task').info(msg, ...a),
       })

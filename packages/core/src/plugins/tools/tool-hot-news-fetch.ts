@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
-import { resolveTaskDir, runPseScript } from './util-pse.js'
+import { resolveTaskDir, resolvePseDirOrNull, runPseScript } from './util-pse.js'
 import type { Tool } from '../../types.js'
 
 // llamaindex-pse hot-news task owns the multi-source news fetcher
@@ -10,6 +10,12 @@ import type { Tool } from '../../types.js'
 // check. It only writes to the task's news/ snapshot dir.
 const hotNewsDir = () => resolveTaskDir('llamaindex', 'hot-news')
 const newsDir = () => join(hotNewsDir(), 'news')
+// Display-only default for the schema; never throws when PSE_DIR is unset so
+// the tool can still register/be listed in tests and CI.
+const newsDirDesc = () =>
+  resolvePseDirOrNull('llamaindex')
+    ? newsDir()
+    : join('.data', 'pse', 'llamaindex', 'hot-news', 'news')
 
 const SOURCES = ['weibo', 'kr36', 'sspai', 'qbitai', 'infoq'] as const
 
@@ -56,7 +62,7 @@ const registerHotNewsFetch = (ctx: Context, _config: Record<string, never> = {})
         },
         out: {
           type: 'string',
-          description: `落盘目录（默认 ${newsDir()}）。`,
+          description: `落盘目录（默认 ${newsDirDesc()}）。`,
         },
       },
       required: [],
@@ -67,8 +73,10 @@ const registerHotNewsFetch = (ctx: Context, _config: Record<string, never> = {})
       const maxAgeDays = args.max_age_days as number | undefined
       const clean = !!args.clean
       const useProxy = !!args.use_proxy
-      const out = (args.out as string | undefined)?.trim() || newsDir()
 
+      // Validate cheap user input before touching the (env-driven) PSE dir so a
+      // bad source fails fast with an actionable message instead of a missing
+      // env error.
       if (sources) {
         for (const s of sources.split(',')) {
           const cs = s.trim()
@@ -77,6 +85,8 @@ const registerHotNewsFetch = (ctx: Context, _config: Record<string, never> = {})
           }
         }
       }
+
+      const out = (args.out as string | undefined)?.trim() || newsDir()
 
       const cmdArgs = [`--out=${out}`]
       if (sources) cmdArgs.push(`--sources=${sources}`)

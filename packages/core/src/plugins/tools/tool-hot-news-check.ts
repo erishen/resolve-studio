@@ -64,12 +64,15 @@ const registerHotNewsCheck = (ctx: Context, _config: Record<string, never> = {})
     async execute(args, execCtx): Promise<string> {
       const platform = (args.platform as Platform | undefined) ?? 'xiaohongshu'
       let article = (args.article as string | undefined)?.trim() ?? ''
-      if (!article) {
-        article = (await latestArticle(platform)) ?? ''
-      }
 
+      // Validate cheap user input before touching the (env-driven) PSE dir so a
+      // bad platform fails fast instead of a missing-env error.
       if (!(PLATFORMS as readonly string[]).includes(platform)) {
         return `error: hot-news-check 未知平台「${platform}」；可用: ${PLATFORMS.join(', ')}`
+      }
+
+      if (!article) {
+        article = (await latestArticle(platform)) ?? ''
       }
 
       const runArgs: string[] = ['check']

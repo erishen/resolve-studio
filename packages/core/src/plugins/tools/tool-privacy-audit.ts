@@ -47,12 +47,12 @@ const registerPrivacyAudit = (ctx: Context) => {
       properties: {
         target: {
           type: 'string',
-          description: '要审计的 git 仓库或根目录（默认 WORKSPACE_ROOT 环境变量指向的整个工作区；不传 target 且未设置 WORKSPACE_ROOT 则报错）。传单仓库则只审计它。',
+          description:
+            '要审计的 git 仓库或根目录（默认 WORKSPACE_ROOT 环境变量指向的整个工作区；不传 target 且未设置 WORKSPACE_ROOT 则报错）。传单仓库则只审计它。',
         },
         exclude_path: {
           type: 'string',
-          description:
-            '逗号分隔的排除仓库路径前缀（如 "<repoA>/<subdir>,<repoB>"）。',
+          description: '逗号分隔的排除仓库路径前缀（如 "<repoA>/<subdir>,<repoB>"）。',
         },
       },
       required: [],

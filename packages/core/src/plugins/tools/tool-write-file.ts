@@ -18,7 +18,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import type { Context } from 'cordis'
-import type { Tool } from '../../types.js'
+import type { Tool, ToolExecutionContext } from '../../types.js'
 import { definePlugin } from '../util.js'
 
 const MAX_CONTENT = 256 * 1024
@@ -30,23 +30,25 @@ const registerWriteFile = (ctx: Context) => {
   ctx.tools.register({
     name: 'write-file',
     description:
-      'Create or overwrite a file with the given content (creates parent directories as needed). Relative paths write to sandbox/<task>/ directory for task isolation; use absolute paths to write elsewhere. Requires human approval.',
+      'Create or overwrite a file with the given content (creates parent directories as needed). Relative paths write to the current run workspace (or sandbox/<task>/ otherwise); use absolute paths to write elsewhere. Requires human approval.',
     parameters: {
       type: 'object',
       properties: {
         path: {
           type: 'string',
-          description: 'File path (relative to the task sandbox directory, or absolute).',
+          description:
+            'File path (relative to the run workspace / task sandbox directory, or absolute).',
         },
         content: { type: 'string', description: 'Full file content to write.' },
         task: {
           type: 'string',
-          description: 'Task name for isolated sandbox subdirectory (e.g. "lru-cache", "article-draft"). Files for different tasks are kept separate. Defaults to "default".',
+          description:
+            'Task name for isolated sandbox subdirectory (e.g. "lru-cache", "article-draft"). Files for different tasks are kept separate. Defaults to "default". Ignored when the run has a workspace.',
         },
       },
       required: ['path', 'content'],
     },
-    async execute(args) {
+    async execute(args, execCtx) {
       let p = String(args['path'] ?? '')
       const content = String(args['content'] ?? '')
       const task = String(args['task'] ?? 'default').replace(/[^a-zA-Z0-9_-]/g, '_') || 'default'
@@ -54,20 +56,27 @@ const registerWriteFile = (ctx: Context) => {
       if (content.length > MAX_CONTENT) {
         throw new Error(`content is ${content.length} chars, exceeds the 256 KiB write limit`)
       }
-      // Path normalization: strip leading "sandbox/" or "sandbox\\<task>\\" prefixes
-      // that the model may redundantly include — the tool already scopes relative
-      // paths to sandbox/<task>/, so a second sandbox/ prefix causes nesting.
+      // A per-run workspace (background jobs) anchors relative paths to that
+      // directory; otherwise the default sandbox/<task>/ isolation applies.
+      const workspace = execCtx?.workspace
+      // Path normalization: strip redundant "sandbox/" / "sandbox\\<task>\\"
+      // prefixes that the model may add — the tool already scopes relative
+      // paths, so a second prefix causes nesting.
       p = p.replace(/^sandbox[\\/]/i, '')
       p = p.replace(new RegExp(`^${task}[\\/]`, 'i'), '')
-      // Relative paths go to sandbox/<task>/; absolute paths stay as-is.
-      const base = isAbsolute(p) ? process.cwd() : join(process.cwd(), SANDBOX_DIR, task)
+      const base = workspace
+        ? workspace
+        : isAbsolute(p)
+          ? process.cwd()
+          : join(process.cwd(), SANDBOX_DIR, task)
       const abs = resolve(base, p)
       ctx.fsRoots.assertWithin(abs, 'write')
       await mkdir(dirname(abs), { recursive: true })
       await writeFile(abs, content, 'utf8')
       return `wrote ${content.length} chars to ${abs} (task: ${task})`
     },
-    // Sandboxed to sandbox/<task>/ + OS-level Seatbelt/bwrap, so no human gate needed.
+    // Sandboxed to the workspace / sandbox/<task>/ + OS-level Seatbelt/bwrap,
+    // so no human gate needed.
     needsApproval: false,
   } satisfies Tool)
 }

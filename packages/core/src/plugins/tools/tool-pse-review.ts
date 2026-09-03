@@ -169,9 +169,7 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
         try {
           const review = await readFile(m[1], { encoding: 'utf8' })
           const rel = await copyReviewToSandbox(m[1], review)
-          const note =
-            `> PSE review 已保存（预览副本）：${rel}\n` +
-            `> 原始路径：${m[1]}\n\n`
+          const note = `> PSE review 已保存（预览副本）：${rel}\n` + `> 原始路径：${m[1]}\n\n`
           return truncate(note + review, MAX_OUTPUT)
         } catch {
           // fall through to stdout

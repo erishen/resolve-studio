@@ -64,7 +64,8 @@ const registerHotNewsPublish = (ctx: Context, _config: Record<string, never> = {
         },
         dry_run: {
           type: 'boolean',
-          description: '预演：填稿到编辑器后即停止（默认行为即停在编辑器，此参数用于更保守的预览）。',
+          description:
+            '预演：填稿到编辑器后即停止（默认行为即停在编辑器，此参数用于更保守的预览）。',
           default: false,
         },
         save_as_draft: {
@@ -80,12 +81,15 @@ const registerHotNewsPublish = (ctx: Context, _config: Record<string, never> = {
     async execute(args, execCtx: ToolExecutionContext | undefined): Promise<string> {
       const platform = (args.platform as Platform | undefined) ?? 'xiaohongshu'
       let article = (args.article as string | undefined)?.trim() ?? ''
-      if (!article) {
-        article = (await latestArticle(platform)) ?? ''
-      }
 
+      // Validate cheap user input before touching the (env-driven) PSE dir so a
+      // bad platform fails fast instead of a missing-env error.
       if (!(PLATFORMS as readonly string[]).includes(platform)) {
         return `error: hot-news-publish 未知平台「${platform}」；可用: ${PLATFORMS.join(', ')}`
+      }
+
+      if (!article) {
+        article = (await latestArticle(platform)) ?? ''
       }
 
       const cmdArgs: string[] = ['publish']

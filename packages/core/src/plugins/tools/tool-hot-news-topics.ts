@@ -2,13 +2,18 @@ import { access } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
-import { resolveTaskDir, runPseScript } from './util-pse.js'
+import { resolveTaskDir, resolvePseDirOrNull, runPseScript } from './util-pse.js'
 import type { Tool } from '../../types.js'
 
 // Reads the hot-news task's `run.py --list-topics`, which ranks the weibo hot
 // list by traffic and pairs each candidate with its news grounding. Read-only.
 const hotNewsDir = () => resolveTaskDir('llamaindex', 'hot-news')
 const newsDir = () => join(hotNewsDir(), 'news')
+// Display-only default for the schema; never throws when PSE_DIR is unset.
+const newsDirDesc = () =>
+  resolvePseDirOrNull('llamaindex')
+    ? newsDir()
+    : join('.data', 'pse', 'llamaindex', 'hot-news', 'news')
 
 const registerHotNewsTopics = (ctx: Context, _config: Record<string, never> = {}) => {
   ctx.tools.register({
@@ -22,7 +27,7 @@ const registerHotNewsTopics = (ctx: Context, _config: Record<string, never> = {}
       properties: {
         news_dir: {
           type: 'string',
-          description: `新闻快照目录（默认 ${newsDir()}）。`,
+          description: `新闻快照目录（默认 ${newsDirDesc()}）。`,
         },
       },
       required: [],

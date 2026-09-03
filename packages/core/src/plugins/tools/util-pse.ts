@@ -69,6 +69,21 @@ export function resolveTaskDir(framework: PseFramework, task: string): string {
   return join(resolvePseDir(framework), 'tasks', task)
 }
 
+/**
+ * Resolve a framework root without throwing when the env var is unset.
+ *
+ * Tool *descriptions* interpolate the default PSE output path at registration
+ * time. Requiring the env just to register (and enumerate) tools breaks tool
+ * listing in tests / CI where the framework isn't installed. Return `null`
+ * here and let callers fall back to a display-only placeholder; the strict
+ * {@link resolvePseDir} is still used at execution time so an actual run fails
+ * fast with a clear message.
+ */
+export function resolvePseDirOrNull(framework: PseFramework): string | null {
+  const dir = process.env[PSE_FRAMEWORK_ENVS[framework]]
+  return dir && dir.length ? dir : null
+}
+
 export interface RunPseTaskOptions {
   /** Tool name — prefixes logs and every error message. */
   tool: string

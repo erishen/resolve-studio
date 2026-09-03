@@ -59,10 +59,7 @@ test('write-file writes content and creates parent directories', async () => {
   )
   assert.match(res, /wrote 11 chars/)
 
-  const readBack = await root.tools.call(
-    'read-file',
-    JSON.stringify({ path: absPath }),
-  )
+  const readBack = await root.tools.call('read-file', JSON.stringify({ path: absPath }))
   assert.equal(readBack, 'hello write')
 
   await rm(tmpDir, { recursive: true, force: true })

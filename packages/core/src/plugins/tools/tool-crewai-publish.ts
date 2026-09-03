@@ -57,12 +57,12 @@ function loadArticleKeys(): string[] {
   if (articles) {
     try {
       for (const name of readdirSync(articles)) {
-      const m = /^(.+?)-zh\.md$/.exec(name)
-      if (!m) continue
-      const slug = m[1]
-      // 下划线 slug（resolve_tui）→ 连字符 project key（resolve-tui）
-      keys.add(slug.replace(/_/g, '-'))
-    }
+        const m = /^(.+?)-zh\.md$/.exec(name)
+        if (!m) continue
+        const slug = m[1]
+        // 下划线 slug（resolve_tui）→ 连字符 project key（resolve-tui）
+        keys.add(slug.replace(/_/g, '-'))
+      }
     } catch {
       // 目录不存在/不可读：仅用 json 队列
     }
@@ -101,7 +101,7 @@ const TASKS: CrewAiPublishTaskDef[] = [
       '⚠️ 这是【发布】工具：调用时不传 project 会列出当前待发布队列中的所有文章供用户选择，用户选定后再带 project 调用即可发布；不要改用 article-discover（那是用于发现【新】项目以撰写文章，不负责发布）。 ' +
       'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name. This parameter is REQUIRED.' +
       '🛑 安全闸门：本工具默认【只预览、不真正发布】。只有 `confirm` 参数显式设为 true 时才会 POST 到 WordPress。且一次只能发布用户【明确点名】的那一篇 project——绝对禁止对队列里的多篇文章循环调用本工具、或在一次回复里批量发布。未等用户明确指定 project 前，不要设 confirm=true。若用户只泛泛地说「发布一篇文章」却没给出具体 project，你必须先停下来问清楚要发布哪一篇，绝不可自行从清单里挑一个并设 confirm=true。',
-   },
+  },
   {
     name: 'article-archive',
     label: '归档文章',
@@ -209,9 +209,7 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
             )
           }
         }
-        const ready = validated
-          ? '，且发布前校验已通过（文章文件存在、frontmatter 完整）'
-          : ''
+        const ready = validated ? '，且发布前校验已通过（文章文件存在、frontmatter 完整）' : ''
         return (
           `👁️ 预览模式（未真正执行，仅展示将执行的操作）${ready}：\n` +
           `📋 project=${project} 已在队列中，可${task.label}。\n` +
@@ -245,24 +243,28 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
         onProgress?.('✅ 校验通过，开始发布...\n\n')
       }
 
-      ctx.logger(task.name).info('running make %s P=%s (cwd=%s)', task.makeTarget, project, CREWAI_PSE)
+      ctx
+        .logger(task.name)
+        .info('running make %s P=%s (cwd=%s)', task.makeTarget, project, CREWAI_PSE)
 
       try {
-        const { stdout, stderr } = await execFileAsync(
-          'make',
-          [task.makeTarget, `P=${project}`],
-          {
-            cwd: CREWAI_PSE,
-            timeout: TASK_TIMEOUT_MS,
-            maxBuffer: 4 << 20,
-          },
-        )
+        const { stdout, stderr } = await execFileAsync('make', [task.makeTarget, `P=${project}`], {
+          cwd: CREWAI_PSE,
+          timeout: TASK_TIMEOUT_MS,
+          maxBuffer: 4 << 20,
+        })
         const combined = (stdout || '') + (stderr ? '\n--- stderr ---\n' + stderr : '')
         onProgress?.(combined)
-        return `> ${task.label}完成 (make ${task.makeTarget} P=${project})\n\n` + truncate(combined, MAX_OUTPUT)
+        return (
+          `> ${task.label}完成 (make ${task.makeTarget} P=${project})\n\n` +
+          truncate(combined, MAX_OUTPUT)
+        )
       } catch (err) {
         const e = err as { message?: string; stdout?: string; stderr?: string; code?: number }
-        const tail = (e.stdout || '') + (e.stderr ? '\n--- stderr ---\n' + e.stderr : '') || e.message || String(err)
+        const tail =
+          (e.stdout || '') + (e.stderr ? '\n--- stderr ---\n' + e.stderr : '') ||
+          e.message ||
+          String(err)
         return `error: ${task.name} failed (exit ${e.code ?? 'unknown'}) — ${truncate(tail, 2000)}`
       }
     },
@@ -277,7 +279,15 @@ const registerCrewAiPublish = (ctx: Context) => {
     // 已发布但尚未归档的文章（如 resolve-tui）也能从 UI 重新发布/校验/归档。
     registerTask(ctx, task, articleKeys)
   }
-  ctx.logger('crewai-publish').info('registered %d crewai-pse publish tasks: %s', TASKS.length, TASKS.map((t) => t.name).join(', '))
+  ctx
+    .logger('crewai-publish')
+    .info(
+      'registered %d crewai-pse publish tasks: %s',
+      TASKS.length,
+      TASKS.map((t) => t.name).join(', '),
+    )
 }
 
-export const toolCrewAiPublish = definePlugin(registerCrewAiPublish, 'tool-crewai-publish', ['tools'])
+export const toolCrewAiPublish = definePlugin(registerCrewAiPublish, 'tool-crewai-publish', [
+  'tools',
+])

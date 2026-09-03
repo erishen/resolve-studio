@@ -36,7 +36,7 @@ const MANIFEST = process.env.WORKSPACE_MANIFEST
 if (!MANIFEST) {
   console.error(
     'WORKSPACE_MANIFEST is not set. Export it to the absolute path of projects-published.json ' +
-      '(the published-articles manifest, e.g. $CREWAI_PSE_DIR/tasks/project-articles/projects-published.json).'
+      '(the published-articles manifest, e.g. $CREWAI_PSE_DIR/tasks/project-articles/projects-published.json).',
   )
   process.exit(1)
 }
@@ -500,7 +500,10 @@ function extractFileInsights(absPath, lang) {
       lineCount: lines.length,
       summaries: extractSymbolSummaries(content, lang),
       imports: parseImports(content, lang),
-      isTest: /(?:^|[\\/])(?:test|tests?|__tests__)[\\/]/.test(absPath) || /\.test\.\w+$/.test(rel) || /_test\.\w+$/.test(rel),
+      isTest:
+        /(?:^|[\\/])(?:test|tests?|__tests__)[\\/]/.test(absPath) ||
+        /\.test\.\w+$/.test(rel) ||
+        /_test\.\w+$/.test(rel),
     }
   } catch {
     return { lineCount: 0, summaries: {}, imports: [], isTest: false }
@@ -514,7 +517,17 @@ function extractFileInsights(absPath, lang) {
 function isCoreEntry(rel, symbols) {
   const name = basename(rel).toLowerCase()
   const coreNames = ['cli', 'main', 'orchestrator', 'app', 'index', 'server', 'run', '__main__']
-  if (coreNames.some((n) => name.startsWith(n) || name === n + '.py' || name === n + '.js' || name === n + '.jsx' || name === n + '.ts' || name === n + '.tsx')) {
+  if (
+    coreNames.some(
+      (n) =>
+        name.startsWith(n) ||
+        name === n + '.py' ||
+        name === n + '.js' ||
+        name === n + '.jsx' ||
+        name === n + '.ts' ||
+        name === n + '.tsx',
+    )
+  ) {
     return true
   }
   // 检查是否包含核心符号
@@ -1450,15 +1463,13 @@ function renderHtml(projects) {
         return 0
       })
       const files = sortedFiles
-        .map(
-          (f) => {
-            const coreBadge = f.isCore ? '<span class="core-badge">核心</span>' : ''
-            const testBadge = f.isTest ? '<span class="test-badge">测试</span>' : ''
-            const lineBadge = f.lineCount ? `<span class="line-badge">${f.lineCount}行</span>` : ''
-            const badges = [coreBadge, testBadge, lineBadge].filter(Boolean).join('')
-            return `<div class="file${f.isCore ? ' file-core' : ''}"><h4>${esc(f.rel)} ${badges}</h4>${f.symbols ? renderSymbols(f.symbols, f.summaries || {}) : '<div class="sym"><span class="sym-cat sym-cat-md">无符号<span class="sym-cat-en">NoSymbols</span></span></div>'}${renderDiag(f.diagnostics)}</div>`
-          },
-        )
+        .map((f) => {
+          const coreBadge = f.isCore ? '<span class="core-badge">核心</span>' : ''
+          const testBadge = f.isTest ? '<span class="test-badge">测试</span>' : ''
+          const lineBadge = f.lineCount ? `<span class="line-badge">${f.lineCount}行</span>` : ''
+          const badges = [coreBadge, testBadge, lineBadge].filter(Boolean).join('')
+          return `<div class="file${f.isCore ? ' file-core' : ''}"><h4>${esc(f.rel)} ${badges}</h4>${f.symbols ? renderSymbols(f.symbols, f.summaries || {}) : '<div class="sym"><span class="sym-cat sym-cat-md">无符号<span class="sym-cat-en">NoSymbols</span></span></div>'}${renderDiag(f.diagnostics)}</div>`
+        })
         .join('')
       // 代码质量指标
       const totalLines = u.totalLines || u.files.reduce((n, f) => n + (f.lineCount || 0), 0)
@@ -1468,7 +1479,12 @@ function renderHtml(projects) {
       // 模块依赖
       const deps = u.dependencies || [...new Set(u.files.flatMap((f) => f.imports || []))]
       const depHtml = deps.length
-        ? `<div class="deps-bar"><span class="deps-label">依赖：</span>${deps.slice(0, 20).map((d) => `<span class="dep-chip">${esc(d)}</span>`).join('')}${deps.length > 20 ? `<span class="dep-more">+${deps.length - 20}</span>` : ''}</div>`
+        ? `<div class="deps-bar"><span class="deps-label">依赖：</span>${deps
+            .slice(0, 20)
+            .map((d) => `<span class="dep-chip">${esc(d)}</span>`)
+            .join(
+              '',
+            )}${deps.length > 20 ? `<span class="dep-more">+${deps.length - 20}</span>` : ''}</div>`
         : ''
       return `<div class="unit">${head}<p class="stat">抽样 ${Math.min(MAX_FILES, u.fileCount)} / 共 ${u.fileCount} 个源文件 · ${u.symbolCount} 顶层符号 · ${u.diagCount} 诊断项</p>${qualityStats}${depHtml}${files}</div>`
     }
@@ -1512,9 +1528,11 @@ function renderHtml(projects) {
     const lang = r.languages ? r.languages.join('/') : r.lang || '?'
     const fileCount = r.units
       ? r.units.reduce((n, u) => n + (u.fileCount ?? 0), 0)
-      : r.fileList?.length ?? 0
-    const symbolCount = r.symbolCount ?? (r.units ? r.units.reduce((n, u) => n + (u.symbolCount ?? 0), 0) : 0)
-    const diagCount = r.diagCount ?? (r.units ? r.units.reduce((n, u) => n + (u.diagCount ?? 0), 0) : 0)
+      : (r.fileList?.length ?? 0)
+    const symbolCount =
+      r.symbolCount ?? (r.units ? r.units.reduce((n, u) => n + (u.symbolCount ?? 0), 0) : 0)
+    const diagCount =
+      r.diagCount ?? (r.units ? r.units.reduce((n, u) => n + (u.diagCount ?? 0), 0) : 0)
     return `<section id="${esc(r.key)}">
     <div class="shead"><h2>${esc(r.key)} <span class="plang">${esc(lang)}</span></h2><div class="slinks">${links.join('')}</div></div>
     <p class="path">${esc(r.sourceDir)}</p>

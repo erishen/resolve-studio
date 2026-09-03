@@ -31,10 +31,13 @@ const registerReadFile = (ctx: Context) => {
       },
       required: ['path'],
     },
-    async execute(args) {
+    async execute(args, execCtx) {
       const p = String(args['path'] ?? '')
       if (!p.trim()) throw new Error('path is required')
-      const abs = isAbsolute(p) ? p : resolve(process.cwd(), p)
+      // Per-run workspace (background jobs) anchors relative paths; otherwise
+      // they resolve against the process cwd.
+      const base = execCtx?.workspace ?? process.cwd()
+      const abs = isAbsolute(p) ? p : resolve(base, p)
       ctx.fsRoots.assertWithin(abs, 'read')
       const buf = await readFile(abs)
       if (buf.length > MAX_BYTES) {

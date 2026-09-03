@@ -82,7 +82,7 @@ const registerCsvAnalyze = (ctx: Context) => {
 
       try {
         const { stdout, stderr } = await execFileAsync('uv', cmdArgs, {
-          cwd: dir,
+          cwd: dir ?? undefined,
           timeout: STEP_TIMEOUT_MS,
           maxBuffer: STEP_MAX_BUFFER,
           env: process.env,

@@ -59,7 +59,8 @@ const registerProductAnalyze = (ctx: Context) => {
         },
         output: {
           type: 'string',
-          description: 'Markdown 报告输出路径（可选；默认保存到 sandbox/<产品>-product-analysis.md）。',
+          description:
+            'Markdown 报告输出路径（可选；默认保存到 sandbox/<产品>-product-analysis.md）。',
         },
       },
       required: ['product'],
@@ -77,12 +78,16 @@ const registerProductAnalyze = (ctx: Context) => {
       }
 
       // Always persist a report file so the run produces something on disk.
-      const output = (args.output as string | undefined)?.trim() ?? join('sandbox', `${slug(product)}-product-analysis.md`)
+      const output =
+        (args.output as string | undefined)?.trim() ??
+        join('sandbox', `${slug(product)}-product-analysis.md`)
       const outputAbs = resolve(STUDIO_ROOT, output)
-      const outputAbsDir = dirname(outputAbs)
 
       // Strip ANSI escape codes so rich's colored panels don't garble the log.
-      const ansi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '')
+      // Built from String.fromCharCode so the control char never appears as a
+      // literal in source (would trip eslint's no-control-regex).
+      const ansi = (s: string) =>
+        s.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g'), '')
       const logs: string[] = [`分析目录：${PRODUCT_ANALYST}`, `产品：${product}`, '']
       const cmdArgs = [
         'run',

@@ -23,6 +23,18 @@ const STEP_MAX_BUFFER = 16 << 20
 const ANNUAL_RETURN_CAP = 10000
 
 /**
+ * Shape of the analysis-lens snapshot JSON (`output/投资收益率分析_*.json`).
+ * Field names are emitted by that project; product rows mix Chinese + English
+ * keys, so each product is an open record and lookups use optional access.
+ */
+interface PortfolioSnapshot {
+  generated_at?: string
+  comprehensive_evaluation?: Record<string, unknown>
+  products?: Record<string, unknown>[]
+  risk_warnings?: unknown
+}
+
+/**
  * Investment pre-flight data check.
  *
  * Runs `make calculate && make analyze && make compare` inside the analysis-lens
@@ -102,7 +114,7 @@ async function scanAnomalies(assetLensDir: string): Promise<string> {
   }
 
   const latest = join(outDir, files[0])
-  let data: any
+  let data: PortfolioSnapshot
   try {
     data = JSON.parse(await readFile(latest, 'utf8'))
   } catch {
@@ -110,7 +122,7 @@ async function scanAnomalies(assetLensDir: string): Promise<string> {
   }
 
   const lines: string[] = [`快照文件：${files[0]}（生成于 ${data.generated_at ?? '未知'}）`, '']
-  const ev = (data.comprehensive_evaluation ?? {}) as Record<string, unknown>
+  const ev = data.comprehensive_evaluation ?? {}
   const w = parseFloat(String(ev.weighted_annual_return ?? '').replace('%', ''))
   if (!Number.isNaN(w) && Math.abs(w) > ANNUAL_RETURN_CAP) {
     lines.push(
@@ -122,7 +134,7 @@ async function scanAnomalies(assetLensDir: string): Promise<string> {
   lines.push(`- 整体收益率：${ev.overall_return_rate ?? 'N/A'}`)
   lines.push(`- 当前总资产：${ev.total_current_amount ?? 'N/A'}`)
 
-  const prods: any[] = Array.isArray(data.products) ? data.products : []
+  const prods = Array.isArray(data.products) ? data.products : []
   const outliers = prods
     .map((p) => ({
       name: p['名称'] ?? p.name ?? '?',
@@ -147,8 +159,6 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n…[truncated ${s.length - max} chars]`
 }
 
-export const toolPortfolioCheck = definePlugin(
-  registerPortfolioCheck,
-  'tool-portfolio-check',
-  ['tools'],
-)
+export const toolPortfolioCheck = definePlugin(registerPortfolioCheck, 'tool-portfolio-check', [
+  'tools',
+])
