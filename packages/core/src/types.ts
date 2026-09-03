@@ -56,6 +56,13 @@ export interface ToolParameter {
 export interface ToolExecutionContext {
   /** Emit a progress chunk during long-running tool execution. */
   onProgress?: (chunk: string) => void
+  /**
+   * Per-run working directory. When set, tools that resolve relative paths
+   * (write-file / read-file / shell) anchor them here instead of the process
+   * cwd or the default `sandbox/<task>/` — used by background jobs so each run
+   * is isolated in its own workspace.
+   */
+  workspace?: string
 }
 
 export interface Tool {
@@ -172,11 +179,34 @@ export interface AgentStep {
   toolResults: { call: ToolCall; result: string; ok: boolean }[]
 }
 
+/**
+ * Per-run tool whitelist/blacklist for {@link AgentRunOptions.includeTools} /
+ * {@link AgentRunOptions.excludeTools}.
+ *
+ * A string entry is a **prefix matcher** against a tool name: a bare server id
+ * (e.g. `"serena"`) selects every `serena:*` MCP tool it registered, while a
+ * full built-in tool name (e.g. `"tool-read-file"`) selects exactly that tool.
+ */
+export interface AgentToolFilter {
+  /** If set, ONLY tools whose name starts with one of these prefixes run. */
+  includeTools?: string[]
+  /** Remove tools whose name starts with one of these prefixes (applied last). */
+  excludeTools?: string[]
+}
+
 /** Options controlling an agent run. */
-export interface AgentRunOptions {
+export interface AgentRunOptions extends AgentToolFilter {
   messages: ChatMessage[]
   /** Override the tools used for this run. */
   tools?: ToolSchema[]
+  /**
+   * Force a specific registered task's professional tool whitelist (see the
+   * `tasks` service). `'auto'` (or omitting it) narrows to whichever task
+   * matches the latest user message; a concrete task id bypasses intent
+   * matching for manual control. Ignored when `includeTools`/`excludeTools`
+   * are given (explicit filter wins).
+   */
+  taskId?: string
   /** Max loop iterations before giving up (default 8). */
   maxIterations?: number
   model?: string
@@ -197,4 +227,23 @@ export interface AgentRunOptions {
   /** Extra system prompt injected at the top of the conversation (after the
    *  skills index). Useful for role presets / task-specific instructions. */
   systemPrompt?: string
+  /**
+   * Per-run working directory. When set, tools that resolve relative paths
+   * (write-file / read-file / shell) anchor them here instead of the process
+   * cwd / default sandbox dir, so each run is isolated in its own workspace.
+   * Also used as the shell's cwd and as an extra sandbox writable root.
+   */
+  workspace?: string
+  /**
+   * Skip the human-approval gate for this run: every tool call is treated as
+   * approved (background jobs run unattended, so they must not block on
+   * approval or auto-reject after the 60s timeout).
+   */
+  skipApproval?: boolean
+  /**
+   * Force PSE three-role mode on (or off) for this run, overriding the global
+   * `ctx.pse.enabled` flag. Used by background jobs, which default to PSE even
+   * when interactive chat keeps it disabled.
+   */
+  pse?: boolean
 }

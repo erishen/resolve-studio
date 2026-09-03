@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { fitContext, estimateChars } from '../src/context.js'
+import { fitContext, fitContextWithSummary, estimateChars } from '../src/context.js'
 import type { ChatMessage } from '../src/types.js'
 
 function msg(role: ChatMessage['role'], content: string): ChatMessage {
@@ -50,4 +50,46 @@ test('fitContext (summarizeDropped) lists dropped tool activity in the note', ()
   const note = out.find((m) => typeof m.content === 'string' && m.content.includes('omitted'))
   assert.ok(note, 'an omit note should be present')
   assert.match(String(note?.content), /read-file/, 'note should mention the dropped tool')
+})
+
+test('fitContextWithSummary replaces the omit note with an LLM summary', async () => {
+  const sys = msg('system', 'you are helpful')
+  const many: ChatMessage[] = []
+  for (let i = 0; i < 60; i++) many.push(msg('user', `message number ${i} ` + 'x'.repeat(60)))
+  const msgs = [sys, ...many]
+
+  let summarized: ChatMessage[] | null = null
+  const out = await fitContextWithSummary(msgs, {
+    maxChars: 2000,
+    summarize: async (dropped) => {
+      summarized = dropped
+      return '用户早期询问了若干问题（内容已省略）。'
+    },
+  })
+
+  assert.ok(summarized && summarized.length > 0, 'the dropped region was handed to the summarizer')
+  const note = out.find((m) => typeof m.content === 'string' && m.content.includes('摘要'))
+  assert.ok(note, 'the LLM summary replaced the terse note')
+  assert.match(String(note?.content), /用户早期询问/)
+  assert.equal(out[0].content, 'you are helpful', 'system message stays first')
+  assert.equal(out[out.length - 1].content, many[many.length - 1].content, 'tail survives')
+  assert.ok(estimateChars(out) <= 2000)
+})
+
+test('fitContextWithSummary falls back to the omit note when summarize fails', async () => {
+  const sys = msg('system', 'you are helpful')
+  const many: ChatMessage[] = []
+  for (let i = 0; i < 60; i++) many.push(msg('user', `message number ${i} ` + 'x'.repeat(60)))
+  const msgs = [sys, ...many]
+
+  const out = await fitContextWithSummary(msgs, {
+    maxChars: 2000,
+    summarize: async () => {
+      throw new Error('llm down')
+    },
+  })
+
+  const note = out.find((m) => typeof m.content === 'string' && m.content.includes('omitted'))
+  assert.ok(note, 'fallback omit note used when the summarizer throws')
+  assert.ok(estimateChars(out) <= 2000)
 })

@@ -17,6 +17,7 @@ import { toolEcho } from '../src/plugins/tools/tool-echo.js'
 import pse from '@resolve-studio/plugin-pse'
 import type { ChatMessage, ChatOptions, ChatResponse, ChatStreamChunk } from '../src/types.js'
 import { definePlugin } from '../src/plugins/util.js'
+import { tasks as tasksPlugin } from '../src/plugins/tasks.js'
 
 // The shared `calculator` tool is not gated (needsApproval:false), so the gated
 // approval tests register a gated variant that preserves the same tool name the
@@ -266,6 +267,564 @@ test('multiple tool calls in one step execute in parallel', async () => {
     sortedStarts[1] < firstEnd,
     `expected overlap: second start ${sortedStarts[1]} < first end ${firstEnd}`,
   )
+
+  await root.fiber.dispose()
+})
+
+test('includeTools filters the schemas the LLM sees (MCP prefix matching)', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService, { timeout: 500 })
+  await root.plugin(skills, { dir: '../../skills' })
+
+  // Register a couple of MCP-prefixed tools plus one built-in.
+  root.tools.register({
+    name: 'serena:index',
+    description: 'mcp serena index',
+    parameters: { type: 'object', properties: {} },
+    fromMcp: true,
+    async execute() {
+      return 'indexed'
+    },
+  })
+  root.tools.register({
+    name: 'serena:query',
+    description: 'mcp serena query',
+    parameters: { type: 'object', properties: {} },
+    fromMcp: true,
+    async execute() {
+      return 'hits'
+    },
+  })
+  root.tools.register({
+    name: 'tool-read-file',
+    description: 'read a file',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'file'
+    },
+  })
+
+  // Capture the tools each LLM request is sent.
+  const seenTools: string[][] = []
+  class CaptureLlm extends LlmService {
+    async chat(_messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
+      seenTools.push((options?.tools ?? []).map((t) => t.name))
+      return { content: 'done' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(CaptureLlm)
+
+  const answer = await root.agent.run({
+    messages: [{ role: 'user', content: 'hi' }],
+    includeTools: ['serena', 'tool-read-file'],
+  })
+
+  assert.equal(answer, 'done')
+  assert.equal(seenTools.length, 1)
+  const names = seenTools[0]
+  assert.ok(names.includes('serena:index'))
+  assert.ok(names.includes('serena:query'))
+  assert.ok(names.includes('tool-read-file'))
+  // An unrelated tool not in the include list must have been pruned.
+  assert.ok(root.tools.get('tool-read-file'))
+
+  await root.fiber.dispose()
+})
+
+test('excludeTools prunes a server while keeping the rest', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService, { timeout: 500 })
+  await root.plugin(skills, { dir: '../../skills' })
+
+  root.tools.register({
+    name: 'memory:remember',
+    description: 'remember something',
+    parameters: { type: 'object', properties: {} },
+    fromMcp: true,
+    async execute() {
+      return 'ok'
+    },
+  })
+  root.tools.register({
+    name: 'tool-echo',
+    description: 'echo',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'echo'
+    },
+  })
+
+  const seenTools: string[][] = []
+  class CaptureLlm2 extends LlmService {
+    async chat(_messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
+      seenTools.push((options?.tools ?? []).map((t) => t.name))
+      return { content: 'done' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(CaptureLlm2)
+
+  await root.agent.run({
+    messages: [{ role: 'user', content: 'hi' }],
+    excludeTools: ['memory'],
+  })
+
+  assert.equal(seenTools.length, 1)
+  assert.ok(!seenTools[0].includes('memory:remember'), 'memory server should be pruned')
+  assert.ok(seenTools[0].includes('tool-echo'), 'built-in should remain')
+
+  await root.fiber.dispose()
+})
+
+test('filters prune the LLM schema even when options.tools is supplied', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService, { timeout: 500 })
+  await root.plugin(skills, { dir: '../../skills' })
+
+  root.tools.register({
+    name: 'memory:remember',
+    description: 'remember something',
+    parameters: { type: 'object', properties: {} },
+    fromMcp: true,
+    async execute() {
+      return 'ok'
+    },
+  })
+  root.tools.register({
+    name: 'tool-echo',
+    description: 'echo',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'echo'
+    },
+  })
+
+  const seenTools: string[][] = []
+  class CaptureLlm3 extends LlmService {
+    async chat(_messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
+      seenTools.push((options?.tools ?? []).map((t) => t.name))
+      return { content: 'done' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(CaptureLlm3)
+
+  // Hand-supplied tool set PLUS a filter: the LLM schema must reflect the
+  // pruned set, not the raw options.tools list.
+  await root.agent.run({
+    messages: [{ role: 'user', content: 'hi' }],
+    tools: root.tools.list() as unknown as never,
+    excludeTools: ['memory'],
+  })
+
+  assert.equal(seenTools.length, 1)
+  assert.ok(!seenTools[0].includes('memory:remember'), 'LLM schema should drop pruned server')
+  assert.ok(seenTools[0].includes('tool-echo'), 'LLM schema keeps the remaining tool')
+
+  await root.fiber.dispose()
+})
+
+test('a matched task narrows the LLM toolset to its professional whitelist', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(tasksPlugin)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService, { timeout: 500 })
+  await root.plugin(skills, { dir: '../../skills' })
+
+  // Register tools: some in the 'articles' task whitelist, some heavy/external.
+  root.tools.register({
+    name: 'article-write',
+    description: 'generate a bilingual article',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'written'
+    },
+  })
+  root.tools.register({
+    name: 'privacy-audit',
+    description: 'audit repo privacy',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'ok'
+    },
+  })
+  root.tools.register({
+    name: 'read-file',
+    description: 'read a file',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'f'
+    },
+  })
+  root.tools.register({
+    name: 'serena:index',
+    description: 'mcp index',
+    parameters: { type: 'object', properties: {} },
+    fromMcp: true,
+    async execute() {
+      return 'idx'
+    },
+  })
+
+  const seenTools: string[][] = []
+  const seenSystem = { text: '' }
+  class CaptureLlm3 extends LlmService {
+    async chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
+      for (const m of messages) if (m.role === 'system') seenSystem.text += m.content
+      seenTools.push((options?.tools ?? []).map((t) => t.name))
+      return { content: 'done' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(CaptureLlm3)
+
+  const answer = await root.agent.run({
+    messages: [{ role: 'user', content: '帮我写一篇技术文章并发布到掘金' }],
+  })
+
+  assert.equal(answer, 'done')
+  assert.equal(seenTools.length, 1)
+  // Professional tool + core builtins present…
+  assert.ok(seenTools[0].includes('article-write'))
+  assert.ok(seenTools[0].includes('read-file'))
+  // …while unrelated feature/ MCP tools are pruned from the context.
+  assert.ok(!seenTools[0].includes('privacy-audit'), 'privacy-audit should be pruned')
+  assert.ok(!seenTools[0].includes('serena:index'), 'unrelated MCP server should be pruned')
+  // Task guardrail system prompt was injected.
+  assert.match(seenSystem.text, /任务说明/)
+
+  await root.fiber.dispose()
+})
+
+test('a forced taskId pins the whitelist even when the message would not auto-match', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(tasksPlugin)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService, { timeout: 500 })
+  await root.plugin(skills, { dir: '../../skills' })
+
+  root.tools.register({
+    name: 'article-write',
+    description: 'generate a bilingual article',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'written'
+    },
+  })
+  root.tools.register({
+    name: 'privacy-audit',
+    description: 'audit repo privacy',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'ok'
+    },
+  })
+
+  const seenTools: string[][] = []
+  class CaptureLlm4 extends LlmService {
+    async chat(_messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
+      seenTools.push((options?.tools ?? []).map((t) => t.name))
+      return { content: 'done' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(CaptureLlm4)
+
+  // A message that does NOT contain any 'articles' keyword.
+  await root.agent.run({
+    messages: [{ role: 'user', content: '1+1 等于几' }],
+    taskId: 'articles',
+  })
+
+  assert.equal(seenTools.length, 1)
+  assert.ok(seenTools[0].includes('article-write'), 'forced task whitelist should apply')
+  assert.ok(!seenTools[0].includes('privacy-audit'), 'privacy-audit should still be pruned')
+
+  await root.fiber.dispose()
+})
+
+test('an unknown taskId falls back to the full toolset (no whitelist)', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(tasksPlugin)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService, { timeout: 500 })
+  await root.plugin(skills, { dir: '../../skills' })
+
+  root.tools.register({
+    name: 'article-write',
+    description: 'generate a bilingual article',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'written'
+    },
+  })
+  root.tools.register({
+    name: 'privacy-audit',
+    description: 'audit repo privacy',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'ok'
+    },
+  })
+
+  const seenTools: string[][] = []
+  class CaptureLlm5 extends LlmService {
+    async chat(_messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
+      seenTools.push((options?.tools ?? []).map((t) => t.name))
+      return { content: 'done' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(CaptureLlm5)
+
+  await root.agent.run({
+    messages: [{ role: 'user', content: '1+1 等于几' }],
+    taskId: 'no-such-task',
+  })
+
+  assert.equal(seenTools.length, 1)
+  // Unknown task → the run keeps every registered tool (no whitelist applied).
+  assert.ok(seenTools[0].includes('article-write'), 'full toolset keeps article-write')
+  assert.ok(seenTools[0].includes('privacy-audit'), 'full toolset keeps privacy-audit')
+
+  await root.fiber.dispose()
+})
+
+test('a capability scope id (e.g. core) prunes to that horizontal tier, no business prompt', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(tasksPlugin)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService, { timeout: 500 })
+  await root.plugin(skills, { dir: '../../skills' })
+
+  root.tools.register({
+    name: 'article-write',
+    description: 'generate a bilingual article',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'written'
+    },
+  })
+  root.tools.register({
+    name: 'privacy-audit',
+    description: 'audit repo privacy',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'ok'
+    },
+  })
+
+  const seenTools: string[][] = []
+  const seenPrompts: string[] = []
+  class CaptureLlm6 extends LlmService {
+    async chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
+      seenTools.push((options?.tools ?? []).map((t) => t.name))
+      const sys = messages.find((m) => m.role === 'system')
+      seenPrompts.push(typeof sys?.content === 'string' ? sys.content : '')
+      return { content: 'done' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(CaptureLlm6)
+
+  // Forcing the horizontal 'core' scope drops business tools entirely.
+  await root.agent.run({
+    messages: [{ role: 'user', content: '帮我写篇文章' }],
+    taskId: 'core',
+  })
+
+  assert.equal(seenTools.length, 1)
+  assert.ok(!seenTools[0].includes('article-write'), 'core scope prunes business article-write')
+  assert.ok(!seenTools[0].includes('privacy-audit'), 'core scope prunes privacy-audit')
+  // A scope is a capability tier, not a business scenario: no guardrail prompt.
+  assert.ok(!seenPrompts[0].includes('任务说明'), 'scope must not inject business guardrail prompt')
+
+  await root.fiber.dispose()
+})
+
+test('a reply that declares a tool without calling it is nudged to actually call it', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService)
+  await root.plugin(skills, { dir: '../../skills' })
+  await root.plugin(toolEcho)
+  // A standalone tool with no extra service deps, so it appears in the registry
+  // and the mock can "declare" it without calling it.
+  root.tools.register({
+    name: 'save-copy',
+    description: 'Persist copy to a file.',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string' }, content: { type: 'string' } },
+      required: ['path', 'content'],
+    },
+    async execute(args) {
+      return `saved ${String(args['content'] ?? '').length} chars`
+    },
+    needsApproval: false,
+  })
+
+  const calls: string[] = []
+  const steps: string[] = []
+  // Turn 1: call echo (real tool call). Turn 2: *declare* save-copy in prose
+  // without emitting a tool-call — the loop must notice and nudge. Turn 3
+  // (after the nudge): actually call save-copy. Turn 4: final answer.
+  class DeclareThenRun extends LlmService {
+    private round = 0
+    async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+      this.round++
+      if (this.round === 1) {
+        const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+        return {
+          toolCalls: [
+            {
+              id: `declare-${this.round}`,
+              name: 'echo',
+              arguments: JSON.stringify({ text: (lastUser?.content as string) ?? '' }),
+            },
+          ],
+        }
+      }
+      if (this.round === 2) {
+        // Declares the tool but no tool-call: exactly the failure mode observed
+        // in production ("用 hot-news 生成文案" with nothing executed).
+        return { content: '素材已就绪，用 save-copy 保存文案。' }
+      }
+      if (this.round === 3) {
+        return {
+          toolCalls: [
+            {
+              id: `declare-${this.round}`,
+              name: 'save-copy',
+              arguments: JSON.stringify({ path: 'copy.md', content: 'hello' }),
+            },
+          ],
+        }
+      }
+      return { content: '文案已用 save-copy 保存到工作区。' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(DeclareThenRun)
+  root.on('agent/tool-call', (call) => calls.push(call.name))
+  root.on('agent/step', (step) => steps.push(step.message.role))
+
+  const answer = await root.agent.run({
+    messages: [{ role: 'user', content: '写一篇营销文案并保存' }],
+  })
+
+  // Both planned tools were actually executed (echo + save-copy), and the
+  // model was nudged between turn 2 and turn 3 rather than finishing early.
+  assert.ok(calls.includes('echo'), 'echo tool ran')
+  assert.ok(calls.includes('save-copy'), 'declared save-copy was actually called after the nudge')
+  assert.ok(steps.filter((r) => r === 'assistant').length >= 3, 'loop continued past the declaration')
+  assert.match(answer, /save-copy/)
+
+  await root.fiber.dispose()
+})
+
+test('a final answer that merely mentions an already-run tool is not nudged', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService)
+  await root.plugin(skills, { dir: '../../skills' })
+  await root.plugin(toolEcho)
+  root.tools.register({
+    name: 'save-copy',
+    description: 'Persist copy to a file.',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string' }, content: { type: 'string' } },
+      required: ['path', 'content'],
+    },
+    async execute(args) {
+      return `saved ${String(args['content'] ?? '').length} chars`
+    },
+    needsApproval: false,
+  })
+
+  const toolCallsSeen: string[] = []
+  class RunThenSummary extends LlmService {
+    private round = 0
+    async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+      this.round++
+      if (this.round === 1) {
+        // Actually execute save-copy (so it lands in `messages` as a tool turn).
+        return {
+          toolCalls: [
+            {
+              id: `sum-${this.round}`,
+              name: 'save-copy',
+              arguments: JSON.stringify({ path: 'copy.md', content: 'hello' }),
+            },
+          ],
+        }
+      }
+      // Genuine summary: mentions the (already executed) tool in the past tense.
+      return { content: '完成，文案已用 save-copy 保存。' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(RunThenSummary)
+  root.on('agent/tool-call', (call) => toolCallsSeen.push(call.name))
+
+  const answer = await root.agent.run({
+    messages: [{ role: 'user', content: '写一篇营销文案并保存' }],
+  })
+
+  // save-copy ran exactly once; the summary mentioning it was not re-flagged,
+  // so the run ended on the second assistant turn.
+  assert.deepEqual(toolCallsSeen, ['save-copy'])
+  assert.match(answer, /save-copy/)
 
   await root.fiber.dispose()
 })

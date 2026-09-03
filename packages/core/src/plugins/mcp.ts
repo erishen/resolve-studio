@@ -39,9 +39,7 @@ import { definePlugin } from './util.js'
  *    server-wide default is `false` (e.g. keep write/exec tools gated).
  */
 export type McpApprovalPolicy =
-  | boolean
-  | { allow?: string[]; deny?: string[] }
-  | { whenArg: Record<string, unknown> }
+  boolean | { allow?: string[]; deny?: string[] } | { whenArg: Record<string, unknown> }
 
 export interface McpServerConfig {
   /** Unique id; becomes the tool-name prefix (`<id>:<tool>`). */

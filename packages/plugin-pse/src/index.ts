@@ -67,11 +67,13 @@ export class PseService extends Service {
     super(ctx, 'pse')
     this._enabled = config.enabled ?? process.env.PSE_ENABLED === 'true'
     this.soulsDir = config.soulsDir ?? process.env.PSE_SOULS_DIR ?? defaultSoulsDir()
-    ctx.logger('pse').info(
-      'PSE %s (soulsDir=%s)',
-      this._enabled ? 'enabled' : 'disabled',
-      this.soulsDir ?? 'not set',
-    )
+    ctx
+      .logger('pse')
+      .info(
+        'PSE %s (soulsDir=%s)',
+        this._enabled ? 'enabled' : 'disabled',
+        this.soulsDir ?? 'not set',
+      )
   }
 
   /** Whether PSE mode is currently active. */
@@ -86,8 +88,8 @@ export class PseService extends Service {
   }
 
   /** Index of all three roles (name + description), or empty if disabled. */
-  async list(): Promise<SoulInfo[]> {
-    if (!this.enabled || !this.soulsDir) return []
+  async list(force = false): Promise<SoulInfo[]> {
+    if ((!this.enabled && !force) || !this.soulsDir) return []
     const out: SoulInfo[] = []
     for (const role of ROLES) {
       try {
@@ -120,9 +122,12 @@ export class PseService extends Service {
   /**
    * Prompt fragment describing the PSE three-role workflow. Injected into the
    * system message when PSE is enabled so the model follows the discipline.
+   *
+   * `force` bypasses the global `enabled` flag — used by background jobs, which
+   * run PSE by default even when interactive chat keeps it disabled.
    */
-  async systemPrompt(): Promise<string> {
-    const roles = await this.list()
+  async systemPrompt(force = false): Promise<string> {
+    const roles = await this.list(force)
     if (!roles.length) return ''
     const lines = roles.map((r) => `- ${r.name}：${r.description}`)
     return [

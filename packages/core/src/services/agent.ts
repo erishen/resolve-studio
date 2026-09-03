@@ -18,6 +18,7 @@ import { Service } from 'cordis'
 import type {} from '@resolve-studio/plugin-pse'
 import type {
   AgentRunOptions,
+  AgentToolFilter,
   AgentStep,
   ChatMessage,
   ChatOptions,
@@ -26,9 +27,10 @@ import type {
   RunEventBus,
   Tool,
   ToolCall,
+  ToolSchema,
 } from '../types.js'
 import type { ApprovalDecision } from './approval.js'
-import { fitContext } from '../context.js'
+import { fitContextWithSummary } from '../context.js'
 
 /** Best-effort parse of tool arguments that arrive as a JSON string. */
 function safeParseArgs(raw: string): Record<string, unknown> {
@@ -67,6 +69,47 @@ function canonicalArgs(args: string | Record<string, unknown>): string {
   return JSON.stringify(sort(obj))
 }
 
+/** Cap on how many "declared but not executed" nudges a single run gets before
+ *  the loop gives up and terminates (prevents a model that only promises to
+ *  call tools from burning the whole iteration budget). */
+const MAX_PLAN_INTERRUPTS = 2
+
+/**
+ * Detect a reply that *names* a not-yet-executed tool with an intent verb but
+ * never actually calls it — e.g. "用 hot-news 生成文案" with no tool-call.
+ * Returns the tool name to nudge, or `null` when the reply is a genuine final
+ * answer. Execution is judged against the conversation: a tool that already
+ * produced a `tool` turn is considered done, so a summary that mentions it is
+ * not flagged. Only checks tools the model can currently see.
+ */
+function findDeclaredToolCall(
+  text: string,
+  tools: ToolSchema[],
+  messages: ChatMessage[],
+): string | null {
+  if (!text) return null
+  const executed = new Set<string>()
+  for (const m of messages) {
+    if (m.role === 'tool' && m.name) executed.add(m.name)
+  }
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  // "用 X 做 Y" / "调用 X" / "通过 X 保存" — intent verbs that pair a tool name
+  // with a follow-through action, matching the model's own phrasing style.
+  const intentVerbs = ['用', '使用', '调用', '通过', '以', '拿', '借助']
+  for (const t of tools) {
+    if (executed.has(t.name)) continue
+    const name = esc(t.name)
+    const bare = new RegExp(name)
+    if (!bare.test(text)) continue
+    // Require an intent verb within a few chars BEFORE the tool name so a
+    // passive mention ("hot-news 是…") isn't treated as a plan.
+    const before = text.split(t.name)[0] ?? ''
+    const tail = before.slice(-12)
+    if (intentVerbs.some((v) => tail.includes(v))) return t.name
+  }
+  return null
+}
+
 declare module 'cordis' {
   interface Context {
     agent: AgentService
@@ -82,7 +125,7 @@ declare module 'cordis' {
     }): void
     'agent/delta'(text: string): void
     'agent/reasoning'(text: string): void
-    'agent/done'(answer: string): void
+    'agent/done'(answer: string | { answer: string; failedToolCalls: number }): void
   }
 }
 
@@ -116,21 +159,58 @@ export class AgentService extends Service {
   async run(options: AgentRunOptions): Promise<string> {
     // PSE three-role mode needs more iterations (Planner → Specialist → Evaluator
     // may each take multiple tool calls); bump the cap when PSE is active.
-    const pseActive = this.ctx.pse?.enabled ?? false
+    // A per-run `options.pse` overrides the global `ctx.pse.enabled` flag, so
+    // background jobs can force PSE on while interactive chat keeps it off.
+    const pseActive = options.pse ?? (this.ctx.pse?.enabled ?? false)
     const maxIterations = options.maxIterations ?? (pseActive ? 15 : 8)
-    const tools = options.tools ?? this.ctx.tools.schemas()
-    // Index the full Tool definitions (incl. the dynamic `approvalWhen` rule)
-    // by name for O(1) lookup in the loop. The LLM only sees the sanitized
-    // `tools` schemas above; approval gating happens against the full Tool.
-    const toolDefs: Tool[] = options.tools
-      ? (options.tools as unknown as Tool[])
-      : this.ctx.tools.list()
+    // A per-run include/exclude filter (see `AgentToolFilter`) prunes BOTH the
+    // schema the LLM sees and the approval map below, so a filtered-out tool is
+    // never advertised to the model nor approved. This is the main lever for
+    // cutting fixed token overhead when only a few MCP servers/built-ins matter
+    // for a given task. `toolDefs` are the full Tool definitions (incl. the
+    // dynamic `approvalWhen` rule) used by the approval gate; `toolsForLlm` is
+    // the sanitized schema forwarded to the model.
+    //
+    // Filter precedence: an explicit per-run filter wins (the caller knows the
+    // exact surface it needs); otherwise a forced `taskId` pins that task's
+    // whitelist (manual control); otherwise the run auto-narrows to whichever
+    // task matches the latest user message. Falls back to the full registry for
+    // open-ended requests.
+    const explicitFilter: AgentToolFilter =
+      options.includeTools || options.excludeTools
+        ? { includeTools: options.includeTools, excludeTools: options.excludeTools }
+        : {}
+    const activeTaskOptions =
+      explicitFilter.includeTools || explicitFilter.excludeTools
+        ? undefined
+        : this.resolveTaskFilter(options)
+    const activeFilter: AgentToolFilter = activeTaskOptions ?? explicitFilter
+
+    const filtered = this.filterTools(
+      options.tools ? (options.tools as unknown as Tool[]) : this.ctx.tools.list(),
+      activeFilter,
+    )
+    const toolDefs: Tool[] = filtered
+    const toolsForLlm: ToolSchema[] = filtered.map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+      ...(t.needsApproval !== undefined ? { needsApproval: t.needsApproval } : {}),
+      ...(t.fromMcp !== undefined ? { fromMcp: t.fromMcp } : {}),
+    }))
     const toolSchemaByName = new Map<string, Tool>(toolDefs.map((t) => [t.name, t]))
     // Per-run approval memo: a gated tool that has already been human-approved
     // once in this run is not re-prompted on subsequent calls (e.g. the model
     // re-invoking the same gated tool across iterations). Rejected tools are NOT
     // memoized, so a retry still asks the human again.
     const approvedTools = new Set<string>()
+    // Track how many tool calls finished with `ok: false` so the caller can
+    // report overall failure status (e.g. background job status).
+    let failedToolCalls = 0
+    // How many times we nudged the model to actually emit a planned tool-call
+    // (see the "declare without calling" guard in the loop). Bounded so a model
+    // that keeps promising but never calls still terminates.
+    let planInterrupts = 0
     // Per-run event sink: when the caller supplies one (the web bridge does,
     // once per HTTP request) every `agent/*` / `llm/*` event is scoped to that
     // run so concurrent chats don't cross-talk. Without it we fall back to the
@@ -139,12 +219,20 @@ export class AgentService extends Service {
     const bus: RunEventBus = options.bus ?? (this.ctx.events as unknown as RunEventBus)
     // Bound the conversation to the context window before anything else. A
     // pre-budget (cheaper than the per-message cap in llm-openai.ts) plus a
-    // rolling summary of dropped tool activity keeps long sessions coherent.
-    const messages: ChatMessage[] = fitContext(
+    // rolling summary keeps long sessions coherent: when old messages are
+    // dropped, a cheap tool-free LLM call compresses them into a summary that
+    // replaces the terse "omitted" note.
+    const messages: ChatMessage[] = await fitContextWithSummary(
       options.messages.map((m) => ({ ...m })),
       {
         maxChars: options.contextBudgetChars ?? this.budgetChars,
-        summarizeDropped: true,
+        summarize: (dropped) =>
+          this.summarizeDropped(dropped, {
+            model: options.model,
+            signal: options.signal,
+            bus,
+            sessionId: options.sessionId,
+          }),
       },
     )
 
@@ -158,7 +246,7 @@ export class AgentService extends Service {
       if (resolved !== null) {
         const answer = `Fast Path resolved: ${resolved}`
         this.ctx.logger('agent').info('fast path hit: "%s" → %s', lastUser.content, resolved)
-        bus.emit('agent/done', answer)
+        bus.emit('agent/done', { answer, failedToolCalls: 0 })
         return answer
       }
     }
@@ -169,13 +257,25 @@ export class AgentService extends Service {
     const envBrief = [
       '## 运行环境',
       '- 所有 shell 命令和文件写入都在沙箱中运行，无法写入工作目录和系统临时目录之外的位置。',
-      '- write-file 工具：相对路径会自动写入 sandbox/<task>/ 目录，**直接写文件名即可，不要加 sandbox/ 前缀**。例如 path: "lru_cache.py" + task: "lru-cache" → 实际写入 sandbox/lru-cache/lru_cache.py。',
-      '- 务必传入 task 参数（如 task: "lru-cache"）为每个任务创建独立子目录，不要直接写在 sandbox 根目录。',
-      '- shell 命令中访问文件时，使用完整路径 sandbox/<task>/<filename>，或 cd 到该目录后运行。',
+      // A per-run workspace overrides the default sandbox/<task>/ convention:
+      // relative paths and shell cwd are anchored to the workspace, so the model
+      // just writes bare filenames and they land in the job's own directory.
+      ...(options.workspace
+        ? [
+            `- 本次运行的工作区（working directory）：${options.workspace}`,
+            '- write-file / read-file 的相对路径都以该工作区为基准，**直接写文件名即可**，不要拼路径前缀。',
+            '- shell 命令的工作目录就是这个工作区；产物（中间文件、报告等）都应写到工作区里，方便后续查看与续跑。',
+          ]
+        : [
+            '- write-file 工具：相对路径会自动写入 sandbox/<task>/ 目录，**直接写文件名即可，不要加 sandbox/ 前缀**。例如 path: "lru_cache.py" + task: "lru-cache" → 实际写入 sandbox/lru-cache/lru_cache.py。',
+            '- 务必传入 task 参数（如 task: "lru-cache"）为每个任务创建独立子目录，不要直接写在 sandbox 根目录。',
+            '- shell 命令中访问文件时，使用完整路径 sandbox/<task>/<filename>，或 cd 到该目录后运行。',
+          ]),
       '- 不要使用 /home/user/、/root/ 等绝对路径写入文件；读取文件可以用绝对路径。',
       '- shell 命令的工作目录是项目根目录，可正常运行 pnpm、node、python 等命令；如缺少依赖（如 pytest），用 python 直接运行脚本或先 pip install。',
       '- serena:* 工具需要先调用 serena:activate_project 激活项目；如果报 "No active project"，不要反复调用，改用内置的 read-file/write-file 工具。',
       '- 如果某个工具连续调用失败，换一种方式实现，不要反复重试消耗迭代次数。',
+      '- 关于重试的硬性要求：当你发现某次工具调用失败、需要"再试一次"时，必须真正发出一个新的 tool-call 来执行它；仅仅在回复文本里写"我再试一次 / 刚才失败了"而不实际调用工具，等同于没做，禁止这样空口承诺。若之前某次调用已经成功产出可复用结果，则应直接基于该结果继续/汇报，不要为无效目标重复调用。',
       '- 避免重复调用：同一个技能（skill-run）只加载一次；同一个工具如果已经在本轮对话中执行过且结果仍有效，不要再次调用。尤其：技能加载一次后直接按其中步骤执行，不要重复 skill-run；portfolio-check 体检一次通过后直接进入下一步，不要重复体检。',
     ].join('\n')
     messages.unshift({ role: 'system', content: envBrief })
@@ -190,15 +290,18 @@ export class AgentService extends Service {
 
     // PSE three-role mode: if enabled, inject the role discipline so the model
     // follows Planner → Specialist → Evaluator instead of a flat ReAct loop.
-    if (this.ctx.pse?.enabled) {
-      const psePrompt = await this.ctx.pse.systemPrompt()
+    if (pseActive) {
+      const psePrompt = await this.ctx.pse?.systemPrompt(pseActive)
       if (psePrompt) messages.unshift({ role: 'system', content: psePrompt })
     }
 
     // Caller-supplied system prompt (role preset / task instructions). Inserted
     // after the skills index so it takes precedence as the topmost instruction.
-    if (options.systemPrompt) {
-      messages.unshift({ role: 'system', content: options.systemPrompt })
+    // A matched task's system prompt rides along with (above) the caller's, so
+    // the model knows it is restricted to the task's professional tool set.
+    if (activeTaskOptions?.systemPrompt || options.systemPrompt) {
+      const parts = [activeTaskOptions?.systemPrompt, options.systemPrompt].filter(Boolean)
+      messages.unshift({ role: 'system', content: parts.join('\n\n') })
     }
 
     const runId = options.runId
@@ -215,14 +318,14 @@ export class AgentService extends Service {
       // Allow an in-flight run to be cancelled between steps.
       if (options.signal?.aborted) {
         const partial = this.lastAnswer(messages)
-        bus.emit('agent/done', partial)
+        bus.emit('agent/done', { answer: partial, failedToolCalls })
         return partial
       }
 
       let response: ChatResponse
       try {
         response = await this.nextResponse(messages, {
-          tools: tools.length ? tools : undefined,
+          tools: toolsForLlm.length ? toolsForLlm : undefined,
           model: options.model,
           signal: options.signal,
           bus,
@@ -232,7 +335,7 @@ export class AgentService extends Service {
         // Aborted mid-stream: stop and return whatever we have so far.
         if (options.signal?.aborted || (err as Error)?.name === 'AbortError') {
           const partial = this.lastAnswer(messages)
-          bus.emit('agent/done', partial)
+          bus.emit('agent/done', { answer: partial, failedToolCalls })
           return partial
         }
         throw err
@@ -286,7 +389,11 @@ export class AgentService extends Service {
             const t0 = performance.now()
 
             const schema = toolSchemaByName.get(call.name)
-            const needApproval = this.toolNeedsApproval(schema, call.arguments)
+            // skipApproval (background jobs) treats every tool as pre-approved:
+            // unattended runs must not block on the human-in-the-loop gate or
+            // auto-reject on the 60s timeout.
+            const needApproval =
+              !options.skipApproval && this.toolNeedsApproval(schema, call.arguments)
             // Skip re-prompting a gated tool already approved once this run.
             const approvalSkipped = needApproval && approvedTools.has(call.name)
             bus.emit('agent/tool-call', { ...call, id: nsId, approvalSkipped: !!approvalSkipped })
@@ -306,6 +413,7 @@ export class AgentService extends Service {
               onProgress: (chunk: string) => {
                 bus.emit('agent/tool-progress', { id: nsId, chunk })
               },
+              ...(options.workspace ? { workspace: options.workspace } : {}),
             })
             const ok = !result.startsWith('error:')
             return { call, result, ok, nsId, durationMs: performance.now() - t0, idx }
@@ -329,6 +437,7 @@ export class AgentService extends Service {
 
         for (const { call, result, ok, nsId, durationMs } of ordered) {
           toolResults.push({ call, result, ok })
+          if (!ok) failedToolCalls++
           bus.emit('agent/tool-result', { call: { ...call, id: nsId }, result, ok, durationMs })
           messages.push({
             role: 'tool',
@@ -358,7 +467,7 @@ export class AgentService extends Service {
       ) {
         const answer = recentContents[recentContents.length - 1] || this.lastAnswer(messages)
         this.ctx.logger('agent').warn('loop detected after %d rounds — terminating early', i + 1)
-        bus.emit('agent/done', answer)
+        bus.emit('agent/done', { answer, failedToolCalls })
         return answer
       }
 
@@ -367,14 +476,35 @@ export class AgentService extends Service {
         // blank line, which would otherwise leak into the UI as an empty line
         // at the top of the answer bubble.
         const answer = (response.content ?? '').trim()
-        bus.emit('agent/done', answer)
+        // A model that only "declares" its next tool step in prose — e.g. "用
+        // hot-news 生成文案" — without emitting an actual tool-call must not be
+        // treated as done: the pipeline silently stops mid-way. If the reply
+        // names an as-yet-unexecuted tool with an intent verb, nudge the model
+        // to really call it (bounded, so a stubborn model still terminates).
+        const declared = findDeclaredToolCall(answer, toolsForLlm, messages)
+        if (declared && planInterrupts < MAX_PLAN_INTERRUPTS) {
+          planInterrupts++
+          this.ctx.logger('agent').warn(
+            'round %d declared tool "%s" without a tool-call — nudging',
+            i + 1,
+            declared,
+          )
+          messages.push({
+            role: 'user',
+            content:
+              `你的上一条回复只是描述了计划，并没有真正调用工具 \`${declared}\`。` +
+              `请立即发出一个 tool-call 来执行它（参数参照工具说明），执行完再汇报结果。`,
+          })
+          continue
+        }
+        bus.emit('agent/done', { answer, failedToolCalls })
         return answer
       }
     }
 
     const fallback = 'Reached the maximum number of iterations without a final answer.'
     this.ctx.logger('agent').warn(fallback)
-    bus.emit('agent/done', fallback)
+    bus.emit('agent/done', { answer: fallback, failedToolCalls })
     return fallback
   }
 
@@ -423,6 +553,65 @@ export class AgentService extends Service {
   }
 
   /**
+   * No-throw accessor to the optional `tasks` service. Returns undefined when
+   * the plugin isn't loaded (offline/test setups), keeping open-ended runs on
+   * the full toolset instead of crashing the loop.
+   */
+  private tasksService():
+    | {
+        resolve(
+          taskId: string | undefined,
+          messages: { role: string; content: unknown }[],
+        ): { includeTools: string[]; excludeTools?: string[]; systemPrompt?: string } | undefined
+      }
+    | undefined {
+    try {
+      return this.ctx.get('tasks') as never
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Resolve the run's task-specific filter. A forced `taskId` pins that task's
+   * professional tool whitelist (manual control, bypassing intent matching);
+   * otherwise the latest user message is matched against the registry. Returns
+   * the task's whitelist options, or undefined when no task applies.
+   */
+  private resolveTaskFilter(
+    options: AgentRunOptions,
+  ): { includeTools: string[]; excludeTools?: string[]; systemPrompt?: string } | undefined {
+    const tasks = this.tasksService()
+    if (!tasks) return undefined
+    try {
+      // Delegates all routing (auto intenent-match, scope id, business task id,
+      // unknown id) to the tasks service. Unknown ids return undefined → the
+      // caller keeps the full toolset.
+      return tasks.resolve(options.taskId, options.messages)
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Prune the run's tool set by the per-run include/exclude filter. An entry is
+   * a prefix matcher: a bare server id (`"serena"`) keeps all `serena:*` MCP
+   * tools, a full built-in name (`"tool-read-file"`) keeps exactly that tool.
+   * No filter → the full registry passes through unchanged.
+   */
+  private filterTools(all: Tool[], filter: AgentToolFilter): Tool[] {
+    const { includeTools, excludeTools } = filter
+    let out = all
+    if (includeTools?.length) {
+      out = out.filter((t) => includeTools.some((p) => t.name.startsWith(p)))
+    }
+    if (excludeTools?.length) {
+      out = out.filter((t) => !excludeTools.some((p) => t.name.startsWith(p)))
+    }
+    return out
+  }
+
+  /**
    * Decide whether a tool call needs human approval. Honors a tool's dynamic
    * {@link Tool.approvalWhen} rule (evaluated against the actual call arguments)
    * when present, falling back to the static {@link Tool.needsApproval} flag.
@@ -451,6 +640,36 @@ export class AgentService extends Service {
     const last = [...messages].reverse().find((m) => m.role === 'assistant')
     const text = last && typeof last.content === 'string' ? last.content.trim() : ''
     return text || 'Run stopped before a final answer was produced.'
+  }
+
+  /**
+   * Compress a dropped message region into a short summary via a cheap,
+   * tool-free LLM call (the "rolling summary" upgrade for fitContext). The
+   * summary preserves the gist of earlier steps — user requests, key tool
+   * calls and outcomes — so a long session doesn't lose semantic memory when
+   * the context window is trimmed. Rejects on any LLM failure so the caller
+   * falls back to the terse omit-note.
+   */
+  private async summarizeDropped(
+    dropped: ChatMessage[],
+    opts: { model?: string; signal?: AbortSignal; bus?: RunEventBus; sessionId?: string },
+  ): Promise<string> {
+    const prompt: ChatMessage = {
+      role: 'user',
+      content:
+        '以下是对话历史中因上下文超限被截断的较早部分。请用中文写一段 100-200 字的' +
+        '简明摘要，涵盖：用户的核心目标与需求、做过哪些关键步骤、调用了哪些重要工具及结果、' +
+        '目前进度和遗留问题。不要编造未发生的事，直接输出摘要正文，不要加标题或前后缀。',
+    }
+    const res = await this.ctx.llm.chat([...dropped, prompt], {
+      model: opts.model,
+      signal: opts.signal,
+      bus: opts.bus,
+      sessionId: opts.sessionId,
+      // Tool-free: the summarizer must just write prose, not call tools.
+      toolChoice: 'none',
+    })
+    return (res.content ?? '').trim()
   }
 
   /**

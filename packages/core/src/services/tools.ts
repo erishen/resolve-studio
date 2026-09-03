@@ -34,6 +34,8 @@ export interface ToolCallOptions {
   internal?: boolean
   /** Progress callback for long-running tools. */
   onProgress?: (chunk: string) => void
+  /** Per-run working directory forwarded to the tool's execution context. */
+  workspace?: string
 }
 
 declare module 'cordis' {
@@ -122,7 +124,9 @@ export class ToolRegistry extends Service {
     if (!tool) {
       // 未注册的工具：友好提示，列出可用工具，避免 LLM 困惑或反复重试
       // 注意：必须以 "error:" 开头，agent.ts 用 result.startsWith('error:') 判断失败
-      const availableTools = this.list().map(t => t.name).join(', ')
+      const availableTools = this.list()
+        .map((t) => t.name)
+        .join(', ')
       const result = [
         `error: Tool "${name}" is not registered in the current environment.`,
         `This may be a tool from another project or a hallucinated tool name.`,
@@ -142,7 +146,10 @@ export class ToolRegistry extends Service {
       return result
     }
     try {
-      const execCtx: ToolExecutionContext = opts.onProgress ? { onProgress: opts.onProgress } : {}
+      const execCtx: ToolExecutionContext = {
+        ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+        ...(opts.workspace ? { workspace: opts.workspace } : {}),
+      }
       const out = await tool.execute(parsed, execCtx)
       const result = typeof out === 'string' ? out : JSON.stringify(out)
       this.ctx.events.emit('tools/call', {
