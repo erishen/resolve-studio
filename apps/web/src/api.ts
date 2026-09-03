@@ -1,16 +1,163 @@
 import type {
   ChatEvent,
+  JobEvent,
+  JobFile,
+  JobMeta,
+  JobRecord,
+  JobStatus,
   ModelInfo,
   ModelsResponse,
   SessionMeta,
   SessionRecord,
+  TaskInfo,
   ToolSchema,
+  ToolScopeInfo,
 } from './types'
 
 /** A skill exposed by the runtime. */
 export interface SkillInfo {
   name: string
   description: string
+}
+
+/** Business tasks + horizontal capability tiers for the UI mode picker. */
+export interface TaskCatalog {
+  tasks: TaskInfo[]
+  scopes: ToolScopeInfo[]
+}
+
+/** List the professional task modes + capability tiers available in the UI picker. */
+export async function fetchTasks(): Promise<TaskCatalog> {
+  const res = await fetch('/api/tasks')
+  if (!res.ok) throw new Error(`tasks request failed: ${res.status}`)
+  return (await res.json()) as TaskCatalog
+}
+
+/** Match a user message against the task registry (returns the hit id/name). */
+export async function matchTask(
+  message: string,
+): Promise<{ id: string | null; name: string | null }> {
+  const res = await fetch('/api/tasks/match', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  })
+  if (!res.ok) throw new Error(`tasks/match failed: ${res.status}`)
+  return (await res.json()) as { id: string | null; name: string | null }
+}
+
+// ---- background jobs (detached long-running runs) ----
+
+export interface CreateJobInput {
+  prompt: string
+  name?: string
+  taskId?: string
+  model?: string
+  /** Tool whitelist prefixes (e.g. ['article-write','read-file']); empty = all. */
+  includeTools?: string[]
+  /** Tool blacklist prefixes. */
+  excludeTools?: string[]
+}
+
+/** Kick off a detached long-running job. Returns the created job immediately. */
+export async function createJob(input: CreateJobInput): Promise<JobRecord> {
+  const res = await fetch('/api/jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (!res.ok) throw new Error(`create job failed: ${res.status}`)
+  return (await res.json()).job as JobRecord
+}
+
+/** List all jobs (newest updated first). */
+export async function fetchJobs(): Promise<JobMeta[]> {
+  const res = await fetch('/api/jobs')
+  if (!res.ok) throw new Error(`jobs request failed: ${res.status}`)
+  return ((await res.json()) as { jobs: JobMeta[] }).jobs ?? []
+}
+
+/** Fetch a single job's full record (incl. its event log). */
+export async function fetchJob(id: string): Promise<JobRecord | null> {
+  const res = await fetch(`/api/jobs/${encodeURIComponent(id)}`)
+  if (res.status === 404) return null
+  if (!res.ok) throw new Error(`job request failed: ${res.status}`)
+  return ((await res.json()) as { job: JobRecord }).job
+}
+
+/** Cancel a running job. Resolves false when the job isn't running. */
+export async function cancelJob(id: string): Promise<boolean> {
+  const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
+  return res.ok
+}
+
+/** Resume an interrupted/failed job from its transcript (optional instruction). */
+export async function resumeJob(id: string, instruction?: string): Promise<boolean> {
+  const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ instruction }),
+  })
+  return res.ok
+}
+
+/** List a job's workspace artifacts (relative paths + size + mtime). */
+export async function fetchJobFiles(id: string): Promise<JobFile[]> {
+  const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/files`)
+  if (!res.ok) throw new Error(`job files failed: ${res.status}`)
+  return ((await res.json()) as { files: JobFile[] }).files ?? []
+}
+
+/** Delete a job record from the store. */
+export async function deleteJob(id: string): Promise<boolean> {
+  const res = await fetch(`/api/jobs/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  return res.ok
+}
+
+/**
+ * Stream a job's events. First a `snapshot` (status + all stored events), then
+ * live `job` events while the job runs. Returns an AbortController so the caller
+ * can stop re-attaching when the view closes.
+ */
+export function streamJob(
+  id: string,
+  onEvent: (ev: { type: 'snapshot'; status: JobStatus; events: JobEvent[] } | JobEvent) => void,
+): AbortController {
+  const ac = new AbortController()
+  void (async () => {
+    try {
+      const res = await fetch(`/api/jobs/${encodeURIComponent(id)}/stream`, { signal: ac.signal })
+      if (!res.ok || !res.body) {
+        throw new Error(`job stream failed: ${res.status}`)
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        // Parse SSE frames: `event: <name>\ndata: <json>\n\n`.
+        let idx: number
+        while ((idx = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, idx)
+          buffer = buffer.slice(idx + 2)
+          const eventLine = frame.split('\n').find((l) => l.startsWith('event: '))
+          const dataLine = frame.split('\n').find((l) => l.startsWith('data: '))
+          if (!dataLine) continue
+          const data = JSON.parse(dataLine.slice(6))
+          if (eventLine?.startsWith('event: snapshot')) {
+            onEvent({ type: 'snapshot', status: data.status, events: data.events })
+          } else {
+            onEvent(data as JobEvent)
+          }
+        }
+      }
+    } catch {
+      /* aborted / stream closed */
+    }
+  })()
+  return ac
 }
 
 /** Fetch the available skills (name + description). */
@@ -154,11 +301,12 @@ export async function saveSession(
   id: string,
   title: string,
   messages: { role: string; content: string }[],
+  taskMode?: string,
 ): Promise<SessionRecord> {
   const res = await fetch('/api/sessions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, title, messages }),
+    body: JSON.stringify({ id, title, messages, taskMode }),
   })
   if (!res.ok) throw new Error(`failed to save session: ${res.status}`)
   const data = (await res.json()) as { session: SessionRecord }
@@ -262,11 +410,12 @@ export async function streamChat(
   signal?: AbortSignal,
   sessionId?: string,
   systemPrompt?: string,
+  taskId?: string,
 ): Promise<void> {
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, model, sessionId, systemPrompt }),
+    body: JSON.stringify({ messages, model, sessionId, systemPrompt, taskId }),
     signal,
   })
   if (!res.ok || !res.body) {

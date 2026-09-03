@@ -80,8 +80,8 @@ export function useSessions() {
   )
 
   const save = useCallback(
-    async (id: string, messages: UIMessage[]) => {
-      const rec = await saveSession(id, deriveTitle(messages), toStored(messages))
+    async (id: string, messages: UIMessage[], taskMode?: string) => {
+      const rec = await saveSession(id, deriveTitle(messages), toStored(messages), taskMode)
       upsertMeta(rec)
       return rec
     },
@@ -90,22 +90,25 @@ export function useSessions() {
 
   /** Ensure the conversation has a session id; create one if missing. */
   const ensureSession = useCallback(
-    (messages: UIMessage[], currentId: string | null): string | null => {
+    (messages: UIMessage[], currentId: string | null, taskMode?: string): string | null => {
       if (currentId || !messages.length) return currentId
       const id = uid()
       setSessionId(id)
-      void save(id, messages)
+      void save(id, messages, taskMode)
       return id
     },
     [save],
   )
 
-  const select = useCallback(async (id: string): Promise<StoredMessage[] | null> => {
-    const rec = await loadSession(id)
-    if (!rec) return null
-    setSessionId(rec.id)
-    return rec.messages as StoredMessage[]
-  }, [])
+  const select = useCallback(
+    async (id: string): Promise<{ messages: StoredMessage[]; taskMode?: string } | null> => {
+      const rec = await loadSession(id)
+      if (!rec) return null
+      setSessionId(rec.id)
+      return { messages: rec.messages as StoredMessage[], taskMode: rec.taskMode }
+    },
+    [],
+  )
 
   const remove = useCallback(
     async (id: string) => {

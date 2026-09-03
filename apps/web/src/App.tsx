@@ -3,16 +3,24 @@ import {
   fetchModels,
   fetchPseStatus,
   fetchSkills,
+  fetchTasks,
   fetchTools,
   setPseEnabled,
   type SkillInfo,
+  type TaskCatalog,
 } from './api'
 import { Composer, type ComposerHandle } from './Composer'
 import { FilePickerModal } from './FilePickerModal'
 import { FilePreview } from './FilePreview'
+import { JobsPanel } from './JobsPanel'
 import { MessageList } from './MessageList'
 import { WorkspaceView } from './WorkspaceView'
-import { buildExamples, flattenExamples, FALLBACK_EXAMPLES } from './examples'
+import {
+  buildExamples,
+  filterExamplesForTask,
+  flattenExamples,
+  FALLBACK_EXAMPLES,
+} from './examples'
 import { useChat } from './hooks/useChat'
 import { useMcp } from './hooks/useMcp'
 import { useSessions } from './hooks/useSessions'
@@ -37,6 +45,7 @@ export function App() {
   const [models, setModels] = useState<ModelInfo[]>([])
   const [tools, setTools] = useState<ToolSchema[]>([])
   const [skills, setSkills] = useState<SkillInfo[]>([])
+  const [taskCatalog, setTaskCatalog] = useState<TaskCatalog>({ tasks: [], scopes: [] })
   const [pseEnabled, setPseEnabledState] = useState(false)
   const [model, setModel] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
@@ -45,7 +54,7 @@ export function App() {
   // ---- UI state ----
   const [draft, setDraft] = useState('')
   const [showFilePicker, setShowFilePicker] = useState(false)
-  const [view, setView] = useState<'chat' | 'workspace'>('chat')
+  const [view, setView] = useState<'chat' | 'tasks' | 'workspace'>('chat')
   const [openSkill, setOpenSkill] = useState<string | null>(null)
   const [openMcp, setOpenMcp] = useState<string | null>(null)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
@@ -104,16 +113,18 @@ export function App() {
     let cancelled = false
     void (async () => {
       try {
-        const [m, t, sk, pse] = await Promise.all([
+        const [m, t, sk, pse, tasks] = await Promise.all([
           fetchModels(),
           fetchTools(),
           fetchSkills(),
           fetchPseStatus(),
+          fetchTasks().catch(() => ({ tasks: [], scopes: [] })),
         ])
         if (cancelled) return
         setModels(m.models)
         setTools(t)
         setSkills(sk)
+        setTaskCatalog(tasks)
         setPseEnabledState(pse.enabled)
         const preferred =
           m.defaultModel && m.models.some((x) => x.id === m.defaultModel)
@@ -135,12 +146,16 @@ export function App() {
   useEffect(() => {
     if (!sessions.sessionId || !chat.messages.length) return
     const t = setTimeout(() => {
-      void sessions.save(sessions.sessionId!, chat.messages).catch(() => {
+      void sessions.save(sessions.sessionId!, chat.messages, chat.taskId ?? 'auto').catch(() => {
         /* offline / backend down: skip silently */
       })
     }, 800)
     return () => clearTimeout(t)
-  }, [chat.messages, sessions.sessionId, sessions.save])
+    // `sessions` itself is intentionally omitted: its identity changes on every
+    // session-list save, which would reset the debounce and create a save loop.
+    // Only its stable members (sessionId / save) are needed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.messages, sessions.sessionId, sessions.save, chat.taskId])
 
   // ---- example prompts (grouped by category) ----
   const examples = useMemo(() => {
@@ -162,12 +177,34 @@ export function App() {
         }
   }, [tools, skills])
 
+  // When a business task is pinned, narrow the shown examples to the ones the
+  // task's tool whitelist can actually fulfil (tool-level, plus a category
+  // fallback for hand-authored workflow cards). This connects a picked task to
+  // the "what can I do next" cards in the chat empty state.
+  const activeTask = useMemo(() => {
+    if (!chat.taskId) return null
+    return taskCatalog.tasks.find((t) => t.id === chat.taskId) ?? null
+  }, [chat.taskId, taskCatalog])
+
+  const visibleExamples = useMemo(
+    () => filterExamplesForTask(examples, activeTask),
+    [examples, activeTask],
+  )
+
   // ---- session search ----
   const filteredSessions = useMemo(() => {
     const q = sessionSearch.trim().toLowerCase()
     if (!q) return sessions.sessions
     return sessions.sessions.filter((s) => s.title.toLowerCase().includes(q))
   }, [sessions.sessions, sessionSearch])
+
+  // Active task chip: a manually pinned task wins over the auto-matched one.
+  const activeTaskName = useMemo(() => {
+    if (chat.taskId) {
+      return taskCatalog.tasks.find((t) => t.id === chat.taskId)?.name ?? chat.taskId
+    }
+    return chat.activeTask?.name ?? null
+  }, [chat.taskId, chat.activeTask, taskCatalog])
 
   // ---- file picker helpers ----
   const insertPath = (p: string) => {
@@ -184,6 +221,13 @@ export function App() {
   // ---- workspace quick-action: jump to chat with prefilled prompt ----
   const handleRunTask = (_projectKey: string, _taskType: string, prompt: string) => {
     setDraft(prompt)
+    setView('chat')
+    setTimeout(() => composerRef.current?.focus(), 100)
+  }
+
+  // ---- task mode selection: pin a professional tool-set for the session ----
+  const handleSelectTask = (id: string | null) => {
+    chat.setTask(id)
     setView('chat')
     setTimeout(() => composerRef.current?.focus(), 100)
   }
@@ -222,11 +266,12 @@ export function App() {
 
   const selectSession = async (id: string) => {
     if (chat.busy) return
-    const msgs = await sessions.select(id)
-    if (!msgs) {
+    const loaded = await sessions.select(id)
+    if (!loaded) {
       setError('session not found')
       return
     }
+    const { messages: msgs, taskMode } = loaded
     chat.setMessages(
       msgs.map((m) => ({
         id: uid(),
@@ -238,6 +283,7 @@ export function App() {
           : {}),
       })),
     )
+    chat.setTask(taskMode && taskMode !== 'auto' ? taskMode : null)
     setError(null)
   }
 
@@ -406,6 +452,12 @@ export function App() {
                     对话
                   </button>
                   <button
+                    className={`app-nav-btn${view === 'tasks' ? ' active' : ''}`}
+                    onClick={() => setView('tasks')}
+                  >
+                    任务
+                  </button>
+                  <button
                     className={`app-nav-btn${view === 'workspace' ? ' active' : ''}`}
                     onClick={() => setView('workspace')}
                   >
@@ -503,6 +555,19 @@ export function App() {
                     ))}
                   </select>
                 </div>
+                {activeTaskName && (
+                  <button
+                    className="active-task-chip"
+                    onClick={() => (chat.taskId ? chat.setTask(null) : setView('tasks'))}
+                    title={
+                      chat.taskId
+                        ? `已固定任务：${activeTaskName}（点击取消固定）`
+                        : `已匹配任务：${activeTaskName}（点击到任务页固定）`
+                    }
+                  >
+                    {chat.taskId ? `📌 ${activeTaskName} ×` : activeTaskName}
+                  </button>
+                )}
                 {chat.busy && (
                   <button className="btn btn-stop" onClick={chat.stop} title="停止生成">
                     ■ Stop
@@ -520,15 +585,23 @@ export function App() {
               </div>
             )}
 
-            {view === 'workspace' ? (
+            {view === 'tasks' ? (
+              <div className="tasks-view">
+                <JobsPanel tasks={taskCatalog.tasks} onPreview={setPreviewPath} />
+              </div>
+            ) : view === 'workspace' ? (
               <WorkspaceView onRunTask={handleRunTask} />
             ) : (
               <>
                 <MessageList
                   messages={chat.messages}
                   onDecide={onDecide}
-                  examples={examples}
+                  examples={visibleExamples}
                   busy={chat.busy}
+                  tasks={taskCatalog.tasks}
+                  activeTaskId={chat.taskId}
+                  activeTaskName={activeTaskName}
+                  onPickTask={handleSelectTask}
                   onRegenerate={chat.regenerate}
                   onEditFrom={(id) => {
                     const text = chat.editFrom(id)
@@ -579,7 +652,7 @@ export function App() {
           <aside className="sidebar sidebar-right">
             <div className="sidebar-head sidebar-head-title">Runtime</div>
             <div className="runtime">
-              <details className="runtime-section" open>
+              <details className="runtime-section">
                 <summary>Tools ({tools.filter((t) => !t.fromMcp).length})</summary>
                 <div
                   className="runtime-chips"
@@ -605,7 +678,7 @@ export function App() {
                       ))}
                 </div>
               </details>
-              <details className="runtime-section" open>
+              <details className="runtime-section">
                 <summary>Skills ({skills.length})</summary>
                 <div className="runtime-list">
                   {skills.length === 0 && <span className="runtime-empty">none</span>}
@@ -622,7 +695,7 @@ export function App() {
                   ))}
                 </div>
               </details>
-              <details className="runtime-section" open>
+              <details className="runtime-section">
                 <summary>MCP Servers ({mcp.servers.length})</summary>
                 <div className="runtime-list">
                   {!mcp.loaded && <span className="runtime-empty">loading…</span>}

@@ -58,6 +58,8 @@ export interface SessionMeta {
 }
 
 export interface SessionRecord extends Omit<SessionMeta, 'messageCount'> {
+  /** Persisted task mode ('auto' or task id) restored on session select. */
+  taskMode?: string
   messages: {
     role: string
     content: string
@@ -95,6 +97,92 @@ export interface ModelsResponse {
   /** The model the backend defaults to (config.model or OPENAI_MODEL). */
   defaultModel?: string
 }
+
+/** A professional task mode (business tool-set whitelist) selectable in the UI. */
+export interface TaskInfo {
+  id: string
+  name: string
+  description: string
+  includeTools?: string[]
+  systemPrompt?: string
+}
+
+/** A horizontal capability tier (core / +files / +web / …) — caps tool breadth. */
+export interface ToolScopeInfo {
+  id: string
+  name: string
+  description: string
+  includeTools: string[]
+}
+
+// ---- background jobs (detached long-running runs) ----
+
+export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+/** One append-only event of a job's run (mirrors the backend `JobEvent`). */
+export type JobEvent =
+  | { seq: number; type: 'step'; step: AgentStep }
+  | { seq: number; type: 'tool-call'; call: ToolCall }
+  | {
+      seq: number
+      type: 'tool-result'
+      call: ToolCall
+      result: string
+      ok: boolean
+      durationMs: number
+    }
+  | { seq: number; type: 'tool-progress'; id: string; chunk: string }
+  | { seq: number; type: 'approval-request'; call: ToolCall }
+  | { seq: number; type: 'delta'; text: string }
+  | { seq: number; type: 'reasoning'; text: string }
+  | { seq: number; type: 'usage'; record: UsageRecord }
+  | { seq: number; type: 'done'; answer: string }
+
+export interface JobMeta {
+  id: string
+  name: string
+  taskId?: string
+  status: JobStatus
+  createdAt: string
+  updatedAt: string
+  eventCount: number
+}
+
+export interface JobRecord {
+  id: string
+  name: string
+  /** The original user prompt that started the run. */
+  prompt: string
+  taskId?: string
+  model?: string
+  /** Tool whitelist prefixes for this run (empty = all tools). */
+  includeTools?: string[]
+  /** Tool blacklist prefixes for this run. */
+  excludeTools?: string[]
+  /** Per-job working directory; tools anchor relative paths & shell cwd here. */
+  workspace?: string
+  status: JobStatus
+  createdAt: string
+  updatedAt: string
+  startedAt?: string
+  finishedAt?: string
+  error?: string
+  answer?: string
+  usage?: { prompt: number; completion: number; cost: number }
+  events: JobEvent[]
+}
+
+/** One artifact file inside a job's workspace. */
+export interface JobFile {
+  /** Relative path inside the workspace (e.g. "report.md", "out/data.json"). */
+  path: string
+  size: number
+  mtime: string
+}
+
+/** SSE frames from `/api/jobs/:id/stream`. */
+export type JobStreamEvent =
+  { type: 'snapshot'; status: JobStatus; events: JobEvent[] } | { type: 'job'; event: JobEvent }
 
 /** A message in the web UI's conversation state. */
 export interface UIMessage {

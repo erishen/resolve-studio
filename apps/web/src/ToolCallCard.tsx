@@ -76,10 +76,7 @@ function CollapsiblePre({ text, maxLines = 8 }: { text: string; maxLines?: numbe
     <div className="collapsible-pre">
       <pre className={expanded ? '' : 'pre-collapsed'}>{linkify(display)}</pre>
       {needsCollapse && (
-        <button
-          className="btn btn-sm btn-toggle"
-          onClick={() => setExpanded(!expanded)}
-        >
+        <button className="btn btn-sm btn-toggle" onClick={() => setExpanded(!expanded)}>
           {expanded ? '收起 ▲' : `展开全部 (${lines.length} 行) ▼`}
         </button>
       )}
@@ -162,7 +159,8 @@ export function ToolCallCard({
   const engineInfo = parseEngineInfo(result)
   const mdPaths = extractMarkdownPaths(result)
   const retryChoice = !!result && RETRY_CHOICE_RE.test(result)
-  const displayResult = result?.replace(/^error:\s*/m, '').replace(/^PSE_RETRY_CHOICE\n?/m, '') ?? result
+  const displayResult =
+    result?.replace(/^error:\s*/m, '').replace(/^PSE_RETRY_CHOICE\n?/m, '') ?? result
   const durationLabel =
     durationMs !== undefined
       ? durationMs < 1000
@@ -187,7 +185,9 @@ export function ToolCallCard({
         <div className="tool-gate-note">needs approval (flagged)</div>
       )}
       {approvalSkipped && (
-        <div className="tool-gate-note tool-gate-skipped">approval skipped (already approved this run)</div>
+        <div className="tool-gate-note tool-gate-skipped">
+          approval skipped (already approved this run)
+        </div>
       )}
       {awaitingApproval && (
         <div className="tool-approval">

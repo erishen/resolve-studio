@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { approveCall, streamChat, streamToolRun } from '../api'
+import { approveCall, matchTask, streamChat, streamToolRun } from '../api'
 import type { ChatEvent, ToolSchema, UIMessage } from '../types'
 
 function uid(): string {
@@ -28,6 +28,11 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [usage, setUsage] = useState({ prompt: 0, completion: 0, cost: 0 })
+  // Auto-matched task (from intent matching) — display only.
+  const [activeTask, setActiveTask] = useState<{ id: string; name: string } | null>(null)
+  // Manually selected task mode (from the Task tab / session restore). `null`
+  // (or 'auto') means "intent-match automatically" on the server.
+  const [taskId, setTaskIdState] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const messagesRef = useRef(messages)
   messagesRef.current = messages
@@ -38,6 +43,8 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
   sessionIdRef.current = sessionId
   const systemPromptRef = useRef(systemPrompt)
   systemPromptRef.current = systemPrompt
+  const taskIdRef = useRef(taskId)
+  taskIdRef.current = taskId
   const onCompleteRef = useRef(onRunComplete)
   onCompleteRef.current = onRunComplete
 
@@ -110,6 +117,17 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
       abortRef.current = ac
 
       try {
+        // Ask the server which task (if any) this message maps to so the UI
+        // can surface the matched professional tool-set. The server re-resolves
+        // authoritatively during the run; this is only for display. Best-effort:
+        // a failure just leaves the indicator cleared.
+        try {
+          const hit = await matchTask(text)
+          setActiveTask(hit.id ? { id: hit.id, name: hit.name ?? hit.id } : null)
+        } catch {
+          setActiveTask(null)
+        }
+
         await streamChat(
           history,
           model || undefined,
@@ -217,6 +235,7 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
           ac.signal,
           sessionIdRef.current ?? undefined,
           systemPromptRef.current || undefined,
+          taskIdRef.current ?? undefined,
         )
       } catch (err) {
         setError((err as Error).message)
@@ -233,6 +252,14 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
+  }, [])
+
+  /**
+   * Manually pin a task mode for the session (from the Task tab / restored
+   * session). `null` (or 'auto') reverts to server-side intent matching.
+   */
+  const setTask = useCallback((id: string | null) => {
+    setTaskIdState(id && id !== 'auto' ? id : null)
   }, [])
 
   /**
@@ -351,6 +378,8 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
     setMessages([])
     setError(null)
     setUsage({ prompt: 0, completion: 0, cost: 0 })
+    setActiveTask(null)
+    setTaskIdState(null)
   }, [])
 
   /**
@@ -398,6 +427,9 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
     error,
     setError,
     usage,
+    activeTask,
+    taskId,
+    setTask,
     send,
     runTool,
     stop,

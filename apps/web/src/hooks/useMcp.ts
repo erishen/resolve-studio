@@ -105,13 +105,16 @@ export function useMcp(options: UseMcpOptions = {}) {
     setShowForm(true)
   }, [])
 
-  const remove = useCallback(async (serverId: string) => {
-    const ok = await removeMcpServer(serverId)
-    if (ok) {
-      setServers((prev) => prev.filter((s) => s.id !== serverId))
-      void onToolsChanged?.()
-    }
-  }, [onToolsChanged])
+  const remove = useCallback(
+    async (serverId: string) => {
+      const ok = await removeMcpServer(serverId)
+      if (ok) {
+        setServers((prev) => prev.filter((s) => s.id !== serverId))
+        void onToolsChanged?.()
+      }
+    },
+    [onToolsChanged],
+  )
 
   return {
     servers,

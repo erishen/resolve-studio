@@ -21,6 +21,12 @@ export interface ExampleItem {
   prompt: string
   /** Category for grouped display. */
   category: ExampleCategory
+  /**
+   * Bare tool/skill name this example invokes (e.g. `article-write`). Set when
+   * the card maps 1:1 to a registered tool; used for task-level tool filtering.
+   * Hand-authored workflow cards (PSE / article-ops / skills) leave it unset.
+   */
+  tool?: string
 }
 
 export const CATEGORY_LABELS: Record<ExampleCategory, string> = {
@@ -48,6 +54,22 @@ export const CATEGORY_ORDER: ExampleCategory[] = [
   'privacy',
   'other',
 ]
+
+/**
+ * 业务任务 → 相关示例分类。选中任务后，对话空态只展示这些分类的示例，
+ * 让「任务（工具白名单）→ 该任务能做的示例步骤」在 UI 上串起来。
+ * 能力档位（core/files/web）不在此列 —— 它们只收窄工具面，不绑定业务场景。
+ */
+export const TASK_CATEGORIES: Record<string, ExampleCategory[]> = {
+  articles: ['article'],
+  hotnews: ['hot-news'],
+  investment: ['invest'],
+  foundation: ['code', 'other'],
+  privacy: ['privacy'],
+  documents: ['library'],
+  recruiting: ['interview', 'crm'],
+  web: ['code', 'other'],
+}
 
 function humanize(name: string): string {
   return name.replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -298,6 +320,7 @@ function toolExample(t: ToolSchema): ExampleItem | null {
       title: curated.title,
       prompt: curated.prompt,
       category: curated.category,
+      tool: base,
     }
 
   let prompt: string
@@ -385,7 +408,7 @@ function toolExample(t: ToolSchema): ExampleItem | null {
   } else {
     return null
   }
-  return { id: 'tool:' + base, title: titleFor(base), prompt, category }
+  return { id: 'tool:' + base, title: titleFor(base), prompt, category, tool: base }
 }
 
 /**
@@ -499,6 +522,7 @@ export function buildExamples(
       prompt:
         '把最新一篇热点稿发布到小红书，用 hot-news-publish 工具（platform=xiaohongshu），填好标题/正文/多图/话题后停在编辑器，我自己核对并点发布。',
       category: 'hot-news',
+      tool: 'hot-news-publish',
     },
     {
       id: 'hot-news-publish-zhihu',
@@ -506,6 +530,7 @@ export function buildExamples(
       prompt:
         '把最新一篇热点稿发布到知乎，用 hot-news-publish 工具（platform=zhihu），填好标题/正文/封面/话题并尽力勾选 AI 创作声明后停在编辑器，我自己核对并点发布。',
       category: 'hot-news',
+      tool: 'hot-news-publish',
     },
     {
       id: 'hot-news-publish-toutiao',
@@ -513,6 +538,7 @@ export function buildExamples(
       prompt:
         '把最新一篇热点稿发布到今日头条，用 hot-news-publish 工具（platform=toutiao），填好标题/正文后保持页面打开，我自己核对并点发布。',
       category: 'hot-news',
+      tool: 'hot-news-publish',
     },
   ]
   all.push(...HOT_NEWS_PUBLISH_EXAMPLES)
@@ -600,6 +626,40 @@ export function flattenExamples(grouped: Record<ExampleCategory, ExampleItem[]>)
   const out: ExampleItem[] = []
   for (const cat of CATEGORY_ORDER) {
     out.push(...grouped[cat])
+  }
+  return out
+}
+
+/**
+ * Generic core tools whitelisted by every task — their generic cards
+ * ("读取文件 / 写文件 / 执行命令 / 运行技能") would otherwise flood every task's
+ * filtered list, so they're hidden once a task is pinned.
+ */
+const GENERIC_CORE_TOOLS = new Set(['read-file', 'write-file', 'shell', 'skill-run'])
+
+/**
+ * Narrow grouped examples to what a pinned task's toolset can actually fulfil:
+ *  - cards with a known `tool` must be whitelisted by the task (prefix match,
+ *    same as the backend `filterTools`), excluding generic core tools;
+ *  - hand-authored workflow cards without a `tool` (skills / PSE / article-ops)
+ *    survive only when they belong to one of the task's categories.
+ * No task (or no whitelist) → the full example set is returned unchanged.
+ */
+export function filterExamplesForTask(
+  grouped: Record<ExampleCategory, ExampleItem[]>,
+  task: { id: string; includeTools?: string[] } | null | undefined,
+): Record<ExampleCategory, ExampleItem[]> {
+  if (!task || !task.includeTools?.length) return grouped
+  const allowedCategories = TASK_CATEGORIES[task.id] ?? []
+  const out: Record<ExampleCategory, ExampleItem[]> = { ...grouped }
+  for (const cat of Object.keys(out) as ExampleCategory[]) {
+    out[cat] = out[cat].filter((ex) => {
+      if (ex.tool) {
+        if (GENERIC_CORE_TOOLS.has(ex.tool)) return false
+        return task.includeTools!.some((p) => ex.tool!.startsWith(p))
+      }
+      return allowedCategories.includes(ex.category)
+    })
   }
   return out
 }

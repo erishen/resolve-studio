@@ -77,6 +77,14 @@ interface MessageListProps {
   onDecide?: (callId: string, decision: 'approve' | 'reject') => void
   examples?: GroupedExamples
   onPickExample?: (prompt: string) => void
+  /** Business tasks for the "从任务开始" quick-start row in the empty state. */
+  tasks?: { id: string; name: string; description?: string }[]
+  /** Currently pinned task id, or null for auto. */
+  activeTaskId?: string | null
+  /** Display name of the pinned task (for the context banner). */
+  activeTaskName?: string | null
+  /** Pin a task for the session (from the quick-start row). */
+  onPickTask?: (id: string) => void
   onRegenerate?: () => void
   onEditFrom?: (messageId: string) => void
   onPreview?: (path: string) => void
@@ -90,6 +98,10 @@ export function MessageList({
   onDecide,
   examples,
   onPickExample,
+  tasks,
+  activeTaskId,
+  activeTaskName,
+  onPickTask,
   onRegenerate,
   onEditFrom,
   onPreview,
@@ -116,6 +128,52 @@ export function MessageList({
       {messages.length === 0 && (
         <div className="empty-state">
           <div className="empty-title">想试试这个 Agent？挑一个问题开始</div>
+          {activeTaskId && (
+            <div className="task-active-banner">
+              <span className="task-active-name">
+                📌 当前任务：{activeTaskName ?? activeTaskId}
+              </span>
+              <span className="task-active-hint">
+                发送后仅使用该任务的工具集，下方示例已按此任务过滤
+              </span>
+              <button
+                type="button"
+                className="task-active-clear"
+                onClick={() => onPickTask?.('auto')}
+                title="取消固定任务，回退到自动匹配"
+              >
+                ✕ 换任务
+              </button>
+            </div>
+          )}
+          {tasks && tasks.length > 0 && onPickTask && (
+            <div className="task-quick-row">
+              <span className="task-quick-label">从任务开始</span>
+              <div className="task-quick-chips">
+                {tasks.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={`task-quick-chip${t.id === activeTaskId ? ' task-quick-chip-active' : ''}`}
+                    onClick={() => onPickTask(t.id)}
+                    title={t.description ?? t.name}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+                {activeTaskId && (
+                  <button
+                    type="button"
+                    className="task-quick-chip task-quick-chip-clear"
+                    onClick={() => onPickTask('auto')}
+                    title="取消固定任务，回退到自动匹配"
+                  >
+                    ✕ 取消
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {hasExamples && (
             <div className="examples-grouped">
               {CATEGORY_ORDER.map((cat) => {
