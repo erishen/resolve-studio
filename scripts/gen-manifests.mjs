@@ -42,6 +42,8 @@ const BASE_PLUGINS = [
   { id: 'approval', name: 'approval' },
   { id: 'usage', name: 'usage' },
   { id: 'skills', name: 'skills' },
+  { id: 'tasks', name: 'tasks' },
+  { id: 'jobs', name: 'jobs', config: { maxConcurrent: 3 } },
   { id: 'pse', name: '@resolve-studio/plugin-pse' },
   { id: 'sandbox', name: 'sandbox' },
   { id: 'mcp', name: 'mcp', config: { servers: [] } },

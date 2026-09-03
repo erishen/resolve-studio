@@ -23,6 +23,9 @@ export interface SessionMeta {
 }
 
 export interface SessionRecord extends Omit<SessionMeta, 'messageCount'> {
+  /** Last-selected professional task mode ('auto' or a task id). Restoring a
+   *  session replays the same tool-set the user was working in. */
+  taskMode?: string
   messages: {
     role: string
     content: string

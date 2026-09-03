@@ -49,7 +49,7 @@ export class SandboxService extends Service {
   readonly enabled: boolean
   readonly allowNetwork: boolean
   readonly writableRoots: string[]
-  private seatbeltProfile?: string
+  private readonly seatbeltProfiles = new Map<string, string>()
   private warnedDegraded = false
 
   constructor(ctx: Context, config: SandboxConfig = {}) {
@@ -61,12 +61,14 @@ export class SandboxService extends Service {
     const extras = (config.writableRoots ?? []).map((r) => resolve(r))
     // Deduplicate while preserving order.
     this.writableRoots = [...new Set([base, tmp, ...extras])]
-    ctx.logger('sandbox').info(
-      'sandbox %s (network=%s, writable=%s)',
-      this.enabled ? 'enabled' : 'disabled',
-      this.allowNetwork ? 'on' : 'off',
-      this.writableRoots.join(', '),
-    )
+    ctx
+      .logger('sandbox')
+      .info(
+        'sandbox %s (network=%s, writable=%s)',
+        this.enabled ? 'enabled' : 'disabled',
+        this.allowNetwork ? 'on' : 'off',
+        this.writableRoots.join(', '),
+      )
   }
 
   /**
@@ -90,21 +92,26 @@ export class SandboxService extends Service {
   }
 
   /** Wrap a shell command string (e.g. "pnpm test") for sandboxed execution. */
-  wrapShell(command: string): SandboxBinary {
+  wrapShell(command: string, opts: { writableRoots?: string[] } = {}): SandboxBinary {
     // On Unix, spawn with shell:true uses /bin/sh -c <command>.
     // We need to wrap the shell itself, not the command.
     if (!this.enabled) return { cmd: command, args: [] }
+    // Per-run writable roots (e.g. a background job's workspace) extend the
+    // base set (cwd + tmpdir + configured extras) without mutating it.
+    const roots = opts.writableRoots?.length
+      ? [...new Set([...this.writableRoots, ...opts.writableRoots.map((r) => resolve(r))])]
+      : this.writableRoots
     // For shell mode, we pass the command as a single arg to sh -c.
     // The sandbox binary wraps /bin/sh, and -c <command> follows.
     if (process.platform === 'darwin') {
-      const profile = this.ensureSeatbeltProfile()
+      const profile = this.ensureSeatbeltProfile(roots)
       return {
         cmd: '/usr/bin/sandbox-exec',
         args: ['-f', profile, '/bin/sh', '-c', command],
       }
     }
     if (process.platform === 'linux' && existsSync('/usr/bin/bwrap')) {
-      return this.wrapBwrap('/bin/sh', ['-c', command])
+      return this.wrapBwrap('/bin/sh', ['-c', command], roots)
     }
     this.warnDegraded('sandbox binary not found')
     return { cmd: command, args: [] }
@@ -121,8 +128,12 @@ export class SandboxService extends Service {
     return { cmd: '/usr/bin/sandbox-exec', args: ['-f', profile, program, ...args] }
   }
 
-  private ensureSeatbeltProfile(): string {
-    if (this.seatbeltProfile) return this.seatbeltProfile
+  private ensureSeatbeltProfile(roots: string[] = this.writableRoots): string {
+    // Profiles are cached per root-set so per-run workspaces don't churn the
+    // filesystem with a fresh profile on every tool call.
+    const key = roots.join('\n')
+    const cached = this.seatbeltProfiles.get(key)
+    if (cached) return cached
     // Generate a Seatbelt profile: deny default, allow read, allow write only
     // on whitelisted roots, optional network.
     let sb = '(version 1)\n'
@@ -146,7 +157,7 @@ export class SandboxService extends Service {
       '  (literal "/dev/urandom")\n' +
       '  (literal "/dev/tty")\n' +
       '  (literal "/dev/dtracehelper"))\n'
-    for (const root of this.writableRoots) {
+    for (const root of roots) {
       // Use literal path; Seatbelt matches subpath.
       sb += `(allow file-write* (subpath "${root}"))\n`
     }
@@ -157,25 +168,33 @@ export class SandboxService extends Service {
     const dir = mkdtempSync(join(tmpdir(), 'resolve-studio-sb-'))
     const profilePath = join(dir, 'profile.sb')
     writeFileSync(profilePath, sb, 'utf8')
-    this.seatbeltProfile = profilePath
+    this.seatbeltProfiles.set(key, profilePath)
     this.ctx.logger('sandbox').info('seatbelt profile written to %s', profilePath)
     return profilePath
   }
 
   // ---- Linux bubblewrap ----
 
-  private wrapBwrap(program: string, args: string[]): SandboxBinary {
+  private wrapBwrap(
+    program: string,
+    args: string[],
+    roots: string[] = this.writableRoots,
+  ): SandboxBinary {
     if (!existsSync('/usr/bin/bwrap')) {
       this.warnDegraded('bwrap not found')
       return { cmd: program, args }
     }
     const bwrapArgs = [
-      '--ro-bind', '/', '/',
-      '--dev', '/dev',
-      '--proc', '/proc',
+      '--ro-bind',
+      '/',
+      '/',
+      '--dev',
+      '/dev',
+      '--proc',
+      '/proc',
       '--die-with-parent',
     ]
-    for (const root of this.writableRoots) {
+    for (const root of roots) {
       bwrapArgs.push('--bind', root, root)
     }
     if (!this.allowNetwork) {

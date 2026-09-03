@@ -16,6 +16,7 @@ import { ApprovalService } from '../src/services/approval.js'
 import { UsageService } from '../src/services/usage.js'
 import { FsRootsService } from '../src/services/fs-roots.js'
 import { skills } from '../src/plugins/skills.js'
+import { tasks as tasksPlugin } from '../src/plugins/tasks.js'
 import { mcpPlugin } from '../src/plugins/mcp.js'
 import { llmMock } from '../src/plugins/llm-mock.js'
 import { toolEcho } from '../src/plugins/tools/tool-echo.js'
@@ -66,6 +67,7 @@ async function buildServer(): Promise<Context> {
   await root.plugin(UsageService)
   await root.plugin(FsRootsService)
   await root.plugin(skills, { dir: TMP_SKILLS })
+  await root.plugin(tasksPlugin)
   await root.plugin(mcpPlugin)
   await root.plugin(llmMock)
   await root.plugin(toolEcho)
@@ -89,6 +91,54 @@ test('GET /api/tools and /api/skills', async () => {
     skills: { name: string }[]
   }
   assert.ok(sk.skills.some((s) => s.name === 'code-review'))
+
+  await root.fiber.dispose()
+})
+
+test('GET /api/tasks lists tasks; POST /api/tasks/match finds the active one', async () => {
+  const root = await buildServer()
+
+  const body = (await (await fetch(`${BASE}/api/tasks`)).json()) as {
+    tasks: {
+      id: string
+      name: string
+      description: string
+      includeTools: string[]
+    }[]
+    scopes: {
+      id: string
+      name: string
+      description: string
+      includeTools: string[]
+    }[]
+  }
+  assert.ok(body.tasks.some((t) => t.id === 'articles'))
+  assert.ok(body.tasks.some((t) => t.id === 'hotnews'))
+  const articles = body.tasks.find((t) => t.id === 'articles')
+  assert.ok(articles?.includeTools.includes('article-write'))
+  // Whitelists must not leak the full feature surface.
+  assert.ok(!articles?.includeTools.includes('privacy-audit'))
+  // Horizontal capability tiers are exposed separately from business tasks.
+  assert.ok(body.scopes.some((s) => s.id === 'core'))
+  assert.ok(body.scopes.some((s) => s.id === 'web'))
+
+  const hit = (await (
+    await fetch(`${BASE}/api/tasks/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '帮我写一篇技术文章并发布到掘金' }),
+    })
+  ).json()) as { id: string | null; name: string | null }
+  assert.equal(hit.id, 'articles')
+
+  const miss = (await (
+    await fetch(`${BASE}/api/tasks/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '你好，介绍一下你自己' }),
+    })
+  ).json()) as { id: string | null; name: string | null }
+  assert.equal(miss.id, null)
 
   await root.fiber.dispose()
 })
@@ -162,7 +212,12 @@ test('session CRUD round-trip', async () => {
   const created = await fetch(`${BASE}/api/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, title: 'Test', messages: [{ role: 'user', content: 'hi' }] }),
+    body: JSON.stringify({
+      id,
+      title: 'Test',
+      taskMode: 'articles',
+      messages: [{ role: 'user', content: 'hi' }],
+    }),
   })
   assert.equal(created.status, 200)
 
@@ -174,9 +229,10 @@ test('session CRUD round-trip', async () => {
   assert.equal(found.messageCount, 1)
 
   const one = (await (await fetch(`${BASE}/api/sessions/${id}`)).json()) as {
-    session: { messages: { content: string }[] }
+    session: { messages: { content: string }[]; taskMode?: string }
   }
   assert.equal(one.session.messages[0].content, 'hi')
+  assert.equal(one.session.taskMode, 'articles', 'taskMode should persist round-trip')
 
   const del = await fetch(`${BASE}/api/sessions/${id}`, { method: 'DELETE' })
   assert.equal(del.status, 200)

@@ -28,6 +28,7 @@ import { assertWithinRoots } from './fs-guard.js'
 import { SessionStore, type SessionRecord } from './session-store.js'
 import { WorkspaceManager } from './workspace-manager.js'
 import type { ApprovalDecision } from '../services/approval.js'
+import type { JobEvent, JobsService } from '../services/jobs.js'
 import type { ChatMessage, ModelInfo, RunEventBus } from '../types.js'
 
 interface WebServerConfig {
@@ -142,6 +143,235 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
     if (path === '/api/skills' && req.method === 'GET') {
       const skills = ctx.skills ? await ctx.skills.list() : []
       sendJson(res, 200, { skills })
+      return
+    }
+
+    // ---- Task registry (professional tool-set selection) ----
+    // Resolved via no-throw `ctx.get('tasks')` (same as the agent loop) so the
+    // endpoint still answers gracefully when the optional service isn't loaded.
+    const tasksSvc = ctx.get('tasks') as unknown as
+      | {
+          list(): Promise<
+            {
+              id: string
+              name: string
+              description: string
+              includeTools: string[]
+              systemPrompt?: string
+            }[]
+          >
+          listScopes(): Promise<
+            { id: string; name: string; description: string; includeTools: string[] }[]
+          >
+          match(m: string): Promise<
+            | {
+                id: string
+                name: string
+                description: string
+                includeTools: string[]
+                systemPrompt?: string
+              }
+            | undefined
+          >
+        }
+      | undefined
+    if (path === '/api/tasks' && req.method === 'GET') {
+      const tasks = tasksSvc ? await tasksSvc.list() : []
+      const scopes = tasksSvc ? await tasksSvc.listScopes() : []
+      // Surface only what the UI needs for the mode picker (no keywords).
+      sendJson(res, 200, {
+        tasks: tasks.map((t) => ({
+          id: t.id,
+          name: t.name,
+          description: t.description,
+          includeTools: t.includeTools,
+          systemPrompt: t.systemPrompt ?? undefined,
+        })),
+        scopes: scopes.map((s) => ({
+          id: s.id,
+          name: s.name,
+          description: s.description,
+          includeTools: s.includeTools,
+        })),
+      })
+      return
+    }
+    if (path === '/api/tasks/match' && req.method === 'POST') {
+      const body = await readBody(req)
+      try {
+        const parsed = JSON.parse(body || '{}')
+        const message = typeof parsed.message === 'string' ? parsed.message : ''
+        const matched = tasksSvc ? await tasksSvc.match(message) : undefined
+        sendJson(res, 200, { id: matched?.id ?? null, name: matched?.name ?? null })
+      } catch {
+        sendJson(res, 400, { error: 'invalid JSON body' })
+      }
+      return
+    }
+
+    // ---- background jobs (detached long-running runs) ----
+    // Optional service: without it every endpoint answers 503 so the UI can
+    // degrade gracefully instead of crashing the composition.
+    const jobsSvc = ctx.get('jobs') as unknown as JobsService | undefined
+
+    if (path === '/api/jobs' && req.method === 'GET') {
+      sendJson(res, 200, { jobs: jobsSvc ? await jobsSvc.list() : [] })
+      return
+    }
+    if (path === '/api/jobs' && req.method === 'POST') {
+      const body = await readBody(req)
+      try {
+        const parsed = JSON.parse(body || '{}')
+        const prompt = typeof parsed.prompt === 'string' ? parsed.prompt.trim() : ''
+        if (!prompt) {
+          sendJson(res, 400, { error: 'prompt is required' })
+          return
+        }
+        if (!jobsSvc) {
+          sendJson(res, 503, { error: 'jobs service not loaded' })
+          return
+        }
+        const job = await jobsSvc.create({
+          prompt,
+          name: typeof parsed.name === 'string' ? parsed.name : undefined,
+          taskId: typeof parsed.taskId === 'string' ? parsed.taskId : undefined,
+          model: typeof parsed.model === 'string' ? parsed.model : undefined,
+          systemPrompt: typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt : undefined,
+          includeTools: Array.isArray(parsed.includeTools)
+            ? (parsed.includeTools as string[]).filter((t) => typeof t === 'string')
+            : undefined,
+          excludeTools: Array.isArray(parsed.excludeTools)
+            ? (parsed.excludeTools as string[]).filter((t) => typeof t === 'string')
+            : undefined,
+        })
+        sendJson(res, 200, { job })
+      } catch {
+        sendJson(res, 400, { error: 'invalid JSON body' })
+      }
+      return
+    }
+
+    const jobDetail = path.match(/^\/api\/jobs\/([A-Za-z0-9_-]+)$/)
+    if (jobDetail && req.method === 'GET') {
+      const job = jobsSvc ? await jobsSvc.get(jobDetail[1]) : null
+      if (!job) {
+        sendJson(res, 404, { error: 'job not found' })
+        return
+      }
+      sendJson(res, 200, { job })
+      return
+    }
+    if (jobDetail && req.method === 'DELETE') {
+      const ok = jobsSvc ? await jobsSvc.remove(jobDetail[1]) : false
+      sendJson(res, ok ? 200 : 404, { ok })
+      return
+    }
+
+    const jobCancel = path.match(/^\/api\/jobs\/([A-Za-z0-9_-]+)\/cancel$/)
+    if (jobCancel && req.method === 'POST') {
+      const ok = jobsSvc ? await jobsSvc.cancel(jobCancel[1]) : false
+      sendJson(res, ok ? 200 : 409, { ok })
+      return
+    }
+
+    const jobResume = path.match(/^\/api\/jobs\/([A-Za-z0-9_-]+)\/resume$/)
+    if (jobResume && req.method === 'POST') {
+      if (!jobsSvc) {
+        sendJson(res, 503, { error: 'jobs service not loaded' })
+        return
+      }
+      const body = await readBody(req)
+      let instruction: string | undefined
+      try {
+        const parsed = JSON.parse(body || '{}')
+        if (typeof parsed.instruction === 'string') instruction = parsed.instruction
+      } catch {
+        /* empty body / invalid JSON → resume without extra instruction */
+      }
+      const ok = await jobsSvc.resume(jobResume[1], instruction)
+      sendJson(res, ok ? 200 : 409, { ok })
+      return
+    }
+
+    const jobFiles = path.match(/^\/api\/jobs\/([A-Za-z0-9_-]+)\/files$/)
+    if (jobFiles && req.method === 'GET') {
+      if (!jobsSvc) {
+        sendJson(res, 503, { error: 'jobs service not loaded' })
+        return
+      }
+      const job = await jobsSvc.get(jobFiles[1])
+      if (!job) {
+        sendJson(res, 404, { error: 'job not found' })
+        return
+      }
+      // Recursively list the job's workspace so the UI can show intermediate
+      // artifacts (reports, generated files) and preview them.
+      const files = await listJobFiles(job.workspace)
+      sendJson(res, 200, { files })
+      return
+    }
+
+    const jobStream = path.match(/^\/api\/jobs\/([A-Za-z0-9_-]+)\/stream$/)
+    if (jobStream && req.method === 'GET') {
+      if (!jobsSvc) {
+        sendJson(res, 503, { error: 'jobs service not loaded' })
+        return
+      }
+      const job = await jobsSvc.get(jobStream[1])
+      if (!job) {
+        sendJson(res, 404, { error: 'job not found' })
+        return
+      }
+      const terminal =
+        job.status === 'succeeded' || job.status === 'failed' || job.status === 'cancelled'
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      })
+      res.write('retry: 2000\n\n')
+      const send = (event: string, data: unknown) => {
+        if (res.writableEnded) return
+        res.write(`event: ${event}\n`)
+        res.write(`data: ${JSON.stringify(data)}\n\n`)
+      }
+      // Subscribe before reading the stored record so no event emitted between
+      // the snapshot read and the live tail is lost (buffered, then flushed).
+      let flushed = false
+      let ended = false
+      const end = () => {
+        if (ended) return
+        ended = true
+        try {
+          res.end()
+        } catch {
+          /* already closed */
+        }
+      }
+      const pending: JobEvent[] = []
+      const unsub = jobsSvc.subscribe(job.id, (ev) => {
+        if (!flushed) {
+          pending.push(ev)
+          return
+        }
+        send('job', ev)
+        if (ev.type === 'done') end()
+      })
+      send('snapshot', { status: job.status, events: job.events })
+      flushed = true
+      for (const ev of pending) {
+        send('job', ev)
+        if (ev.type === 'done') {
+          end()
+          break
+        }
+      }
+      if (terminal && !ended) end()
+      req.on('close', () => {
+        unsub()
+        end()
+      })
       return
     }
 
@@ -418,6 +648,10 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
             : (existing?.title ?? 'Untitled'),
         createdAt: existing?.createdAt ?? now,
         updatedAt: contentUnchanged ? existing!.updatedAt : now,
+        taskMode:
+          typeof rec.taskMode === 'string' && rec.taskMode
+            ? rec.taskMode.slice(0, 80)
+            : (existing?.taskMode ?? 'auto'),
         messages,
       }
       await sessions.set(record)
@@ -526,11 +760,15 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       }
       const t0 = performance.now()
       const result = await ctx.tools.call(name, args, {
-        onProgress: (chunk: string) =>
-          send('tool-progress', { payload: { id: call.id, chunk } }),
+        onProgress: (chunk: string) => send('tool-progress', { payload: { id: call.id, chunk } }),
       })
       send('tool-result', {
-        payload: { call, result, ok: !result.startsWith('error:'), durationMs: performance.now() - t0 },
+        payload: {
+          call,
+          result,
+          ok: !result.startsWith('error:'),
+          durationMs: performance.now() - t0,
+        },
       })
       send('done', { answer: result })
     } catch (err) {
@@ -547,6 +785,8 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       model?: string
       sessionId?: string
       systemPrompt?: string
+      /** Forced task mode ('auto' | task id); controls the tool whitelist. */
+      taskId?: string
     }
     try {
       parsed = JSON.parse(body || '{}')
@@ -629,6 +869,7 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
         runId: `run-${Math.random().toString(36).slice(2, 10)}`,
         sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
         systemPrompt: typeof parsed.systemPrompt === 'string' ? parsed.systemPrompt : undefined,
+        taskId: typeof parsed.taskId === 'string' ? parsed.taskId : undefined,
         bus,
       })
       send('done', { answer })
@@ -645,10 +886,17 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
 
   // Cordis disposes the root context on process exit via its own fiber; the
   // HTTP server is closed by Node when the process tears down. We additionally
-  // close it on SIGINT so the port is freed promptly during dev. The listener
-  // is tracked and removed in the disposer so repeated start/stop cycles (e.g.
-  // in tests) don't leak listeners and trigger MaxListenersExceededWarning.
-  const onSigint = () => server.close()
+  // close it on SIGINT so the port is freed promptly during dev. A bare
+  // `server.close()` would leave the process alive (this listener overrides
+  // Node's default SIGINT exit), which is why dev needed a second Ctrl+C — so
+  // we exit right away to let the dev shell reap the backend in one press. The
+  // listener is tracked and removed in the disposer so repeated start/stop
+  // cycles (e.g. in tests) don't leak listeners or trigger
+  // MaxListenersExceededWarning.
+  const onSigint = () => {
+    server.close()
+    process.exit(130)
+  }
   process.on('SIGINT', onSigint)
 
   // Disposer: close the HTTP server when the composition is disposed (used by
@@ -667,6 +915,50 @@ interface FsEntry {
   path: string
   isDir: boolean
   size: number
+}
+
+export interface JobFile {
+  /** Relative path inside the job workspace (e.g. "report.md", "out/data.json"). */
+  path: string
+  size: number
+  /** Last-modified ISO string. */
+  mtime: string
+}
+
+/** Recursively list a job workspace's artifacts (relative paths + size + mtime). */
+async function listJobFiles(workspace: string | undefined): Promise<JobFile[]> {
+  if (!workspace) return []
+  const out: JobFile[] = []
+  const walk = async (dir: string, rel: string): Promise<void> => {
+    let names: string[]
+    try {
+      names = await readdir(dir)
+    } catch {
+      return
+    }
+    for (const name of names) {
+      const full = join(dir, name)
+      const relPath = rel ? `${rel}/${name}` : name
+      let info
+      try {
+        info = await stat(full)
+      } catch {
+        continue // skip unreadable entries
+      }
+      if (info.isDirectory()) {
+        await walk(full, relPath)
+      } else {
+        out.push({
+          path: relPath,
+          size: info.size,
+          mtime: info.mtime.toISOString(),
+        })
+      }
+    }
+  }
+  await walk(workspace, '')
+  // Directories first, then by path — stable, preview-friendly order.
+  return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 }
 
 /**

@@ -14,7 +14,9 @@ import { FastPathService } from '../services/fastpath.js'
 import { ApprovalService } from '../services/approval.js'
 import { UsageService } from '../services/usage.js'
 import { FsRootsService } from '../services/fs-roots.js'
+import { JobsService } from '../services/jobs.js'
 import { skills } from './skills.js'
+import { tasks } from './tasks.js'
 import { sandbox } from './sandbox.js'
 import { llmMock } from './llm-mock.js'
 import { llmOpenAi } from './llm-openai.js'
@@ -63,7 +65,9 @@ export const PLUGINS: Record<string, Plugin> = {
   approval: ApprovalService as unknown as Plugin,
   usage: UsageService as unknown as Plugin,
   'fs-roots': FsRootsService as unknown as Plugin,
+  jobs: JobsService as unknown as Plugin,
   skills: skills as unknown as Plugin,
+  tasks: tasks as unknown as Plugin,
   sandbox: sandbox as unknown as Plugin,
   mcp: mcpPlugin as unknown as Plugin,
   'llm-mock': llmMock as unknown as Plugin,

@@ -61,7 +61,10 @@ const ENV_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
  */
 function expandEnv<T>(node: T): T {
   if (typeof node === 'string') {
-    return node.replace(ENV_PATTERN, (_, name: string) => process.env[name] ?? `$${name}`) as unknown as T
+    return node.replace(
+      ENV_PATTERN,
+      (_, name: string) => process.env[name] ?? `$${name}`,
+    ) as unknown as T
   }
   if (Array.isArray(node)) return node.map((v) => expandEnv(v)) as unknown as T
   if (node && typeof node === 'object') {
