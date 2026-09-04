@@ -10,7 +10,8 @@ import { skills } from '../src/plugins/skills.js'
 
 async function buildContext(): Promise<Context> {
   const root = new Context()
-  await root.plugin(skills, { dir: '../../../resolve-skills/skills' })
+  // Relative to cwd (packages/core): the in-repo resolve-skills git submodule.
+  await root.plugin(skills, { dir: '../../resolve-skills/skills' })
   return root
 }
 

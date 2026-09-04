@@ -58,6 +58,7 @@ export default tseslint.config(
       '**/.serena/**',
       '**/.run/**',
       '**/skills/**/scripts/**',
+      'resolve-skills/**',
       'pnpm-lock.yaml',
     ],
   },

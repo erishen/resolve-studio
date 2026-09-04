@@ -115,7 +115,7 @@ node --import tsx packages/core/src/index.ts --config cordis.patch.yml
 | 输入                                             | 预期                                                                                               |
 | ------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
 | `看看今天全市场有哪些值得关注的技术信号`         | 模型调用 `stock-scan` → 全市场信号扫描 → JSON 列表（趋势/买入/卖出，秒级返回，无需审批） ✅ 已实现 |
-| `帮我对最近持有的组合做一次周度分析，出一份周报` | 触发 `weekly-investment` 技能 → `analysis-lens` 组合分析 → 输出结构化周报 🔜 待落地         |
+| `帮我对最近持有的组合做一次周度分析，出一份周报` | 触发 `weekly-investment` 技能 → `analysis-lens` 组合分析 → 输出结构化周报 🔜 待落地                |
 | `看看茅台这几天走势咋样`                         | 模型调用行情工具 → 简表（CLI/成交量/涨跌） 🔜 待落地                                               |
 | `帮我把这个 CSV 分析一下，给我一份报告`          | 模型调用 `csv-analyze`（langgraph-csv-analyst）→ 剖析/趋势/异常 → HTML 报告 ✅ 已实现              |
 | `帮我研究一下 Notion AI 这个产品`                | 模型调用 `product-analyze`（crewai-product-analyst）→ 产品/竞品分析 → Markdown 报告 ✅ 已实现      |

@@ -12,6 +12,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # core tests index skills from the in-repo resolve-skills submodule
+          submodules: recursive
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4

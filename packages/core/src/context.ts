@@ -111,7 +111,11 @@ function trimToFit(
 }
 
 /** Fallback omit-note text used when no LLM summary is available. */
-function fallbackNote(dropped: number, droppedMsgs: ChatMessage[], summarizeDropped: boolean): string {
+function fallbackNote(
+  dropped: number,
+  droppedMsgs: ChatMessage[],
+  summarizeDropped: boolean,
+): string {
   const summary = summarizeDropped ? summarizeDroppedMessages(droppedMsgs) : ''
   return `[system] ${dropped} earlier message(s) were omitted to fit the context window.${summary} The conversation continues below.`
 }

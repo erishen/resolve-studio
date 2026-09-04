@@ -759,7 +759,10 @@ test('a reply that declares a tool without calling it is nudged to actually call
   // model was nudged between turn 2 and turn 3 rather than finishing early.
   assert.ok(calls.includes('echo'), 'echo tool ran')
   assert.ok(calls.includes('save-copy'), 'declared save-copy was actually called after the nudge')
-  assert.ok(steps.filter((r) => r === 'assistant').length >= 3, 'loop continued past the declaration')
+  assert.ok(
+    steps.filter((r) => r === 'assistant').length >= 3,
+    'loop continued past the declaration',
+  )
   assert.match(answer, /save-copy/)
 
   await root.fiber.dispose()
@@ -991,7 +994,8 @@ test('a tool-call with empty arguments is short-circuited with a precise missing
     async chat(messages: ChatMessage[]): Promise<ChatResponse> {
       this.round++
       const lastTool = [...messages].reverse().find((m) => m.role === 'tool')
-      const sawMissing = typeof lastTool?.content === 'string' && lastTool.content.includes('缺少必填参数')
+      const sawMissing =
+        typeof lastTool?.content === 'string' && lastTool.content.includes('缺少必填参数')
       const sawSuccess = typeof lastTool?.content === 'string' && lastTool.content.includes('saved')
       if (sawSuccess) {
         return { content: '文案已保存。' }

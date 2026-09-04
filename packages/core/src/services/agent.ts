@@ -192,7 +192,7 @@ export class AgentService extends Service {
     // may each take multiple tool calls); bump the cap when PSE is active.
     // A per-run `options.pse` overrides the global `ctx.pse.enabled` flag, so
     // background jobs can force PSE on while interactive chat keeps it off.
-    const pseActive = options.pse ?? (this.ctx.pse?.enabled ?? false)
+    const pseActive = options.pse ?? this.ctx.pse?.enabled ?? false
     const maxIterations = options.maxIterations ?? (pseActive ? 15 : 8)
     // A per-run include/exclude filter (see `AgentToolFilter`) prunes BOTH the
     // schema the LLM sees and the approval map below, so a filtered-out tool is
@@ -509,11 +509,13 @@ export class AgentService extends Service {
             failedStreaks.set(call.name, streak)
             if (streak >= FAIL_THRESHOLD && !toolNudged.has(call.name)) {
               toolNudged.add(call.name)
-              this.ctx.logger('agent').warn(
-                'tool "%s" failed %d× consecutively — nudging the model to change approach',
-                call.name,
-                streak,
-              )
+              this.ctx
+                .logger('agent')
+                .warn(
+                  'tool "%s" failed %d× consecutively — nudging the model to change approach',
+                  call.name,
+                  streak,
+                )
               messages.push({
                 role: 'user',
                 content:
@@ -562,11 +564,9 @@ export class AgentService extends Service {
         const declared = findDeclaredToolCall(answer, toolsForLlm, messages)
         if (declared && planInterrupts < MAX_PLAN_INTERRUPTS) {
           planInterrupts++
-          this.ctx.logger('agent').warn(
-            'round %d declared tool "%s" without a tool-call — nudging',
-            i + 1,
-            declared,
-          )
+          this.ctx
+            .logger('agent')
+            .warn('round %d declared tool "%s" without a tool-call — nudging', i + 1, declared)
           messages.push({
             role: 'user',
             content:

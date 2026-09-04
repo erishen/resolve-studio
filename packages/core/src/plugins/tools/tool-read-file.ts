@@ -34,7 +34,8 @@ const registerReadFile = (ctx: Context) => {
         },
         offset: {
           type: 'integer',
-          description: 'Byte offset to start reading from (default 0). Use with `limit` to page through a large file.',
+          description:
+            'Byte offset to start reading from (default 0). Use with `limit` to page through a large file.',
         },
         limit: {
           type: 'integer',

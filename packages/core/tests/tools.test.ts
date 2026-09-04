@@ -67,10 +67,7 @@ test('write-file writes content and creates parent directories', async () => {
   // the end.
   const big = resolve(tmpDir, 'big.txt')
   await writeFile(big, 'a'.repeat(200_000))
-  const first = await root.tools.call(
-    'read-file',
-    JSON.stringify({ path: big, limit: 64 * 1024 }),
-  )
+  const first = await root.tools.call('read-file', JSON.stringify({ path: big, limit: 64 * 1024 }))
   assert.match(first, /bytes 0..65536/, 'first slice range reported')
   const second = await root.tools.call(
     'read-file',
