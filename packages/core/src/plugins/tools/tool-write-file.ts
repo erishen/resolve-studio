@@ -18,7 +18,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import type { Context } from 'cordis'
-import type { Tool, ToolExecutionContext } from '../../types.js'
+import type { Tool } from '../../types.js'
 import { definePlugin } from '../util.js'
 
 const MAX_CONTENT = 256 * 1024

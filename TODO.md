@@ -14,19 +14,19 @@
 - [x] **README dev 描述修正**：提交 `b157f38` —— `make dev`=真实模型（需 `.env`+`OPENAI_*`）、`make dev-mock`=离线 mock；删掉不存在的 `make dev-real`
 - [x] **本地 dist 重建**：`pnpm -C packages/core run build` 基于去标识化后源码重编译，`packages/core/dist` 内 agnes/apihub/`2.0-flash` 0 残留（`dist` gitignored，不进版本库、无需提交）
 - [x] **GitHub About / Topics**：`gh repo edit` 设 description + 12 个通用 topics（typescript/ai-agents/multi-agent/agent-framework/llm/mcp/cordis/pnpm/monorepo/react/vite/automation），无私有模型/网关标识
-- [ ] **推送代码到 remote**：remote `origin` 已配（`github.com/erishen/resolve-studio`）、GitHub 仓库已建且 **public**、About/Topics 已填；但本地提交（d6eba8a/384ad1b/50f7a06/4bbd212/96338d1/b157f38 等）与 dist 重建**仍未 push**。push 后 CI `secret-scan` 才真正跑起来
-- [ ] **公开前最终核验**：`make secret-scan` 跑一遍确认全绿；复查文档无「实际使用的模型/网关」措辞（已 grep 0 命中）
+- [x] **推送代码到 remote**：remote `origin` 已配（`github.com/erishen/resolve-studio`）、GitHub 仓库已建且 **public**，本地提交与 dist 重建已 force-push 覆盖 origin/main（`773059b`，历史已全部去标识化）。push 后 CI `secret-scan` 已跑起来
+- [x] **公开前最终核验**：`make secret-scan` 全绿；文档无「实际使用的模型/网关」措辞（已 grep 0 命中）
 
 ## 近期（历史收尾，待清）
 
 - [x] **本地提交**：已 `git init` + 根提交 `4caaeea`（104 文件）+ 清理 commit `1774cbd`（清临时脚本），local only 未推送
-- [ ] `.env.example` 补齐：`PROD_WORDPRESS_USERNAME / PROD_WORDPRESS_APP_PASSWORD`（post-comment 复用）等新变量说明
+- [x] **`.env.example` 补齐**：`PROD_WORDPRESS_USERNAME / PROD_WORDPRESS_APP_PASSWORD`（post-comment 复用）等新变量说明——已含（WordPress 凭证段 + 外部项目路径段全部列出）
 - [ ] **重启后端让改动生效**（较早一轮 MCP/工具改动）：MCP 配置 · `mcp.ts` 120s 连接超时 · 新工具 `analyze-code-dir` · 引擎/用量徽章后端字段——均需**重启 `make dev` 后端进程**才生效
 
 ## 第二层方向（差异化，二选一）
 
 - [x] **MCP 接入**：plugins/mcp.ts，stdio/http 连接 MCP server，工具以 `<id>:<tool>` 注册进 ctx.tools（默认需审批可配置关）；测试 3 个（注册/关审批/失败降级）
-- [x] **垂直投资 Agent（本地私有版）**：`portfolio-summary` 工具（桥接 autogen-pse prepare.py，只读无审批）+ `weekly-investment-review` 技能（真实持仓 → 周报）。真实数据仅限本地私有，不进简历/开源；如做公开演示需 sample_data + 匿名数据
+- [x] **垂直投资 Agent（本地私有版）**：`portfolio-summary` 工具（桥接 autogen-pse prepare.py，只读无审批）+ `weekly-investment` 技能（真实持仓 → 周报）。真实数据仅限本地私有，不进简历/开源；如做公开演示需 sample_data + 匿名数据
 
 ## 体验与健壮性（第三层）
 

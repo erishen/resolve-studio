@@ -110,7 +110,7 @@ const ZH_TITLES: Record<string, string> = {
   'hot-news-check': '校验热点稿合规',
   'hot-news-publish': '发布热点稿',
   // 技能
-  'weekly-investment-review': '周度投资复盘',
+  'weekly-investment': '周度投资复盘',
   'post-comment': '文章评论',
   'rust-review': 'Rust 代码审查',
   'code-review': '代码审查',

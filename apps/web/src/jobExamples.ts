@@ -16,7 +16,7 @@ export const JOB_EXAMPLES: JobExample[] = [
     id: 'job-weekly-investment',
     title: '周度投资复盘',
     prompt:
-      '使用 weekly-investment-review 技能做一份周度投资复盘：先用 portfolio-check 刷新快照并扫描数据异常，再用 pse-review 生成深度分析，最后把完整报告用 write-file 保存到工作区（markdown 格式），完成后汇报报告路径和关键结论。',
+      '使用 weekly-investment 技能做一份周度投资复盘：先用 portfolio-check 刷新快照并扫描数据异常，再用 pse-review 生成深度分析，最后把完整报告用 write-file 保存到工作区（markdown 格式），完成后汇报报告路径和关键结论。',
   },
   {
     id: 'job-stock-scan',

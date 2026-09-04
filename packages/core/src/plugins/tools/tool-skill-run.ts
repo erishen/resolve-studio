@@ -26,7 +26,7 @@ const registerSkillRun = (ctx: Context) => {
     parameters: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Skill name, e.g. "weekly-investment-review".' },
+        name: { type: 'string', description: 'Skill name, e.g. "weekly-investment".' },
       },
       required: ['name'],
     },

@@ -135,8 +135,7 @@ export class SkillsService extends Service {
       }
     }
     // Fallback: the display name (frontmatter `name`) may differ from the folder
-    // name (e.g. weekly-investment vs weekly-investment-review). Scan each skill
-    // folder and match on its frontmatter name.
+    // name. Scan each skill folder and match on its frontmatter name.
     for (const dir of this.dirs) {
       let folderNames: string[]
       try {

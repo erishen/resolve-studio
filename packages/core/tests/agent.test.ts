@@ -793,7 +793,7 @@ test('a final answer that merely mentions an already-run tool is not nudged', as
   const toolCallsSeen: string[] = []
   class RunThenSummary extends LlmService {
     private round = 0
-    async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+    async chat(_messages: ChatMessage[]): Promise<ChatResponse> {
       this.round++
       if (this.round === 1) {
         // Actually execute save-copy (so it lands in `messages` as a tool turn).
