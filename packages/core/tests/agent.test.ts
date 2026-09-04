@@ -690,8 +690,6 @@ test('a reply that declares a tool without calling it is nudged to actually call
   await root.plugin(ApprovalService)
   await root.plugin(skills, { dir: '../../skills' })
   await root.plugin(toolEcho)
-  // A standalone tool with no extra service deps, so it appears in the registry
-  // and the mock can "declare" it without calling it.
   root.tools.register({
     name: 'save-copy',
     description: 'Persist copy to a file.',
@@ -764,6 +762,68 @@ test('a reply that declares a tool without calling it is nudged to actually call
   assert.ok(steps.filter((r) => r === 'assistant').length >= 3, 'loop continued past the declaration')
   assert.match(answer, /save-copy/)
 
+  await root.fiber.dispose()
+})
+
+test('a prose-only step that names NO tool but matches an alias is nudged', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService)
+  await root.plugin(skills, { dir: '../../skills' })
+  await root.plugin(toolEcho)
+  // A tool whose name maps to a TOOL_ALIASES phrase ("生成*文案" → hot-news).
+  root.tools.register({
+    name: 'hot-news',
+    description: 'Generate social-media copy for a hot topic.',
+    parameters: {
+      type: 'object',
+      properties: { topic: { type: 'string' } },
+      required: ['topic'],
+    },
+    async execute() {
+      return 'hot-news: draft ready'
+    },
+    needsApproval: false,
+  })
+
+  const calls: string[] = []
+  // Round 1: prose-only "生成文案" with NO tool-call and NO tool name — matches
+  // the hot-news alias, so the loop must nudge. Round 2 (after nudge): call it.
+  class ProseThenRun extends LlmService {
+    private round = 0
+    async chat(): Promise<ChatResponse> {
+      this.round++
+      if (this.round === 1) {
+        // Failure mode from production: STEP describes the next action only in
+        // prose, never naming "hot-news" nor emitting a tool-call.
+        return { content: '素材读完了，现在生成文案。' }
+      }
+      if (this.round === 2) {
+        return {
+          toolCalls: [
+            { id: `prose-${this.round}`, name: 'hot-news', arguments: '{ "topic": "GPT-6" }' },
+          ],
+        }
+      }
+      return { content: '文案已生成并保存。' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(ProseThenRun)
+  root.on('agent/tool-call', (call) => calls.push(call.name))
+
+  const answer = await root.agent.run({
+    messages: [{ role: 'user', content: '写一篇营销文案并保存' }],
+  })
+  // The alias nudge fired: hot-news was actually called despite the model only
+  // saying "生成文案" (no tool name, no tool-call) on its first attempt.
+  assert.ok(calls.includes('hot-news'), 'hot-news was called after the alias-based nudge')
+  assert.match(answer, /文案已生成/)
   await root.fiber.dispose()
 })
 

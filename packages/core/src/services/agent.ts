@@ -81,12 +81,28 @@ function canonicalArgs(args: string | Record<string, unknown>): string {
 const MAX_PLAN_INTERRUPTS = 2
 
 /**
+ * Natural-language aliases → tool name. Models often write their next step in
+ * prose ("生成小红书文案", "校验一下合规") WITHOUT naming the underlying tool,
+ * so plain instrument-name matching misses them. These trigger phrases pair a
+ * concrete action with the tool that performs it; the existing intent-verb
+ * check still applies, and executed tools are never re-flagged.
+ */
+const TOOL_ALIASES: Record<string, string[]> = {
+  'hot-news': ['生成文案', '小红书文案', '营销文案', '写一篇.*文案', '生成.*文案'],
+  'hot-news-check': ['校验合规', '检查合规', '合规校验', '校验.*合规', '检查.*合规'],
+  'hot-news-topics': ['列话题', '话题候选', '列.*话题', '列出话题'],
+  'hot-news-fetch': ['抓取.*素材', '抓素材', '抓取.*热点', '热点素材'],
+}
+
+/**
  * Detect a reply that *names* a not-yet-executed tool with an intent verb but
  * never actually calls it — e.g. "用 hot-news 生成文案" with no tool-call.
  * Returns the tool name to nudge, or `null` when the reply is a genuine final
  * answer. Execution is judged against the conversation: a tool that already
  * produced a `tool` turn is considered done, so a summary that mentions it is
- * not flagged. Only checks tools the model can currently see.
+ * not flagged. Only checks tools the model can currently see. Matching is
+ * two-layered: first by literal tool name + intent verb, then by natural
+ * language alias phrases (see {@link TOOL_ALIASES}) for prose-only steps.
  */
 function findDeclaredToolCall(
   text: string,
@@ -112,6 +128,15 @@ function findDeclaredToolCall(
     const before = text.split(t.name)[0] ?? ''
     const tail = before.slice(-12)
     if (intentVerbs.some((v) => tail.includes(v))) return t.name
+  }
+  // Fallback: the model phrased the step in natural language without naming the
+  // tool (e.g. "生成小红书文案" rather than "调用 hot-news"). Match alias
+  // trigger phrases — these already encode an action so no extra verb needed.
+  for (const [tool, patterns] of Object.entries(TOOL_ALIASES)) {
+    if (executed.has(tool)) continue
+    for (const p of patterns) {
+      if (new RegExp(p).test(text)) return tool
+    }
   }
   return null
 }
