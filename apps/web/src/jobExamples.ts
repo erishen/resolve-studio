@@ -34,7 +34,7 @@ export const JOB_EXAMPLES: JobExample[] = [
     id: 'job-csv-report',
     title: 'CSV 数据分析报告',
     prompt:
-      '用 csv-analyze 分析指定 CSV 数据文件，生成带数据剖视、趋势和异常识别的报告，把报告用 write-file 保存到工作区，完成后汇报报告路径与主要发现。',
+      '用 csv-analyze 分析一个 CSV 数据文件并生成带数据剖视、趋势和异常识别的报告。没有指定具体文件时，直接调用 csv-analyze 且不要传 file 参数（它会自动用内置样例 data/sample_sales.csv 演示分析）。不要花时间在文件系统里找 CSV 文件。把生成的报告用 write-file 保存到工作区，完成后汇报报告路径与主要发现。',
   },
   {
     id: 'job-hot-news-pipeline',

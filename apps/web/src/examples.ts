@@ -242,7 +242,8 @@ function toolExample(t: ToolSchema): ExampleItem | null {
     },
     'csv-analyze': {
       title: 'CSV 数据分析报告',
-      prompt: '帮我把这个 CSV 分析一下，用 csv-analyze 工具给我一份带剖视/趋势/异常的报告。',
+      prompt:
+        '帮我分析一份 CSV 数据，用 csv-analyze 工具给我一份带剖视/趋势/异常的报告。没有指定 CSV 文件时，直接用 csv-analyze 且不传 file 参数（用内置样例 data/sample_sales.csv 演示）。',
       category: 'invest',
     },
     'product-analyze': {
