@@ -123,16 +123,24 @@ function formatMcpResult(raw: unknown): string {
     content?: { type?: string; text?: string }[]
     isError?: boolean
     structuredContent?: unknown
+    text?: string
   }
   if (res.isError) {
     const text = (res.content ?? []).map((c) => c.text ?? '').join('')
     return `error: ${text || 'mcp tool failed'}`
   }
-  if (res.structuredContent !== undefined) return JSON.stringify(res.structuredContent)
-  return (res.content ?? [])
-    .map((c) => c.text ?? '')
-    .filter(Boolean)
-    .join('\n')
+  // Many servers (e.g. server-filesystem) return a clean human/LLM-readable
+  // `content[].text` alongside a redundant `structuredContent` JSON view. The
+  // JSON view only ADDS wrapping noise (`{"content":"[DIR] .data\n..."}`) that
+  // the model has to untangle, so the readable text wins when present.
+  const texts = (res.content ?? []).map((c) => c.text ?? '').filter(Boolean)
+  if (texts.length) return texts.join('\n')
+  // Fall back to the structured view (indented for readability) only when no
+  // readable text block exists, or to a top-level `text` for tools that return
+  // flat strings.
+  if (res.structuredContent !== undefined) return JSON.stringify(res.structuredContent, null, 2)
+  if (typeof res.text === 'string') return res.text
+  return String(raw ?? '')
 }
 
 /**
