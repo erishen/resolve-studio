@@ -27,6 +27,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Plugin packages export types from dist/*.d.ts (gitignored), and core
+      # source+tests import them (ctx.pse typing + runtime loader). dist/ is
+      # absent on a fresh checkout, so build plugins before any core step.
+      - name: Build plugin packages
+        run: pnpm run build:plugins
+
       - name: Typecheck (core)
         run: pnpm -C packages/core run typecheck
 
