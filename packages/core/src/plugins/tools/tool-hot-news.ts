@@ -21,6 +21,12 @@ const PROVIDERS = ['deepseek', 'agnes', 'scnet-kimi', 'scnet-minimax'] as const
 type Provider = (typeof PROVIDERS)[number]
 const DEFAULT_PROVIDER: Provider = 'agnes'
 
+// hot-news is the heaviest PSE pipeline (RAG index build + Planner/Specialist/
+// Evaluator/Verify + per-round compliance verify_fn), so it needs a much larger
+// budget than the generic 5-min DEFAULT_RUN_TIMEOUT_MS — otherwise long runs
+// get SIGTERMed (exit 143) mid-flight. Match hot-news-publish's 15 min.
+const RUN_TIMEOUT_MS = 900_000
+
 // hot-news-fetch 落盘的快照目录：不传 news_dir 时默认用它做 RAG grounding 源，
 // 避免模型漏传 news_dir 导致纯 topic 无事实对照（甚至触发 run.py 崩溃）。
 const hotNewsDir = () => resolveTaskDir('llamaindex', 'hot-news')
@@ -153,6 +159,7 @@ const registerHotNews = (ctx: Context, _config: HotNewsConfig = {}) => {
         framework: 'llamaindex',
         task: 'hot-news',
         args: cmdArgs,
+        timeoutMs: RUN_TIMEOUT_MS,
         onProgress,
         logger: (msg, ...a) => ctx.logger('hot-news').info(msg, ...a),
       })
