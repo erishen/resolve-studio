@@ -29,6 +29,43 @@ export function messagesToMarkdown(messages: UIMessage[], title?: string): strin
   return lines.join('\n')
 }
 
+/**
+ * Format a SINGLE assistant message for clipboard copy — the full turn including
+ * the model's reasoning, every tool call in order (name + args + result/error),
+ * and the final answer text. Useful to paste a particular LLM answer with its
+ * execution flow / error details into a bug report or notes.
+ */
+export function assistantToMarkdown(m: UIMessage): string {
+  const lines: string[] = []
+  lines.push(`## 🤖 Assistant`, '')
+  if (m.reasoning) {
+    lines.push('> **Thinking**', '', `> ${m.reasoning.replace(/\n/g, '\n> ')}`, '')
+  }
+  if (m.toolCalls && m.toolCalls.length > 0) {
+    lines.push(`**执行流程 (${m.toolCalls.length} 个工具调用)**`, '')
+    m.toolCalls.forEach((tc, i) => {
+      const mark =
+        tc.decision === 'reject'
+          ? '❌ rejected'
+          : tc.ok === false
+            ? '❌ failed'
+            : tc.result
+              ? '✅ done'
+              : '⏳ pending'
+      const dur = tc.durationMs != null ? ` · ${tc.durationMs}ms` : ''
+      lines.push(`### ${i + 1}. \`${tc.name}\` — ${mark}${dur}`, '')
+      lines.push('**参数：**', '', '```json', JSON.stringify(tc.arguments, null, 2), '```', '')
+      if (tc.result) {
+        lines.push(`**${tc.ok === false ? '错误' : '结果'}：**`, '', '```', tc.result, '```', '')
+      }
+    })
+  }
+  if (m.content) {
+    lines.push('**回答：**', '', m.content, '')
+  }
+  return lines.join('\n')
+}
+
 /** Trigger a browser download for text content. */
 export function downloadText(filename: string, content: string, mime = 'text/plain') {
   const blob = new Blob([content], { type: `${mime};charset=utf-8` })

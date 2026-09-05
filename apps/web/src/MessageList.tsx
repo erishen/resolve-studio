@@ -1,9 +1,11 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { useState } from 'react'
 import type { UIMessage } from './types'
 import { CATEGORY_LABELS, CATEGORY_ORDER, type ExampleCategory, type ExampleItem } from './examples'
 import { NEXT_STEP_EXAMPLES } from './examples'
 import { ToolCallCard } from './ToolCallCard'
+import { assistantToMarkdown, copyToClipboard } from './export'
 
 /**
  * Extract previewable .md file paths from message text.
@@ -71,6 +73,27 @@ function extractPreviewPaths(content: string, toolResults: (string | undefined)[
 }
 
 type GroupedExamples = Record<ExampleCategory, ExampleItem[]>
+
+/** Copy a single assistant turn (reasoning + tool flow + answer) to clipboard. */
+function CopyTurnButton({ message }: { message: UIMessage }) {
+  const [copied, setCopied] = useState(false)
+  const onClick = async () => {
+    const ok = await copyToClipboard(assistantToMarkdown(message))
+    if (ok) {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    }
+  }
+  return (
+    <button
+      className="btn btn-sm btn-copy-turn"
+      onClick={() => void onClick()}
+      title="复制该回答（含思考、工具调用流程与错误详情）"
+    >
+      {copied ? '✓ 已复制' : '⧉ 复制'}
+    </button>
+  )
+}
 
 interface MessageListProps {
   messages: UIMessage[]
@@ -216,6 +239,9 @@ export function MessageList({
                 >
                   ✎
                 </button>
+              )}
+              {m.role === 'assistant' && !m.pending && (m.content || m.toolCalls?.length) && (
+                <CopyTurnButton message={m} />
               )}
             </div>
             <div className="message-body">

@@ -2340,6 +2340,24 @@ body {
   opacity: 1 !important;
 }
 
+/* Copy-a-turn button in the assistant message role row: shown on hover, keeps
+   the message header uncluttered until the user needs it. */
+.btn-copy-turn {
+  margin-left: 8px;
+  padding: 0 6px;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  color: var(--muted);
+}
+.message-assistant:hover .btn-copy-turn {
+  opacity: 0.6;
+}
+.btn-copy-turn:hover {
+  opacity: 1 !important;
+  color: var(--text);
+}
+
 /* ---- tool progress (live streaming log) ---- */
 .tool-progress {
   margin-top: 8px;
