@@ -23,7 +23,10 @@ const ZH_SAVED_RE = /中文已保存 →\s*(\S+)/
 const EN_SAVED_RE = /英文已保存 →\s*(\S+)/
 
 // Project keys are read from projects.json at registration time so the enum
-// stays in sync without manual edits.
+// stays in sync without manual edits. Because article-discover can append new
+// projects at runtime, the key list is also re-read and the tool re-registered
+// on every execute() so newly discovered projects surface in the enum for the
+// next agent turn (see refreshProjectKeys).
 function projectsFile(): string | null {
   const dir = crewaiPseDir()
   return dir ? join(dir, 'tasks', 'project-articles', 'projects.json') : null
@@ -46,7 +49,7 @@ function loadProjectKeys(): string[] {
   }
 }
 
-const projectKeys = loadProjectKeys()
+let projectKeys = loadProjectKeys()
 
 const STYLE_NAMES = ['A', 'B', 'C', 'D', 'E', 'F'] as const
 type StyleLetter = (typeof STYLE_NAMES)[number]
@@ -81,6 +84,32 @@ function buildRunEnv(provider: 'free' | 'deepseek'): NodeJS.ProcessEnv {
   return env
 }
 
+/** Re-read projects.json and rebuild the `project` enum so newly discovered
+ *  projects (added by article-discover) surface in the tool schema for the
+ *  model's next turn. Called on every execute and when registering. The
+ *  registered Tool object holds the parameters by reference, so mutating its
+ *  `project.enum` in place makes the next `schemas()`/`filterTools` call see
+ *  the fresh list without re-registering. */
+function refreshProjectKeys(ctx: Context): string[] {
+  const fresh = loadProjectKeys()
+  if (JSON.stringify(fresh) !== JSON.stringify(projectKeys)) {
+    ctx.logger('article-write').info(
+      'projects.json changed: %d -> %d keys',
+      projectKeys.length,
+      fresh.length,
+    )
+    projectKeys = fresh
+    const tool = ctx.tools.get('article-write')
+    const projectParam = (tool?.parameters as
+      | { properties?: { project?: { enum?: string[] } } }
+      | undefined)?.properties?.project
+    if (projectParam) {
+      projectParam.enum = fresh.length ? fresh : undefined
+    }
+  }
+  return projectKeys
+}
+
 const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) => {
   ctx.tools.register({
     name: 'article-write',
@@ -102,7 +131,12 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       'Switching to provider="deepseek" (PAID) triggers a human approval prompt — wait for the user ' +
       'to approve before assuming it will run; if the user rejects, do NOT retry with deepseek, ' +
       'explain and adjust instead. ' +
-      'Do NOT read any files before calling this tool — all paths and configs are handled internally.',
+      'Do NOT read any files before calling this tool — all paths and configs are handled internally. ' +
+      'If this tool returns an error (e.g. missing project fields, exit code 1), report the error ' +
+      'message back to the user VERBATIM and ask them to fix the project config — do NOT try to ' +
+      'locate projects.json, inspect the project directory, or run shell/fs commands yourself: ' +
+      'the framework project lives OUTSIDE this sandbox and those reads will fail; the tool owns ' +
+      'all file access for article writing.',
     parameters: {
       type: 'object',
       properties: {
@@ -147,6 +181,10 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
     ): Promise<string> {
       const { project, publish = false, style, provider = 'free' } = args
       const onProgress = execCtx?.onProgress
+
+      // Re-sync the project enum from projects.json on every call: article-
+      // discover may have added new projects since this tool was registered.
+      refreshProjectKeys(ctx)
 
       const CREWAI_PSE = crewaiPseDir()
       if (!CREWAI_PSE) {

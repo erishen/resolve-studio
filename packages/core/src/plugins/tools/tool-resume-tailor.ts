@@ -7,7 +7,7 @@ import type { Tool, ToolExecutionContext } from '../../types.js'
 
 // Resume tailoring is a RAG + LLM pipeline; runPseTask defaults to 5 minutes.
 
-const PROVIDERS = ['agnes', 'deepseek', 'scnet-kimi', 'scnet-minimax'] as const
+const PROVIDERS = ['free', 'deepseek', 'scnet-kimi', 'scnet-minimax'] as const
 type Provider = (typeof PROVIDERS)[number]
 
 export interface ResumeTailorConfig {
@@ -23,8 +23,8 @@ const registerResumeTailor = (ctx: Context, _config: ResumeTailorConfig = {}) =>
       '(2) recommend best-fit positions based on your experience. ' +
       'Takes 1-5 minutes. Returns the generated resume (Markdown) and save path. ' +
       'Use when the user asks to tailor/optimize a resume for a job, or asks for ' +
-      'job/career recommendations. Default provider: agnes. ' +
-      'Any non-agnes provider (deepseek / scnet-kimi / scnet-minimax) is PAID and triggers a human ' +
+      'job/career recommendations. Default provider: free. ' +
+      'Any non-free provider (deepseek / scnet-kimi / scnet-minimax) is PAID and triggers a human ' +
       'approval prompt — wait for the user to approve before assuming it will run; if rejected, ' +
       'do NOT retry with a paid provider. ' +
       'Do NOT read any files before calling this tool — all paths and configs are handled internally.',
@@ -46,20 +46,20 @@ const registerResumeTailor = (ctx: Context, _config: ResumeTailorConfig = {}) =>
         },
         provider: {
           type: 'string',
-          description: 'Model provider: agnes (default/free), deepseek, scnet-kimi, scnet-minimax.',
+          description: 'Model provider: free (default), deepseek, scnet-kimi, scnet-minimax.',
           enum: [...PROVIDERS],
-          default: 'agnes',
+          default: 'free',
         },
       },
       required: ['mode'],
     },
-    // Any non-agnes provider (deepseek / scnet-*) is paid and requires approval.
-    approvalWhen: gateNonFreeProvider('agnes'),
+    // Any non-free provider (deepseek / scnet-*) is paid and requires approval.
+    approvalWhen: gateNonFreeProvider('free'),
     async execute(
       args: { mode: 'customize' | 'recommend'; jd_text?: string; provider?: Provider },
       execCtx?: ToolExecutionContext,
     ): Promise<string> {
-      const { mode, jd_text, provider = 'agnes' } = args
+      const { mode, jd_text, provider = 'free' } = args
       const onProgress = execCtx?.onProgress
 
       // Validate

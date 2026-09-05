@@ -17,9 +17,9 @@ import type { Tool, ToolExecutionContext } from '../../types.js'
 // rename has to land in the framework and this tool in the same commit.
 // DEFAULT_PROVIDER is the operator's configured default gateway (the free
 // channel), so it must stay in sync with the framework's own default.
-const PROVIDERS = ['deepseek', 'agnes', 'scnet-kimi', 'scnet-minimax'] as const
+const PROVIDERS = ['deepseek', 'free', 'scnet-kimi', 'scnet-minimax'] as const
 type Provider = (typeof PROVIDERS)[number]
-const DEFAULT_PROVIDER: Provider = 'agnes'
+const DEFAULT_PROVIDER: Provider = 'free'
 
 // hot-news is the heaviest PSE pipeline (RAG index build + Planner/Specialist/
 // Evaluator/Verify + per-round compliance verify_fn), so it needs a much larger

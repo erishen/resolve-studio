@@ -94,7 +94,7 @@ test('hot-news: default provider passes, explicit paid providers are gated', asy
   const root = await buildContext()
   const base = { topic: 'AI 新规落地' }
   assert.equal(root.tools.needsApproval('hot-news', base), false)
-  assert.equal(root.tools.needsApproval('hot-news', { ...base, provider: 'agnes' }), false)
+  assert.equal(root.tools.needsApproval('hot-news', { ...base, provider: 'free' }), false)
   assert.equal(root.tools.needsApproval('hot-news', { ...base, provider: 'deepseek' }), true)
   assert.equal(root.tools.needsApproval('hot-news', { ...base, provider: 'scnet-kimi' }), true)
   await root.fiber.dispose()
