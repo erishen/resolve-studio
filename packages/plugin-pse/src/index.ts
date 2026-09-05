@@ -62,6 +62,9 @@ function defaultSoulsDir(): string | undefined {
 export class PseService extends Service {
   private _enabled: boolean
   private readonly soulsDir: string | undefined
+  // Soul files are static at runtime; cache per-role content so the PSE
+  // orchestrator (which reads all three every run) doesn't re-read disk.
+  private readonly soulCache = new Map<string, string | null>()
 
   constructor(ctx: Context, config: PseConfig = {}) {
     super(ctx, 'pse')
@@ -105,18 +108,32 @@ export class PseService extends Service {
     return out
   }
 
-  /** Full SOUL.md content for a given role, or null if missing/disabled. */
-  async read(role: string): Promise<string | null> {
-    if (!this.enabled || !this.soulsDir) return null
+  /** Full SOUL.md content for a given role, or null if missing/disabled.
+   *
+   *  `force` bypasses the global `enabled` flag — used by the orchestrator when
+   *  a per-run `pse: true` override is active even though the global flag is off.
+   *  Content is memoized per-role (soul files don't change at runtime). */
+  async read(role: string, force = false): Promise<string | null> {
+    if ((!this.enabled && !force) || !this.soulsDir) return null
     const safe = role.replace(/[^a-zA-Z0-9_-]/g, '')
     if (!safe || !ROLES.includes(safe as Role)) return null
-    try {
-      return (await readFile(join(this.soulsDir, safe, 'SOUL.md'), {
-        encoding: 'utf8',
-      })) as string
-    } catch {
-      return null
-    }
+    if (this.soulCache.has(safe)) return this.soulCache.get(safe) ?? null
+    const content: string | null = await (async () => {
+      try {
+        return (await readFile(join(this.soulsDir!, safe, 'SOUL.md'), {
+          encoding: 'utf8',
+        })) as string
+      } catch {
+        return null
+      }
+    })()
+    this.soulCache.set(safe, content)
+    return content
+  }
+
+  /** Drop the per-role SOUL.md cache (e.g. after editing souls at runtime). */
+  invalidate(): void {
+    this.soulCache.clear()
   }
 
   /**

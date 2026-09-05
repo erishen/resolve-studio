@@ -37,6 +37,9 @@ export interface UsageRecord {
   cost: number
   /** Session id this record belongs to (undefined when untracked). */
   sessionId?: string
+  /** Rough char count of the prompt that produced this record (when known).
+   *  Used to calibrate the char↔token conversion for context budgeting. */
+  promptChars?: number
 }
 
 export interface UsageSnapshot {
@@ -89,22 +92,35 @@ export class UsageService extends Service {
   private readonly prices: PriceTable = loadPrices()
   private readonly global: SessionTotals = emptyTotals()
   private readonly bySession = new Map<string, SessionTotals>()
+  // Running EWMA of observed prompt-chars ÷ prompt-tokens, so context trimming
+  // can convert a *token* budget into char budget using the model's real token
+  // density rather than a fixed 4 chars/token guess.
+  private charPerToken: number | null = null
 
   constructor(ctx: Context) {
     super(ctx, 'usage')
+  }
+
+  /** Estimated chars consumed per prompt token, from real usage feedback.
+   *  Falls back to the 4 chars/token heuristic used by `estimateChars`. */
+  estimatedCharsPerToken(): number {
+    return this.charPerToken ?? 4
   }
 
   /** Record a completed completion's token usage and emit an event.
    *  When `bus` is supplied the event is scoped to that run (so concurrent
    *  runs don't cross-talk); otherwise it goes to the global bus.
    *  When `sessionId` is supplied the totals are also attributed to that
-   *  session (retrievable via {@link snapshot}). */
+   *  session (retrievable via {@link snapshot}).
+   *  When `promptChars` is supplied the chars/token EWMA is updated from this
+   *  request's real usage. */
   record(
     model: string,
     promptTokens: number,
     completionTokens: number,
     bus?: RunEventBus,
     sessionId?: string,
+    promptChars?: number,
   ): UsageRecord {
     const price = this.prices[model] ?? this.prices['default']
     const cost = (promptTokens / 1000) * price.in + (completionTokens / 1000) * price.out
@@ -120,7 +136,12 @@ export class UsageService extends Service {
       this.addTo(sess, model, promptTokens, completionTokens, cost)
     }
 
-    const record: UsageRecord = { model, promptTokens, completionTokens, cost, sessionId }
+    if (promptChars && promptTokens > 0) {
+      const observed = promptChars / promptTokens
+      this.charPerToken = this.charPerToken === null ? observed : this.charPerToken * 0.8 + observed * 0.2
+    }
+
+    const record: UsageRecord = { model, promptTokens, completionTokens, cost, sessionId, ...(promptChars !== undefined ? { promptChars } : {}) }
     ;(bus ?? this.ctx.events).emit('llm/usage', record)
     return record
   }

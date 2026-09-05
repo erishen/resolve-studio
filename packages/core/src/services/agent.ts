@@ -30,7 +30,7 @@ import type {
   ToolSchema,
 } from '../types.js'
 import type { ApprovalDecision } from './approval.js'
-import { fitContextWithSummary } from '../context.js'
+import { estimateChars, fitContextWithSummary } from '../context.js'
 
 /** Best-effort parse of tool arguments that arrive as a JSON string. */
 function safeParseArgs(raw: string): Record<string, unknown> {
@@ -141,6 +141,28 @@ function findDeclaredToolCall(
   return null
 }
 
+/**
+ * Strip malformed XML-ish tags (e.g. hallucinated `<tool_call>`, `<parameter>`,
+ * `<parameter=task>` …) from a PSE role's prose output, plus an outer markdown
+ * code fence the model sometimes wraps the whole reply in. A model in the
+ * Planner/Evaluator phase occasionally emits pseudo tool-call syntax or wraps
+ * its verdict in ``` fences; leaving it in would poison the Specialist's plan
+ * and make the Evaluator's first-line verdict (e.g. `` ``` `` + PASS) fail the
+ * `/^PASS\b/` check, retrying the whole expensive pipeline.
+ */
+function sanitizeRoleOutput(raw: string): string {
+  return raw
+    .replace(/<\/?[a-zA-Z][^>]*>/g, ' ')
+    .replace(/^```[a-zA-Z]*\s*/gm, '')
+    .replace(/```$/gm, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .split('\n')
+    .map((l) => l.trim())
+    .join('\n')
+    .trim()
+}
+
 declare module 'cordis' {
   interface Context {
     agent: AgentService
@@ -164,6 +186,10 @@ export interface AgentConfig {
   /** Default context-window budget in chars before old messages are trimmed.
    *  Overridable per-run via {@link AgentRunOptions.contextBudgetChars}. */
   contextBudgetChars?: number
+  /** Default context-window budget in tokens. Takes precedence over
+   *  `contextBudgetChars` when set; converted to chars via the observed
+   *  chars/token ratio (usage feedback) instead of a fixed 4/char heuristic. */
+  contextBudgetTokens?: number
 }
 
 export class AgentService extends Service {
@@ -175,10 +201,24 @@ export class AgentService extends Service {
 
   /** Per-plugin default context budget; a run may override it. */
   private readonly budgetChars?: number
+  private readonly budgetTokens?: number
 
   constructor(ctx: Context, config: AgentConfig = {}) {
     super(ctx, 'agent')
     this.budgetChars = config.contextBudgetChars
+    this.budgetTokens = config.contextBudgetTokens
+  }
+
+  /** Resolve the effective char budget for a run. A token budget (option or
+   *  config) wins; it's converted to chars using the model's observed
+   *  chars/token ratio from usage feedback, falling back to fixed 4 chars/token. */
+  private resolveBudgetChars(options: AgentRunOptions): number | undefined {
+    const tokens = options.contextBudgetTokens ?? this.budgetTokens
+    if (tokens) {
+      const ratio = (this.ctx.usage?.estimatedCharsPerToken?.() as number | undefined) ?? 4
+      return Math.round(tokens * ratio)
+    }
+    return options.contextBudgetChars ?? this.budgetChars
   }
 
   /**
@@ -248,24 +288,12 @@ export class AgentService extends Service {
     // global `ctx.events` bus, which keeps the CLI's `ctx.events.on(...)` and
     // the tests' observers working unchanged.
     const bus: RunEventBus = options.bus ?? (this.ctx.events as unknown as RunEventBus)
-    // Bound the conversation to the context window before anything else. A
-    // pre-budget (cheaper than the per-message cap in llm-openai.ts) plus a
-    // rolling summary keeps long sessions coherent: when old messages are
-    // dropped, a cheap tool-free LLM call compresses them into a summary that
-    // replaces the terse "omitted" note.
-    const messages: ChatMessage[] = await fitContextWithSummary(
-      options.messages.map((m) => ({ ...m })),
-      {
-        maxChars: options.contextBudgetChars ?? this.budgetChars,
-        summarize: (dropped) =>
-          this.summarizeDropped(dropped, {
-            model: options.model,
-            signal: options.signal,
-            bus,
-            sessionId: options.sessionId,
-          }),
-      },
-    )
+    // The conversation starts as a mutable copy of the caller's messages.
+    // System prompts (env brief, skills index, caller/role instructions) are
+    // prepended below, and THEN the whole thing is fitted to the context
+    // budget — so the fixed system overhead counts against the budget and the
+    // leading system messages are never dropped (trimToFit keeps all of them).
+    let messages: ChatMessage[] = options.messages.map((m) => ({ ...m }))
 
     // Fast Path: if the last user message is a pure arithmetic query we can
     // resolve deterministically, short-circuit the whole LLM loop (zero model
@@ -320,12 +348,8 @@ export class AgentService extends Service {
       if (skillsIndex) messages.unshift({ role: 'system', content: skillsIndex })
     }
 
-    // PSE three-role mode: if enabled, inject the role discipline so the model
-    // follows Planner → Specialist → Evaluator instead of a flat ReAct loop.
-    if (pseActive) {
-      const psePrompt = await this.ctx.pse?.systemPrompt(pseActive)
-      if (psePrompt) messages.unshift({ role: 'system', content: psePrompt })
-    }
+    // PSE three-role mode: delegated to runPseOrchestrator below, which gives
+    // each role its own SOUL.md system prompt instead of a combined role summary.
 
     // Caller-supplied system prompt (role preset / task instructions). Inserted
     // after the skills index so it takes precedence as the topmost instruction.
@@ -336,7 +360,20 @@ export class AgentService extends Service {
       messages.unshift({ role: 'system', content: parts.join('\n\n') })
     }
 
+    // Bound the whole conversation (system prompts included) to the context
+    // budget NOW: the cheap pre-budget is cheaper than llm-openai's per-message
+    // cap, and the rolling summary keeps long sessions coherent — when old
+    // messages are dropped, a tool-free LLM call compresses them into a summary
+    // that replaces the terse "omitted" note.
+    messages = await this.compact(messages, options, bus)
+
     const runId = options.runId
+
+    // PSE orchestrator: when PSE is active, delegate to the three-phase
+    // Planner → Specialist → Evaluator orchestrator instead of the flat loop.
+    if (pseActive) {
+      return this.runPseOrchestrator(messages, options, toolsForLlm, bus)
+    }
 
     // Loop detection: track recent assistant contents and tool-call counts so we
     // can bail early when the model is spinning (e.g. PSE mode where Planner /
@@ -362,6 +399,11 @@ export class AgentService extends Service {
         bus.emit('agent/done', { answer: partial, failedToolCalls })
         return partial
       }
+
+      // Incremental context compaction: tool results from the previous round
+      // pushed messages past the budget. Fit again (rolling-summary upgrade)
+      // so a long job's in-loop context stays bounded — not just at run start.
+      messages = await this.compact(messages, options, bus)
 
       let response: ChatResponse
       try {
@@ -600,6 +642,7 @@ export class AgentService extends Service {
       signal?: AbortSignal
       bus?: RunEventBus
       sessionId?: string
+      toolChoice?: ChatOptions['toolChoice']
     },
   ): Promise<ChatResponse> {
     const callOptions: ChatOptions = {
@@ -608,6 +651,7 @@ export class AgentService extends Service {
       signal: options.signal,
       bus: options.bus,
       sessionId: options.sessionId,
+      ...(options.toolChoice ? { toolChoice: options.toolChoice } : {}),
     }
     if (!this.ctx.llm.chatStream) return this.ctx.llm.chat(messages, callOptions)
 
@@ -739,6 +783,41 @@ export class AgentService extends Service {
     return text || 'Run stopped before a final answer was produced.'
   }
 
+  /** Fit `messages` to the run's context budget, upgrading a dropped region to
+   *  a rolling summary when possible. Used at run start and again after every
+   *  in-loop round, so a long job's context stays bounded the whole way
+   *  through (not just at entry). Internal serialization is fine — compaction
+   *  is invoked at most ~maxIterations times per run and is a no-op while the
+   *  conversation is under budget. */
+  private async compact(
+    messages: ChatMessage[],
+    options: AgentRunOptions,
+    bus: RunEventBus,
+  ): Promise<ChatMessage[]> {
+    const budgetChars = this.resolveBudgetChars(options)
+    if (budgetChars !== undefined && estimateChars(messages) <= budgetChars) return messages
+    this.ctx.logger('agent').info(
+      'context fit: %d chars (budget %s) — compacting %d msgs',
+      estimateChars(messages),
+      budgetChars ?? 'default 60k',
+      messages.length,
+    )
+    return fitContextWithSummary(messages, {
+      maxChars: budgetChars,
+      // `messages` is the agent loop's private copy (built in run()), so when
+      // the input is within budget we can return it as-is instead of array-
+      // cloning it on every iteration.
+      reuseInPlace: true,
+      summarize: (dropped) =>
+        this.summarizeDropped(dropped, {
+          model: options.model,
+          signal: options.signal,
+          bus,
+          sessionId: options.sessionId,
+        }),
+    })
+  }
+
   /**
    * Compress a dropped message region into a short summary via a cheap,
    * tool-free LLM call (the "rolling summary" upgrade for fitContext). The
@@ -754,9 +833,13 @@ export class AgentService extends Service {
     const prompt: ChatMessage = {
       role: 'user',
       content:
-        '以下是对话历史中因上下文超限被截断的较早部分。请用中文写一段 100-200 字的' +
-        '简明摘要，涵盖：用户的核心目标与需求、做过哪些关键步骤、调用了哪些重要工具及结果、' +
-        '目前进度和遗留问题。不要编造未发生的事，直接输出摘要正文，不要加标题或前后缀。',
+        '以下是对话历史中因上下文超限被截断的较早部分。请提炼成结构化记忆，只输出以下五段、每段一行：\n' +
+        '目标：用户的核心目标/需求\n' +
+        '已完成：已完成的步骤要点\n' +
+        '产物：已产出/写入的文件路径（若有）\n' +
+        '进度：当前推进到哪一步\n' +
+        '卡点/待办：遗留问题与下一步\n' +
+        '不要编造未发生的事，不要加标题，五行直接输出。',
     }
     const res = await this.ctx.llm.chat([...dropped, prompt], {
       model: opts.model,
@@ -766,7 +849,10 @@ export class AgentService extends Service {
       // Tool-free: the summarizer must just write prose, not call tools.
       toolChoice: 'none',
     })
-    return (res.content ?? '').trim()
+    const summary = (res.content ?? '').trim()
+    // Structured memory is only useful when it's substantive; strip thin noise.
+    if (!summary || summary.length < 20) return ''
+    return summary
   }
 
   /**
@@ -799,5 +885,220 @@ export class AgentService extends Service {
         typeof call.arguments === 'string' ? call.arguments : JSON.stringify(call.arguments)
       call.arguments = acc + (d.arguments ?? '')
     }
+  }
+
+  /**
+   * Call an LLM-backed function with a bounded number of retries on transient
+   * provider errors (connection terminated / 5xx / aborted-stream blips), so a
+   * single provider hiccup doesn't kill a long-running PSE job. Does not retry
+   * on an intentional abort (the job was cancelled) or on parse/arg errors —
+   * those propagate immediately.
+   */
+  private async callWithRetry<T>(
+    fn: () => Promise<T>,
+    opts: { signal?: AbortSignal; ctx: { logger: (ns: string) => { warn: (msg: string, ...a: unknown[]) => void } }; phase: string },
+    attempts = 3,
+  ): Promise<T> {
+    let lastErr: unknown
+    for (let i = 0; i < attempts; i++) {
+      if (opts.signal?.aborted) throw lastErr instanceof Error ? lastErr : new Error('aborted')
+      try {
+        return await fn()
+      } catch (err) {
+        if (opts.signal?.aborted || (err as Error)?.name === 'AbortError') throw err
+        lastErr = err
+        const msg = (err as Error)?.message ?? String(err)
+        const transient =
+          /terminated|aborted|ECONNRESET|ETIMEDOUT|socket hang up|5\d\d|rate.?limit|temporarily|unavailable/i.test(
+            msg,
+          )
+        if (!transient || i === attempts - 1) throw err
+        opts.ctx.logger('agent').warn(
+          '%s transient error (%s) — retry %d/%d',
+          opts.phase,
+          msg.slice(0, 80),
+          i + 1,
+          attempts,
+        )
+        // Small backoff so a flaky provider has a beat to recover.
+        await new Promise((r) => setTimeout(r, 400 * (i + 1)))
+      }
+    }
+    throw lastErr
+  }
+
+  /**
+   * PSE three-phase orchestrator: Planner → Specialist → Evaluator.
+   *
+   * Each role runs as an independent agent with its own SOUL.md system prompt:
+   * - **Planner** (single LLM call, no tools): reads the task, produces a
+   *   structured execution plan with steps, tools, and acceptance criteria.
+   * - **Specialist** (full ReAct tool loop): executes the plan using available
+   *   tools, producing concrete results.
+   * - **Evaluator** (single LLM call, no tools): independently reviews the
+   *   Specialist's output against the plan and task, returning PASS / PARTIAL /
+   *   FAIL with feedback.
+   *
+   * On FAIL the cycle retries with the Evaluator's feedback injected into the
+   * next Planner call (up to {@link MAX_PSE_ORCH_RETRIES} times).
+   */
+  private async runPseOrchestrator(
+    baseMessages: ChatMessage[],
+    options: AgentRunOptions,
+    toolsForLlm: ToolSchema[],
+    bus: RunEventBus,
+  ): Promise<string> {
+    const MAX_PSE_ORCH_RETRIES = 2
+    const SPECIALIST_MAX_ITERATIONS = 10
+
+    const [plannerSoul, specialistSoul, evaluatorSoul] = await Promise.all([
+      this.ctx.pse?.read('planner', true),
+      this.ctx.pse?.read('specialist', true),
+      this.ctx.pse?.read('evaluator', true),
+    ])
+
+    const lastUserMsg = [...baseMessages].reverse().find((m) => m.role === 'user')
+    const userTask =
+      lastUserMsg && typeof lastUserMsg.content === 'string'
+        ? lastUserMsg.content
+        : JSON.stringify(lastUserMsg?.content ?? '')
+
+    let plan = ''
+    let specialistResult = ''
+    let feedback = ''
+
+    for (let cycle = 0; cycle <= MAX_PSE_ORCH_RETRIES; cycle++) {
+      if (options.signal?.aborted) {
+        const partial = 'PSE orchestrator cancelled.'
+        bus.emit('agent/done', { answer: partial, failedToolCalls: 0 })
+        return partial
+      }
+
+      // ── Phase 1: Planner (single LLM call, no tools) ──
+      this.ctx.logger('agent').info('PSE cycle %d/%d — Planner', cycle + 1, MAX_PSE_ORCH_RETRIES + 1)
+      const plannerMessages: ChatMessage[] = [
+        { role: 'system', content: plannerSoul ?? '你是 Planner。' },
+        {
+          role: 'user',
+          content:
+            userTask +
+            (feedback
+              ? `\n\n## 上一轮 Evaluator 反馈\n${feedback}\n\n请根据反馈重新规划执行步骤。`
+              : '\n\n请输出结构化执行计划：1) 任务分解（子步骤列表）2) 每步所需工具 3) 验收标准') +
+            '\n\n【硬性要求】你只负责输出纯文字执行计划，不执行任何工具。' +
+            '禁止输出任何 <tool_call> / <parameter> 等 XML 标签，禁止把"委托 Specialist / 用 evaluate 验收"写成伪工具调用——' +
+            '那些角色不是可调用的工具。上下文里真正可用的工具是已注册的 tool-* / fs:* 等，由后续 Specialist 阶段直接调用，' +
+            '你只列出计划，不要编造工具名。直接输出计划正文。',
+        },
+      ]
+
+      const plannerResp = await this.callWithRetry(
+        () =>
+          this.nextResponse(plannerMessages, {
+            model: options.model,
+            signal: options.signal,
+            bus,
+            sessionId: options.sessionId,
+            toolChoice: 'none',
+          }),
+        { signal: options.signal, ctx: this.ctx, phase: 'Planner' },
+      )
+      plan = sanitizeRoleOutput(plannerResp.content ?? '')
+      bus.emit('agent/step', {
+        message: { role: 'assistant', content: `[Planner] ${plan}` },
+        toolCalls: [],
+        toolResults: [],
+      })
+
+      // ── Phase 2: Specialist (full ReAct loop with tools) ──
+      this.ctx.logger('agent').info('PSE cycle %d — Specialist (tools enabled)', cycle + 1)
+      specialistResult = await this.run({
+        ...options,
+        pse: false,
+        maxIterations: SPECIALIST_MAX_ITERATIONS,
+        systemPrompt: [specialistSoul, `\n## Planner 执行计划\n${plan}`]
+          .filter(Boolean)
+          .join('\n\n'),
+        messages: [{ role: 'user', content: userTask }],
+      })
+
+      // ── Phase 3: Evaluator (single LLM call, no tools) ──
+      this.ctx.logger('agent').info('PSE cycle %d — Evaluator', cycle + 1)
+      const evaluatorInput = [
+        '## 原始任务',
+        userTask,
+        '',
+        '## 执行计划',
+        plan,
+        '',
+        '## Specialist 执行结果',
+        specialistResult,
+        '',
+        '请独立评审上述执行结果。输出第一行必须是以下之一：',
+        '- PASS — 完全满足验收标准',
+        '- PARTIAL — 部分满足，列出未完成项',
+        '- FAIL — 未满足，说明原因和改进建议',
+      ].join('\n')
+
+      const evaluatorMessages: ChatMessage[] = [
+        { role: 'system', content: evaluatorSoul ?? '你是 Evaluator。' },
+        { role: 'user', content: evaluatorInput },
+      ]
+
+      const evaluatorResp = await this.callWithRetry(
+        () =>
+          this.nextResponse(evaluatorMessages, {
+            model: options.model,
+            signal: options.signal,
+            bus,
+            sessionId: options.sessionId,
+            toolChoice: 'none',
+          }),
+        { signal: options.signal, ctx: this.ctx, phase: 'Evaluator' },
+      )
+      const verdict = sanitizeRoleOutput((evaluatorResp.content ?? '').trim())
+      bus.emit('agent/step', {
+        message: { role: 'assistant', content: `[Evaluator] ${verdict}` },
+        toolCalls: [],
+        toolResults: [],
+      })
+
+      // ── Verdict check ──
+      if (/^PASS\b/i.test(verdict)) {
+        this.ctx.logger('agent').info('PSE cycle %d — PASS', cycle + 1)
+        bus.emit('agent/done', { answer: specialistResult, failedToolCalls: 0 })
+        return specialistResult
+      }
+
+      // PARTIAL means core ACs are satisfied and artifacts exist — the deliverable
+      // is shippable. Deliver it with the reviewer's notes instead of paying to
+      // re-run the whole (often very long) pipeline to chase wording nitpicks.
+      // Only FAIL genuinely needs a fresh attempt.
+      if (/^PARTIAL\b/i.test(verdict)) {
+        this.ctx.logger('agent').info('PSE cycle %d — PARTIAL (delivering with notes)', cycle + 1)
+        const answer = [
+          '> Evaluator 判定 PARTIAL（核心验收已达成，可交付）。评审提示：',
+          verdict,
+          '',
+          specialistResult,
+        ].join('\n')
+        bus.emit('agent/done', { answer, failedToolCalls: 0 })
+        return answer
+      }
+
+      this.ctx.logger('agent').info('PSE cycle %d — %s', cycle + 1, verdict.split('\n')[0])
+      if (cycle < MAX_PSE_ORCH_RETRIES) {
+        feedback = verdict
+      }
+    }
+
+    // All retries exhausted — return last result with evaluator note.
+    const finalAnswer = [
+      `> Evaluator 经过 ${MAX_PSE_ORCH_RETRIES + 1} 轮评审未给出 PASS。`,
+      '',
+      specialistResult,
+    ].join('\n')
+    bus.emit('agent/done', { answer: finalAnswer, failedToolCalls: 0 })
+    return finalAnswer
   }
 }

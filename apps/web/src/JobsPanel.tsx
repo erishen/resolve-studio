@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchJob } from './api'
 import { copyToClipboard, jobToLog } from './export'
 import { MessageList } from './MessageList'
@@ -41,6 +41,20 @@ export function JobsPanel({
   const [prompt, setPrompt] = useState('')
   const [creating, setCreating] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+
+  // Grow the background-task textarea with content, capped at a max height
+  // (then it scrolls instead of overflowing the panel).
+  const autoGrow = (el: HTMLTextAreaElement | null) => {
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+  }
+
+  // Keep height in sync when the value is set externally (e.g. an example pick).
+  useEffect(() => {
+    autoGrow(taRef.current)
+  }, [prompt])
 
   const taskName = (id?: string) => (id ? (tasks.find((t) => t.id === id)?.name ?? id) : '')
 
@@ -78,10 +92,14 @@ export function JobsPanel({
 
       <div className="job-create">
         <textarea
+          ref={taRef}
           className="job-create-input"
           placeholder="描述要执行的长任务，例如：用 product-analyze 分析 Notion AI，并把报告保存到工作区"
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          onChange={(e) => {
+            setPrompt(e.target.value)
+            autoGrow(e.target)
+          }}
           rows={2}
         />
         <div className="job-create-row">

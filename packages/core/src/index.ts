@@ -26,7 +26,9 @@ const { values } = parseArgs({
 })
 
 const root = new Context()
-await root.registry.plugin(ConsoleExporter, { showTime: 'HH:MM:SS' })
+// Logger time tokens follow cosmokit's Time.template convention (yyyy/MM/dd,
+// lowercase hh/mm/ss/SSS) — “HH”/“SS” are not tokens and would print literally.
+await root.registry.plugin(ConsoleExporter, { showTime: 'hh:mm:ss' })
 
 const configPath = typeof values.config === 'string' ? values.config : './cordis.yml'
 root.logger('boot').info('loading composition from %s', configPath)

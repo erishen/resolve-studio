@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { createServer, type Server } from 'node:http'
-import { readFile } from 'node:fs/promises'
+import { access, copyFile, mkdir, readFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
-import type { Tool } from '../../types.js'
+import type { Tool, ToolExecutionContext } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -50,7 +50,7 @@ const registerCsvAnalyze = (ctx: Context) => {
       required: [],
     },
     needsApproval: false,
-    async execute(args): Promise<string> {
+    async execute(args, execCtx: ToolExecutionContext | undefined): Promise<string> {
       const dir = csvAnalystDir()
       const sampleCsv = dir ? resolve(dir, 'data/sample_sales.csv') : null
       const file = (args.file as string | undefined)?.trim() || sampleCsv
@@ -87,7 +87,8 @@ const registerCsvAnalyze = (ctx: Context) => {
           maxBuffer: STEP_MAX_BUFFER,
           env: process.env,
         })
-        const notable = `${stdout}\n${stderr}`
+        const combinedOutput = `${stdout}\n${stderr}`
+        const notable = combinedOutput
           .split('\n')
           .filter((l) => /[⚠❌]|报告|report|written|保存|error|warn|异常|已输出/i.test(l))
           .map((l) => l.trim())
@@ -95,26 +96,63 @@ const registerCsvAnalyze = (ctx: Context) => {
           .slice(0, 30)
           .join('\n')
         if (notable) logs.push(notable)
+        // Detected a partial-failure: the pipeline degraded (e.g. Trend / Anomaly
+        // sub-agents 503) but still produced a report. Surface this prominently so
+        // the calling agent / PSE Evaluator knows the analysis is INCOMPLETE and
+        // should be retried rather than treated as a clean success.
+        const reportDefault =
+          output ?? resolve(dirname(file), `${basename(file).replace(/\.csv$/i, '')}_report.html`)
+        const partial =
+          /\berrors?\b/i.test(combinedOutput) ||
+          /503|timeout|timed out|unavailable/i.test(combinedOutput)
+        if (partial) {
+          try {
+            await access(reportDefault)
+          } catch {
+            // No report landed → hard failure, not partial.
+            return `error: csv-analyze 报告未生成 — ${truncate(combinedOutput.slice(-600), 600)}`
+          }
+          logs.push(
+            '',
+            '⚠️ 分析部分失败：趋势/异常检测子智能体报错（如 503），报告缺少趋势(Trend)与异常(Anomaly)两个完整模块，' +
+              '不可当作完整结果。应重试（可稍等后再次调用 csv-analyze 以获得完整趋势与异常分析），' +
+              '不要据此判定任务完成。',
+          )
+        }
+        logs.push('', `> 分析报告已生成 → ${reportDefault}`)
+
+        // Background jobs have a per-run workspace where artifacts must land so
+        // the report becomes a browsable job artifact (sandbox would block the
+        // model from copying it via fs/shell). Mirror the report there and report
+        // the workspace path so the model just reads/writes within the workspace.
+        const workspace = execCtx?.workspace
+        if (workspace && reportDefault) {
+          try {
+            await mkdir(workspace, { recursive: true })
+            const inWs = join(workspace, basename(reportDefault))
+            await copyFile(reportDefault, inWs)
+            logs.push(`> 已复制到工作区 → ${inWs}`)
+          } catch (e) {
+            const err = e as { message?: string }
+            logs.push(`> 复制报告到工作区失败（${err?.message ?? String(e)}），原路径仍可用。`)
+          }
+        }
+
+        const base = await ensurePreviewServer()
+        const preview = base ? toPreviewUrl(reportDefault) : null
+        if (preview) {
+          logs.push(`> 在线预览（可用 browser-open 打开）→ ${preview}`)
+        }
+        logs.push(
+          usingSample
+            ? '> 这是内置样例的分析结果；需要分析你自己的数据请再次调用并传 file 参数。'
+            : '> 提示：报告为 HTML，可在浏览器打开；需要落库请让用户指定 output 路径。',
+        )
+        return logs.join('\n')
       } catch (err) {
         const e = err as { message?: string; stderr?: string; stdout?: string }
         return `error: csv-analyze 失败 — ${truncate(e.stderr ?? e.stdout ?? e.message ?? String(err), 800)}`
       }
-
-      const reportDefault =
-        output ?? resolve(dirname(file), `${basename(file).replace(/\.csv$/i, '')}_report.html`)
-      logs.push('', `> 分析报告已生成 → ${reportDefault}`)
-
-      const base = await ensurePreviewServer()
-      const preview = base ? toPreviewUrl(reportDefault) : null
-      if (preview) {
-        logs.push(`> 在线预览（可用 browser-open 打开）→ ${preview}`)
-      }
-      logs.push(
-        usingSample
-          ? '> 这是内置样例的分析结果；需要分析你自己的数据请再次调用并传 file 参数。'
-          : '> 提示：报告为 HTML，可在浏览器打开；需要落库请让用户指定 output 路径。',
-      )
-      return logs.join('\n')
     },
   } satisfies Tool)
 }

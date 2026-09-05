@@ -93,3 +93,79 @@ test('fitContextWithSummary falls back to the omit note when summarize fails', a
   assert.ok(note, 'fallback omit note used when the summarizer throws')
   assert.ok(estimateChars(out) <= 2000)
 })
+
+test('fitContext keeps ALL leading system messages (instructions are never dropped)', () => {
+  // env brief + skills index + caller system prompt all ride at the front.
+  const sysMsgs = [
+    msg('system', 'caller instruction topmost'),
+    msg('system', 'skills index'),
+    msg('system', 'environment briefing'),
+  ]
+  const many: ChatMessage[] = []
+  for (let i = 0; i < 80; i++) many.push(msg('user', `content ${i}` + 'y'.repeat(60)))
+  const out = fitContext([...sysMsgs, ...many], { maxChars: 2000 })
+
+  const leading = out.filter((m) => m.role === 'system').slice(0, 3)
+  assert.equal(leading[0]?.content, 'caller instruction topmost')
+  assert.equal(leading[1]?.content, 'skills index')
+  assert.equal(leading[2]?.content, 'environment briefing')
+  assert.ok(estimateChars(out) <= 2000)
+})
+
+test('fitContext trims whole rounds: an assistant tool-call round is never split from its results', () => {
+  const sys = msg('system', 'sys')
+  const many: ChatMessage[] = []
+  for (let i = 0; i < 40; i++) many.push(msg('user', `Q${i}` + 'z'.repeat(60)))
+  // An assistant round that issued tools, at the front (oldest) — will be dropped whole.
+  const droppedAssistant = {
+    role: 'assistant',
+    content: 'let me run it',
+    toolCalls: [{ id: 'c1', name: 'shell', arguments: '{}' }],
+  } as unknown as ChatMessage
+  // A recent assistant round with tool results (must be kept together).
+  const keptAssistant = {
+    role: 'assistant',
+    content: 'final check',
+    toolCalls: [{ id: 'c2', name: 'read-file', arguments: '{}' }],
+  } as unknown as ChatMessage
+  const keptTool = msg('tool', 'file contents...')
+  // Force KeptTool to reference keptAssistant's call id.
+  ;(keptTool as { tool_call_id?: string }).tool_call_id = 'c2'
+
+  const all = [sys, droppedAssistant, ...many, keptAssistant, keptTool]
+  const out = fitContext(all, { maxChars: 3000 })
+
+  // The kept assistant + its tool result are either both present or the tail
+  // preserved. Since the tail starts at a round boundary, we never see the
+  // tool message without its issuing assistant.
+  const hasAssistant2 = out.some(
+    (m) => (m as ChatMessage & { toolCalls?: unknown[] }).toolCalls?.length === 1,
+  )
+  const toolIdx = out.findIndex((m) => m.role === 'tool' && m.content === 'file contents...')
+  if (toolIdx >= 0) {
+    assert.ok(hasAssistant2, 'a kept tool result must keep its issuing assistant round')
+  }
+  assert.ok(estimateChars(out) <= 3000)
+})
+
+test('fitContext never drops the last user round (conversation must keep a user query)', () => {
+  const sys = msg('system', 'sys')
+  const many: ChatMessage[] = []
+  // A long tool session: an old user question followed by many assistant+tool
+  // rounds, all of which dwarf the budget. Compaction must still leave the
+  // LAST user message in the output (OpenAI-compat endpoints 400 without one).
+  for (let i = 0; i < 40; i++) {
+    many.push(msg('user', `question ${i}`))
+    many.push(msg('assistant', `answer ${i}` + 'y'.repeat(80)))
+    const t = msg('tool', 'tool result ' + 'z'.repeat(80))
+    ;(t as { tool_call_id?: string }).tool_call_id = `call-${i}`
+    many.push(t)
+  }
+
+  const out = fitContext([sys, ...many], { maxChars: 1200 })
+  const userCount = out.filter((m) => m.role === 'user').length
+  assert.ok(userCount >= 1, `expected ≥1 user message after compaction, got ${userCount}`)
+  const lastUserContent = [...out].reverse().find((m) => m.role === 'user')?.content
+  const originalLastUser = [...many].reverse().find((m) => m.role === 'user')?.content
+  assert.equal(lastUserContent, originalLastUser, 'the most recent user query survives')
+})

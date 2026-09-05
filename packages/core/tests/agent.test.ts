@@ -10,6 +10,7 @@ import { ToolRegistry } from '../src/services/tools.js'
 import { AgentService } from '../src/services/agent.js'
 import { FastPathService } from '../src/services/fastpath.js'
 import { ApprovalService } from '../src/services/approval.js'
+import { UsageService } from '../src/services/usage.js'
 import { LlmService } from '../src/services/llm.js'
 import { skills } from '../src/plugins/skills.js'
 import { llmMock } from '../src/plugins/llm-mock.js'
@@ -1029,6 +1030,63 @@ test('a tool-call with empty arguments is short-circuited with a precise missing
   // and only the second, parameter-complete call actually executed.
   assert.equal(executed, 1, 'only the well-formed call executed')
   assert.match(answer, /保存/)
+
+  await root.fiber.dispose()
+})
+
+test('in-loop compaction bounds context after a long tool round (beyond the entry fit)', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService)
+  await root.plugin(UsageService)
+  await root.plugin(skills, { dir: '../../skills' })
+  // A chat-simulating tool that returns a LARGE result every round, so the
+  // conversation explodes past any sane budget the moment a tool runs.
+  root.tools.register({
+    name: 'big-result',
+    description: 'return a huge text',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'x'.repeat(120_000) + '\nlarge payload tail'
+    },
+  })
+
+  // The LLM records every system-message note it sees across calls.
+  const seenNotes: string[] = []
+  class BigResultLlm extends LlmService {
+    round = 0
+    async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+      this.round++
+      for (const m of messages) {
+        if (m.role === 'system' && typeof m.content === 'string' && m.content.includes('omitted')) {
+          seenNotes.push(m.content)
+        }
+      }
+      if (this.round <= 2) {
+        return {
+          content: '',
+          toolCalls: [{ id: `c-${this.round}`, name: 'big-result', arguments: '{}' }],
+        }
+      }
+      return { content: 'all done' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(BigResultLlm)
+
+  const answer = await root.agent.run({
+    messages: [{ role: 'user', content: 'run it twice' }],
+    // Tiny char budget so the first big tool result blows it mid-loop.
+    contextBudgetChars: 2_000,
+  })
+
+  assert.equal(answer, 'all done', 'the run still completes')
+  assert.ok(seenNotes.length >= 1, 'an omit/summary note was injected mid-loop')
 
   await root.fiber.dispose()
 })

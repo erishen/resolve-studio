@@ -89,6 +89,12 @@ export interface JobRecord {
   error?: string
   /** Final answer (also captured from the `done` event). */
   answer?: string
+  /** Number of tool calls that finished with `ok:false` on the last run.
+   *  Captured from `agent/done`; the run's terminal status is derived from it
+   *  once the job leaves `running` (the done handler itself cannot know the
+   *  final status, so a job that completed but had failed tools is marked
+   *  failed when the run loop settles). */
+  failedToolCalls?: number
   usage?: JobUsage
   /** Message transcript for resume (user + assistant + tool turns). */
   messages?: ChatMessage[]
@@ -146,6 +152,11 @@ export class JobsService extends Service {
   private readonly running = new Map<string, { ac: AbortController; rec: JobRecord }>()
   /** Live SSE subscribers: job id → set of callbacks (for re-attach). */
   private readonly live = new Map<string, Set<(ev: JobEvent) => void>>()
+  /** Monotonic seq allocator per job, shared by persisted + live-only events.
+   *  Persisted events use it so live-only deltas (not stored) never collide
+   *  with a persisted event's seq later. Seeded lazily from the record's max
+   *  seq on first use. */
+  private readonly seqByJob = new Map<string, number>()
   /** Debounced per-job persist timers. */
   private readonly pendingSave = new Map<string, NodeJS.Timeout>()
   /** Max simultaneous active runs (see JobsConfig.maxConcurrent). */
@@ -169,11 +180,51 @@ export class JobsService extends Service {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS jobs (
         id     TEXT PRIMARY KEY,
-        record TEXT NOT NULL
+        record TEXT NOT NULL,
+        meta   TEXT
       )
     `)
+    // Migrate pre-meta rows: add the column if it predates the meta fast-path,
+    // then backfill it from each record so list() never has to parse the full
+    // (potentially megabyte-sized) record JSON.
+    const cols = this.db
+      .prepare('PRAGMA table_info(jobs)')
+      .all() as Array<{ name: string }>
+    if (!cols.some((c) => c.name === 'meta')) {
+      this.db.exec('ALTER TABLE jobs ADD COLUMN meta TEXT')
+    }
+    if (this.hasMetaStale) this.backfillMeta()
     this.prepareStatements()
     this.migrateLegacyJson()
+  }
+
+  /** True when any row lacks a meta value (needs backfill). */
+  private get hasMetaStale(): boolean {
+    try {
+      const row = this.db
+        .prepare('SELECT 1 AS x FROM jobs WHERE meta IS NULL LIMIT 1')
+        .get() as { x?: number } | undefined
+      return !!row
+    } catch {
+      return true
+    }
+  }
+
+  /** Recompute `meta` for every row from its full record. */
+  private backfillMeta(): void {
+    const rows = this.db.prepare('SELECT id, record FROM jobs').all() as Array<{
+      id: string
+      record: string
+    }>
+    const upd = this.db.prepare('UPDATE jobs SET meta = ? WHERE id = ?')
+    for (const row of rows) {
+      try {
+        const rec = JSON.parse(row.record) as JobRecord
+        upd.run(JSON.stringify(this.jobMeta(rec)), row.id)
+      } catch {
+        /* unreadable row: leave meta null; list() will skip it */
+      }
+    }
   }
 
   /** Filename of the SQLite DB inside `dir` (see JobsConfig.db). */
@@ -222,10 +273,11 @@ export class JobsService extends Service {
 
   private prepareStatements(): void {
     this.stmtWrite = this.db.prepare(
-      'INSERT INTO jobs (id, record) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET record = excluded.record',
+      'INSERT INTO jobs (id, record, meta) VALUES (?, ?, ?) ' +
+        'ON CONFLICT(id) DO UPDATE SET record = excluded.record, meta = excluded.meta',
     )
     this.stmtRead = this.db.prepare('SELECT record FROM jobs WHERE id = ?')
-    this.stmtList = this.db.prepare('SELECT record FROM jobs ORDER BY rowid')
+    this.stmtList = this.db.prepare('SELECT meta FROM jobs ORDER BY rowid')
     this.stmtDelete = this.db.prepare('DELETE FROM jobs WHERE id = ?')
   }
 
@@ -243,15 +295,28 @@ export class JobsService extends Service {
       if (existing) continue
       try {
         const raw = JSON.parse(readFileSync(join(this.dir, f), 'utf8')) as JobRecord
-        this.stmtWrite.run(raw.id, JSON.stringify(raw))
+        this.stmtWrite.run(raw.id, JSON.stringify(raw), JSON.stringify(this.jobMeta(raw)))
       } catch {
         this.ctx.logger('jobs').warn('skipping unreadable legacy job file %s', f)
       }
     }
   }
 
+  /** Lightweight row metadata for list(): excludes the heavyweight events/messages. */
+  private jobMeta(rec: JobRecord): JobMeta {
+    return {
+      id: rec.id,
+      name: rec.name,
+      taskId: rec.taskId,
+      status: rec.status,
+      createdAt: rec.createdAt,
+      updatedAt: rec.updatedAt,
+      eventCount: rec.events.length,
+    }
+  }
+
   private persist(rec: JobRecord): Promise<void> {
-    this.stmtWrite.run(rec.id, JSON.stringify(rec))
+    this.stmtWrite.run(rec.id, JSON.stringify(rec), JSON.stringify(this.jobMeta(rec)))
     return Promise.resolve()
   }
 
@@ -305,25 +370,27 @@ export class JobsService extends Service {
   // ---- public API ----
 
   async list(): Promise<JobMeta[]> {
-    const rows = this.stmtList.all() as Array<{ record: string }>
+    const rows = this.stmtList.all() as Array<{ meta: string | null }>
     const metas: JobMeta[] = []
     for (const row of rows) {
-      let rec: JobRecord
+      if (!row.meta) continue
+      let meta: JobMeta
       try {
-        rec = JSON.parse(row.record) as JobRecord
+        meta = JSON.parse(row.meta) as JobMeta
       } catch {
         continue
       }
-      await this.reviveIfNeeded(rec)
-      metas.push({
-        id: rec.id,
-        name: rec.name,
-        taskId: rec.taskId,
-        status: rec.status,
-        createdAt: rec.createdAt,
-        updatedAt: rec.updatedAt,
-        eventCount: rec.events.length,
-      })
+      // A row left `running` by a process that died is revived on read: load the
+      // full record (rare) so its status is persisted as failed. Live runs are
+      // simply reported from meta.
+      if (meta.status === 'running' && !this.running.has(meta.id) && !this.cancelledQueued.has(meta.id)) {
+        const rec = await this.load(meta.id)
+        if (rec) {
+          await this.reviveIfNeeded(rec)
+          meta = this.jobMeta(rec)
+        }
+      }
+      metas.push(meta)
     }
     return metas.sort((a, b) =>
       a.updatedAt === b.updatedAt ? 0 : a.updatedAt < b.updatedAt ? 1 : -1,
@@ -390,6 +457,7 @@ export class JobsService extends Service {
     rec.answer = undefined
     rec.error = undefined
     rec.usage = undefined
+    rec.failedToolCalls = undefined
     rec.status = 'queued'
     rec.startedAt = undefined
     rec.finishedAt = undefined
@@ -506,6 +574,14 @@ export class JobsService extends Service {
       if (this.statusOf(rec) !== 'cancelled') {
         rec.answer = answer
         rec.status = 'succeeded'
+        // A job that produced an answer but had tool calls end in errors is a
+        // partial failure, not a clean success — surface it as failed so the
+        // user can resume and the UI shows the problem. `failedToolCalls` was
+        // captured from the `agent/done` event by onEvent.
+        if ((rec.failedToolCalls ?? 0) > 0) {
+          rec.status = 'failed'
+          rec.error = `${rec.failedToolCalls} tool call(s) failed`
+        }
       }
     } catch (err) {
       if (ac.signal.aborted || this.statusOf(rec) === 'cancelled') {
@@ -567,17 +643,25 @@ export class JobsService extends Service {
       }
       case 'agent/tool-progress': {
         const p = payload as { id: string; chunk: string }
-        this.record(rec, { type: 'tool-progress', ...p })
+        // Live-only: per-chunk progress is high-frequency and superseded by the
+        // tool-result event; persist only the meaningful events.
+        this.recordLive(rec, { type: 'tool-progress', ...p })
         return
       }
       case 'agent/approval-request':
         this.record(rec, { type: 'approval-request', call: payload as ToolCall })
         return
       case 'agent/delta':
-        this.record(rec, { type: 'delta', text: payload as string })
+        // Live-only: per-token text deltas duplicate the `step` message (which
+        // carries the complete assistant content) — persist only the step, so a
+        // long job's record doesn't balloon to tens of thousands of 2-char
+        // events (which also blows up DB size + list()/persist work).
+        this.recordLive(rec, { type: 'delta', text: payload as string })
         return
       case 'agent/reasoning':
-        this.record(rec, { type: 'reasoning', text: payload as string })
+        // Live-only: same rationale as delta — duplicated by the step event's
+        // reasoning; kept out of the persisted log to bound record growth.
+        this.recordLive(rec, { type: 'reasoning', text: payload as string })
         return
       case 'agent/done': {
         const p = payload as string | { answer: string; failedToolCalls: number }
@@ -585,10 +669,10 @@ export class JobsService extends Service {
         const failedToolCalls = typeof p === 'string' ? 0 : p.failedToolCalls
         this.record(rec, { type: 'done', answer })
         rec.answer = answer
-        if (failedToolCalls > 0 && rec.status === 'succeeded') {
-          rec.status = 'failed'
-          rec.error = `${failedToolCalls} tool call(s) failed`
-        }
+        // NOTE: the status is still `running` here (succeeded/failed is set by
+        // runJob after run() returns), so we cannot decide failure now. Stash
+        // the count; runJob marks the job failed if tools errored.
+        if (failedToolCalls > 0) rec.failedToolCalls = failedToolCalls
         return
       }
       case 'llm/usage': {
@@ -612,11 +696,40 @@ export class JobsService extends Service {
   }
 
   private record(rec: JobRecord, ev: NewJobEvent): void {
-    const entry = { seq: rec.events.length, ...ev } as JobEvent
+    const entry = { seq: this.nextSeq(rec), ...ev } as JobEvent
     rec.events.push(entry)
     this.touch(rec)
     const subs = this.live.get(rec.id)
     if (subs) for (const cb of subs) cb(entry)
+  }
+
+  /** Live-only event: streamed to SSE subscribers but NOT persisted. Streamed
+   *  deltas / reasoning fragments / tool progress are high-frequency and fully
+   *  superseded by the `step` event (which carries the complete content), so
+   *  persisting them would blow up the job record O(event-count) while adding
+   *  nothing on replay. They still need a unique, monotonic `seq` so the web
+   *  UI's dedupe (by seq) never mistakes them for a persisted event. */
+  private recordLive(rec: JobRecord, ev: NewJobEvent): void {
+    const entry = { seq: this.nextSeq(rec), ...ev } as JobEvent
+    const subs = this.live.get(rec.id)
+    if (subs) for (const cb of subs) cb(entry)
+  }
+
+  /** Monotonic event sequence for a job, shared by both persisted and live-only
+   *  events. Persisted events are assigned BEFORE the array is appended, so a
+   *  live-only event emitted between two persisted ones keeps a stable, unique
+   *  seq (and never collides with a later persisted event's seq). Seeded from
+   *  the highest already-persisted seq (not `events.length`) so that resuming a
+   *  job after a restart can never hand out a seq the web UI already saw. */
+  private nextSeq(rec: JobRecord): number {
+    let s = this.seqByJob.get(rec.id)
+    if (s === undefined) {
+      let max = -1
+      for (const e of rec.events) if (e.seq > max) max = e.seq
+      s = max + 1
+    }
+    this.seqByJob.set(rec.id, s + 1)
+    return s
   }
 
   protected async stop(): Promise<void> {

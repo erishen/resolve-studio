@@ -65,6 +65,12 @@ function parseFrontmatter(raw: string): { name?: string; description?: string } 
 
 export class SkillsService extends Service {
   private readonly dirs: string[]
+  // Skills are static at runtime (folders are read-only once booted): memoize
+  // the index and the derived prompt text so the agent loop (which re-injects
+  // the skills index on every run, incl. each PSE Specialist inner loop) does
+  // not re-readdir / re-read every SKILL.md on every iteration.
+  private listCache: SkillInfo[] | null = null
+  private indexTextCache: string | null = null
 
   constructor(ctx: Context, config: SkillsConfig = {}) {
     super(ctx, 'skills')
@@ -95,8 +101,16 @@ export class SkillsService extends Service {
     ctx.logger('skills').info('skill roots: %s', this.dirs.join(', '))
   }
 
+  /** Invalidate memoized skill index/prompt (e.g. after installing skills at
+   *  runtime). Skills dirs are static at boot, so this is rarely needed. */
+  invalidate(): void {
+    this.listCache = null
+    this.indexTextCache = null
+  }
+
   /** All indexed skills (name + description), merged across all dirs, sorted. */
   async list(): Promise<SkillInfo[]> {
+    if (this.listCache) return this.listCache
     const seen = new Map<string, SkillInfo>()
     for (const dir of this.dirs) {
       let names: string[]
@@ -119,7 +133,8 @@ export class SkillsService extends Service {
         }
       }
     }
-    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+    this.listCache = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name))
+    return this.listCache
   }
 
   /** Full instructions of a skill, or null if it doesn't exist in any dir. */
@@ -164,15 +179,17 @@ export class SkillsService extends Service {
    * into the system message so the model knows what it can follow.
    */
   async indexText(): Promise<string> {
+    if (this.indexTextCache !== null) return this.indexTextCache
     const list = await this.list()
     if (!list.length) return ''
     const lines = list.map((s) => `- ${s.name}${s.description ? `：${s.description}` : ''}`)
-    return [
+    this.indexTextCache = [
       '可用技能（skills）：',
       ...lines,
       '使用某技能时，直接调用 skill-run 工具（参数 name=技能名）加载完整指令与步骤，再按其流程执行；不要用 read-file 去猜 SKILL.md 的路径。',
       '除非用户明确指定了要用哪个技能，否则不要擅自选择技能并开始执行其流程——先询问用户想用哪个技能（或让用户描述任务）。尤其不要擅自运行耗时较长、调用外部模型或可能产生费用的技能流程（如投资分析周报），必须先得到用户明确确认。',
     ].join('\n')
+    return this.indexTextCache
   }
 }
 

@@ -77,3 +77,17 @@ test('UsageService isolates totals per session while keeping global aggregate', 
   assert.equal(root.usage.snapshot().requests, 0)
   assert.equal(root.usage.snapshot('sess-b').requests, 0)
 })
+
+test('UsageService calibrates charsPerToken from promptChars feedback', async () => {
+  const root = new Context()
+  await root.plugin(UsageService)
+  // No feedback yet → heuristic 4 chars/token.
+  assert.equal(root.usage.estimatedCharsPerToken(), 4)
+  // 1000 chars / 200 prompt tokens → 5 chars per token.
+  root.usage.record('deepseek-chat', 200, 100, undefined, undefined, 1000)
+  assert.equal(root.usage.estimatedCharsPerToken(), 5)
+  // A second observation moves the EWMA (alpha 0.2): 5*0.8 + 4*0.2 = 4.8.
+  root.usage.record('deepseek-chat', 250, 100, undefined, undefined, 1000)
+  assert.equal(root.usage.estimatedCharsPerToken(), 4.8)
+  await root.fiber.dispose()
+})

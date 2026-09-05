@@ -73,7 +73,11 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
   // in an iframe as-is; local files go through the /api/file text proxy below.
   const isHttpUrl = /^https?:\/\//i.test(path)
   const isMarkdown = /\.md$/i.test(path) && !isHttpUrl
+  // A local .html artifact (e.g. csv-analyze's report saved into the job
+  // workspace) is fetched as text then rendered in an iframe via srcDoc, so it
+  // shows as a rendered page instead of raw HTML source.
   const isHtmlUrl = isHttpUrl && /\.html?$/i.test(new URL(path, window.location.href).pathname)
+  const isLocalHtml = !isHttpUrl && /\.html?$/i.test(path)
 
   const { meta, body } = useMemo(
     () =>
@@ -143,6 +147,22 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
               </button>
             </div>
           )}
+          {isLocalHtml && (
+            <div className="file-preview-toggle">
+              <button
+                className={`btn btn-sm${viewMode === 'rendered' ? ' btn-active' : ''}`}
+                onClick={() => setViewMode('rendered')}
+              >
+                渲染
+              </button>
+              <button
+                className={`btn btn-sm${viewMode === 'source' ? ' btn-active' : ''}`}
+                onClick={() => setViewMode('source')}
+              >
+                源码
+              </button>
+            </div>
+          )}
           <button className="file-preview-close" onClick={onClose} title="关闭 (Esc)">
             ×
           </button>
@@ -176,9 +196,20 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
               sandbox="allow-scripts allow-same-origin"
             />
           )}
-          {!loading && !error && (!isMarkdown || viewMode === 'source') && !isHtmlUrl && (
-            <pre className="file-preview-content">{rawContent}</pre>
+          {!loading && !error && isLocalHtml && viewMode === 'rendered' && (
+            <iframe
+              className="file-preview-iframe"
+              srcDoc={rawContent}
+              title="HTML 报告预览"
+              sandbox="allow-scripts allow-same-origin"
+            />
           )}
+          {!loading &&
+            !error &&
+            ((viewMode === 'source' && (isMarkdown || isLocalHtml)) ||
+              (!isMarkdown && !isLocalHtml && !isHtmlUrl)) && (
+              <pre className="file-preview-content">{rawContent}</pre>
+            )}
         </div>
       </div>
     </div>

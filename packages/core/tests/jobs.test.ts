@@ -9,6 +9,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from 'cordis'
@@ -74,7 +75,23 @@ const gatedTool = definePlugin(
   ['tools'],
 )
 
-async function buildContext(opts: { slow?: boolean; gated?: boolean } = {}): Promise<Context> {
+/** A tool that always errors — completes the loop but counts as a failure. */
+const failTool = definePlugin(
+  (ctx: Context): void => {
+    ctx.tools.register({
+      name: 'boom-tool',
+      description: 'Always fails.',
+      parameters: { type: 'object', properties: {} },
+      async execute() {
+        return 'error: 模拟工具失败'
+      },
+    })
+  },
+  'tool-boom',
+  ['tools'],
+)
+
+async function buildContext(opts: { slow?: boolean; gated?: boolean; fail?: boolean } = {}): Promise<Context> {
   const root = new Context()
   await root.plugin(ToolRegistry)
   await root.plugin(pse)
@@ -93,12 +110,13 @@ async function buildContext(opts: { slow?: boolean; gated?: boolean } = {}): Pro
   await root.plugin(tasksPlugin)
   await root.plugin(mcpPlugin)
   await root.plugin(llmMock, {
-    tool: opts.gated ? 'gated-tool' : opts.slow ? 'slow-sleep' : 'echo',
+    tool: opts.gated ? 'gated-tool' : opts.slow ? 'slow-sleep' : opts.fail ? 'boom-tool' : 'echo',
   })
   await root.plugin(toolEcho)
   await root.plugin(toolWriteFile)
   if (opts.slow) await root.plugin(slowTool)
   if (opts.gated) await root.plugin(gatedTool)
+  if (opts.fail) await root.plugin(failTool)
   await root.plugin(jobsPlugin, { dir: TMP_DIR })
   return root
 }
@@ -142,8 +160,24 @@ test('job runs to completion and persists its event log', async () => {
     rec.events.some((e) => e.type === 'done'),
     'event log should end with done',
   )
-  // seq is monotonic across the log.
-  rec.events.forEach((e, i) => assert.equal(e.seq, i))
+  // seq is monotonic & globally unique across the log. Live-only events
+  // (delta/reasoning) are NOT persisted, but they consume seq numbers, so a
+  // persisted event's seq is no longer its array index — it's a monotonic id
+  // the web UI uses for dedupe (two events must never share a seq).
+  const seqs = rec.events.map((e) => e.seq)
+  assert.equal(new Set(seqs).size, seqs.length, 'every persisted event has a unique seq')
+  for (let i = 1; i < seqs.length; i++) assert.ok(seqs[i] > seqs[i - 1], 'seq is strictly increasing')
+
+  // High-frequency streaming events are live-only: they must NOT bloat the
+  // persisted record (the `step` event carries the full content for replay).
+  assert.ok(
+    !rec.events.some((e) => e.type === 'delta'),
+    'delta events are live-only and must not be persisted',
+  )
+  assert.ok(
+    !rec.events.some((e) => e.type === 'reasoning'),
+    'reasoning events are live-only and must not be persisted',
+  )
 
   // Persisted to disk: a fresh read (same dir) returns the same data.
   const fromDisk = await jobs.get(created.id)
@@ -394,10 +428,84 @@ test('jobs force PSE mode even when the global PSE flag is off', async () => {
   const created = await jobs.create({ prompt: '把热点整理成报告' })
   await waitForTerminal(root, created.id)
 
+  // The PSE orchestrator sends each role's SOUL.md as a separate system prompt
+  // (Planner → Specialist → Evaluator), replacing the old combined prompt.
+  const allPrompts = seenPrompts.join('\n')
   assert.ok(
-    seenPrompts.some((p) => p.includes('PSE 三角色工作流')),
-    'job run should inject the PSE three-role system prompt',
+    allPrompts.includes('Planner') && allPrompts.includes('Specialist') && allPrompts.includes('Evaluator'),
+    'job run should send Planner/Specialist/Evaluator SOUL.md as system prompts',
   )
+
+  await root.fiber.dispose()
+})
+
+test('a legacy DB without the meta column is migrated and listed via lightweight meta', async () => {
+  // Build a pre-meta jobs.db (only id + record) with one record, then boot the
+  // jobs service: ALTER TABLE + meta backfill must run, and list() must work.
+  const dir = mkdtempSync(join(tmpdir(), 'resolve-jobs-mig-'))
+  const db = new DatabaseSync(join(dir, 'jobs.db'))
+  db.exec('CREATE TABLE jobs (id TEXT PRIMARY KEY, record TEXT NOT NULL)')
+  const legacyRecord: JobRecord = {
+    id: 'legacy-job-1',
+    name: 'legacy',
+    prompt: 'legacy prompt',
+    status: 'succeeded',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    events: [],
+  }
+  db.prepare('INSERT INTO jobs (id, record) VALUES (?, ?)').run(
+    legacyRecord.id,
+    JSON.stringify(legacyRecord),
+  )
+  db.close()
+
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService)
+  await root.plugin(UsageService)
+  await root.plugin(skills, { dir: TMP_SKILLS })
+  await root.plugin(llmMock, { tool: 'echo' })
+  await root.plugin(toolEcho)
+  await root.plugin(jobsPlugin, { dir })
+
+  const jobs = root.get('jobs') as unknown as {
+    list(): Promise<Array<{ id: string; name: string; eventCount: number; status: string }>>
+    get(id: string): Promise<JobRecord | null>
+  }
+  const list = await jobs.list()
+  assert.equal(list.length, 1, 'migrated legacy row is listed')
+  assert.equal(list[0].id, 'legacy-job-1')
+  assert.equal(list[0].name, 'legacy')
+  assert.equal(list[0].status, 'succeeded')
+  assert.equal(list[0].eventCount, 0)
+
+  // Full record read still works after migration.
+  const rec = await jobs.get('legacy-job-1')
+  assert.equal(rec?.prompt, 'legacy prompt')
+
+  await root.fiber.dispose()
+})
+
+test('a job whose tools failed is marked failed (not a silent success)', async () => {
+  const root = await buildContext({ fail: true })
+  const jobs = root.get('jobs') as unknown as {
+    create(i: { prompt: string }): Promise<JobRecord>
+    get(id: string): Promise<JobRecord | null>
+  }
+
+  const created = await jobs.create({ prompt: '模拟一次必然失败的工具调用' })
+  const rec = await waitForTerminal(root, created.id)
+
+  // The tool errored, so the run *completes* with an answer but must be
+  // reported as failed for the resume affordance to surface in the UI.
+  assert.equal(rec.status, 'failed', 'a run with failed tool calls must be marked failed')
+  assert.ok(rec.answer && rec.answer.length > 0, 'the agent still produced a final answer')
+  assert.ok(rec.error && rec.error.includes('failed'), 'the failure reason is recorded')
+  assert.ok((rec.failedToolCalls ?? 0) > 0, 'failedToolCalls count is stashed on the record')
 
   await root.fiber.dispose()
 })

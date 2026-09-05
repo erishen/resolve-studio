@@ -217,6 +217,10 @@ export interface AgentRunOptions extends AgentToolFilter {
   runId?: string
   /** Context-window budget in chars before old messages are trimmed. */
   contextBudgetChars?: number
+  /** Context-window budget in tokens before old messages are trimmed. When
+   *  set, takes precedence over `contextBudgetChars`; converted to a char
+   *  budget using the model's observed chars/token ratio (usage feedback). */
+  contextBudgetTokens?: number
   /** Per-run event sink. When provided, every `agent/*` and `llm/*` progress
    *  event is emitted here (not the global `ctx.events` bus) so concurrent
    *  runs in the web bridge don't cross-talk. Omit for the CLI / tests. */

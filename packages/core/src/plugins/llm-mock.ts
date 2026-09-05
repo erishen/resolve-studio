@@ -8,7 +8,13 @@
  */
 
 import type { Context } from 'cordis'
-import type { ChatMessage, ChatResponse, ChatStreamChunk, ModelInfo } from '../types.js'
+import type {
+  ChatMessage,
+  ChatOptions,
+  ChatResponse,
+  ChatStreamChunk,
+  ModelInfo,
+} from '../types.js'
 import { LlmService } from '../services/llm.js'
 import { definePlugin } from './util.js'
 
@@ -27,7 +33,12 @@ class LlmMock extends LlmService {
     this.tool = config.tool ?? 'echo'
   }
 
-  async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+  async chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
+    // A `toolChoice: 'none'` call (PSE Planner/Evaluator) is prose-only: never
+    // emit a tool-call. Return a canned response so those phases resolve.
+    if (options?.toolChoice === 'none') {
+      return { content: 'PASS — mock 校验通过' }
+    }
     const hasToolResult = messages.some((m) => m.role === 'tool')
     if (!hasToolResult) {
       const lastUser = [...messages].reverse().find((m) => m.role === 'user')
@@ -59,7 +70,14 @@ class LlmMock extends LlmService {
    * exercised offline (no network / API key needed). Also emits a fake
    * `reasoning` block so the thinking UI is visible without a real model.
    */
-  async *chatStream(messages: ChatMessage[]): AsyncIterable<ChatStreamChunk> {
+  async *chatStream(messages: ChatMessage[], options?: ChatOptions): AsyncIterable<ChatStreamChunk> {
+    // Prose-only phase (PSE Planner/Evaluator): never emit a tool-call.
+    if (options?.toolChoice === 'none') {
+      for (const char of 'PASS — mock 校验通过') {
+        yield { content: char }
+      }
+      return
+    }
     const hasToolResult = messages.some((m) => m.role === 'tool')
     if (!hasToolResult) {
       const lastUser = [...messages].reverse().find((m) => m.role === 'user')

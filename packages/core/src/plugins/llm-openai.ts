@@ -18,6 +18,7 @@ import type {
   ToolSchema,
 } from '../types.js'
 import { LlmService } from '../services/llm.js'
+import { estimateChars } from '../context.js'
 import { definePlugin } from './util.js'
 
 export interface OpenAiLlmConfig {
@@ -146,6 +147,7 @@ class LlmOpenAI extends LlmService {
         usage.completion_tokens ?? 0,
         options?.bus,
         options?.sessionId,
+        estimateChars(messages),
       )
     }
 
@@ -213,6 +215,8 @@ class LlmOpenAI extends LlmService {
         lastUsage.prompt_tokens ?? 0,
         lastUsage.completion_tokens ?? 0,
         options?.bus,
+        options?.sessionId,
+        estimateChars(messages),
       )
     }
   }
