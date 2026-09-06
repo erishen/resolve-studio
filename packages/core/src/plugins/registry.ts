@@ -53,6 +53,7 @@ import { toolHotNewsFetch } from './tools/tool-hot-news-fetch.js'
 import { toolHotNewsTopics } from './tools/tool-hot-news-topics.js'
 import { toolHotNewsCheck } from './tools/tool-hot-news-check.js'
 import { toolHotNewsPublish } from './tools/tool-hot-news-publish.js'
+import { toolDevStats } from './tools/tool-dev-stats.js'
 import { mcpPlugin } from './mcp.js'
 import { cliChat } from './cli-chat.js'
 import { webServer } from './web-server.js'
@@ -104,6 +105,7 @@ export const PLUGINS: Record<string, Plugin> = {
   'tool-hot-news-topics': toolHotNewsTopics as unknown as Plugin,
   'tool-hot-news-check': toolHotNewsCheck as unknown as Plugin,
   'tool-hot-news-publish': toolHotNewsPublish as unknown as Plugin,
+  'tool-dev-stats': toolDevStats as unknown as Plugin,
   'tool-system-info': toolSystemInfo as unknown as Plugin,
   'cli-chat': cliChat as unknown as Plugin,
   'web-server': webServer as unknown as Plugin,

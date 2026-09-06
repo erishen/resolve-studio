@@ -53,6 +53,8 @@ const CORE_TOOLS = ['read-file', 'write-file', 'shell', 'skill-run']
 /** Shared file-system MCP server and browser, useful across several tasks. */
 const FS_TOOLS = ['fs']
 const BROWSER_TOOLS = ['browser-open', 'browser-screenshot']
+/** Tools so generic that mentioning them in a message says nothing about intent. */
+const GENERIC_TOOLS: ReadonlySet<string> = new Set([...CORE_TOOLS, ...FS_TOOLS, ...BROWSER_TOOLS])
 
 /**
  * Horizontal capability tiers — not business tasks. They only decide HOW MUCH
@@ -153,6 +155,9 @@ const DEFAULT_TASKS: TaskDef[] = [
       '爆款',
       '种草',
       '今日头条',
+      '头条',
+      '热点文章',
+      '热点稿',
       '抖音',
       '热搜榜',
       '热门话题',
@@ -166,6 +171,34 @@ const DEFAULT_TASKS: TaskDef[] = [
       'hot-news-check',
       'hot-news-publish',
     ],
+  },
+  {
+    id: 'devstats',
+    name: '开发数据统计',
+    description:
+      '查掘金/思否文章阅读数据、汇总双平台传播对比、巡检各仓库 GitHub Actions CI 状态、导出仓库统计 CSV（dev-stats 项目）。',
+    keywords: [
+      '掘金数据',
+      '思否数据',
+      '文章数据',
+      '文章统计',
+      '阅读量',
+      '访客',
+      '传播',
+      'clone',
+      '仓库统计',
+      'CI',
+      'CI 状态',
+      'CI 巡检',
+      '巡检',
+      'dev-stats',
+    ],
+    includeTools: [...CORE_TOOLS, ...FS_TOOLS, 'dev-stats'],
+    systemPrompt:
+      'dev-stats 工具通过 make 目标执行：report（掘金+思否汇总，默认按日均阅读）、' +
+      'juejin / segmentfault（单平台数据）、actions（CI 巡检）、csv（导出仓库统计）、' +
+      'run（透传 CLI 参数）。默认参数已内置，仅在用户要求换排序/条数/过滤时才传 args ' +
+      '（如 "--sort views --limit 5"）。输出为表格文本，可直接摘录关键行回答，长列表只取前几名。',
   },
   {
     id: 'investment',
@@ -413,6 +446,17 @@ export class TasksService extends Service {
           score += 5
           hits += 1
         }
+      }
+      // Explicit tool mentions, round two: tokens() strips `-`/`_`, so
+      // hyphenated tool names (`hot-news-publish`) never survive as a single
+      // token and the exact-token bonus above cannot fire. Match task-specific
+      // tool names as raw substrings instead. Generic core/FS/browser tools are
+      // excluded — casual mentions of "shell" / "browser" in a message must not
+      // tilt routing toward whichever task happens to whitelist them.
+      for (const tool of task.includeTools) {
+        if (GENERIC_TOOLS.has(tool) || !hay.includes(tool)) continue
+        score += 5
+        hits += 1
       }
       // A task carrying more distinct matching keywords is more focused than one
       // that merely overlaps on a single generic term — use it to break ties.

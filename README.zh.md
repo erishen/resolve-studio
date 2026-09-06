@@ -141,6 +141,7 @@ article-write · article-validate · article-publish · article-archive · artic
 resume-tailor · interview-questions · crm-task · portfolio-check · pse-review
 wp-publish · crewai-publish · crewai-discover
 hot-news-fetch · hot-news-topics · hot-news · hot-news-check
+dev-stats（掘金/思否文章数据 · CI 巡检 · 仓库统计）
 ```
 
 读的操作无审批（browser/pick-post/read-file/system-info），写与执行必过审批（shell/calculator 演示）。**MCP server 的工具**（配置 `servers:` 后）以 `<serverId>:<toolName>` 追加注册，默认同样需审批。

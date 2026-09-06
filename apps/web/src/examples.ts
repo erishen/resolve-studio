@@ -4,6 +4,7 @@ import type { ToolSchema } from './types'
 export type ExampleCategory =
   | 'article'
   | 'hot-news'
+  | 'devstats'
   | 'invest'
   | 'interview'
   | 'crm'
@@ -32,6 +33,7 @@ export interface ExampleItem {
 export const CATEGORY_LABELS: Record<ExampleCategory, string> = {
   article: '文章写作',
   'hot-news': '热点新闻',
+  devstats: '开发数据',
   invest: '投资分析',
   interview: '面试求职',
   crm: 'CRM 相关',
@@ -45,6 +47,7 @@ export const CATEGORY_LABELS: Record<ExampleCategory, string> = {
 export const CATEGORY_ORDER: ExampleCategory[] = [
   'article',
   'hot-news',
+  'devstats',
   'invest',
   'interview',
   'crm',
@@ -63,6 +66,7 @@ export const CATEGORY_ORDER: ExampleCategory[] = [
 export const TASK_CATEGORIES: Record<string, ExampleCategory[]> = {
   articles: ['article'],
   hotnews: ['hot-news'],
+  devstats: ['devstats'],
   investment: ['invest'],
   foundation: ['code', 'other'],
   privacy: ['privacy'],
@@ -109,6 +113,8 @@ const ZH_TITLES: Record<string, string> = {
   'hot-news': '生成热点文案',
   'hot-news-check': '校验热点稿合规',
   'hot-news-publish': '发布热点稿',
+  // 开发数据
+  'dev-stats': '开发数据统计',
   // 技能
   'weekly-investment': '周度投资复盘',
   'post-comment': '文章评论',
@@ -312,6 +318,12 @@ function toolExample(t: ToolSchema): ExampleItem | null {
       prompt: '帮我校验一篇热点稿是否合规（平台限值+违禁词+AI 声明），用 hot-news-check 工具。',
       category: 'hot-news',
     },
+    'dev-stats': {
+      title: '开发数据统计',
+      prompt:
+        '用 dev-stats 工具（target=report）汇总掘金和思否的文章数据，按日均阅读排序，看看最近哪篇文章传播效果最好。',
+      category: 'devstats',
+    },
     'skill-run': { title: '运行技能', prompt: `调用 ${t.name} 来完成任务。`, category: 'other' },
   }
   const curated = CURATED[base]
@@ -459,6 +471,8 @@ export function buildExamples(
     'hot-news-topics',
     'hot-news',
     'hot-news-check',
+    // devstats: 内容数据 → CI 巡检（同一个工具的不同 make 目标）
+    'dev-stats',
   ]
   for (const name of priorityTools) {
     // MCP tools register as `<serverId>:<tool>` (mcp.ts); match both the bare
@@ -468,6 +482,36 @@ export function buildExamples(
       const e = toolExample(tool)
       if (e) all.push(e)
     }
+  }
+
+  // dev-stats 一个工具覆盖多个 make 目标场景，toolExample 每工具只产一张卡；
+  // 这里补齐其余目标的示例卡（仅当工具已注册时显示）。
+  if (tools.some((t) => t.name === 'dev-stats' || t.name.endsWith(':dev-stats'))) {
+    all.push(
+      {
+        id: 'tool:dev-stats-ci',
+        title: '巡检 CI 状态',
+        prompt:
+          '用 dev-stats 工具（target=ci）巡检各仓库的 GitHub Actions CI 状态，列出最近挂掉的仓库和失败步骤。',
+        category: 'devstats',
+        tool: 'dev-stats',
+      },
+      {
+        id: 'tool:dev-stats-juejin',
+        title: '掘金单平台数据',
+        prompt: '用 dev-stats 工具（target=juejin）查掘金文章数据，按日均阅读排序取前 5 篇。',
+        category: 'devstats',
+        tool: 'dev-stats',
+      },
+      {
+        id: 'tool:dev-stats-csv',
+        title: '导出仓库统计',
+        prompt:
+          '用 dev-stats 工具（target=csv）把仓库 clone 统计导出成 CSV，再告诉我哪个仓库最近两周热度最高。',
+        category: 'devstats',
+        tool: 'dev-stats',
+      },
+    )
   }
   for (const t of tools) {
     if (t.name.includes(':')) continue
@@ -569,6 +613,7 @@ export function buildExamples(
   const grouped: Record<ExampleCategory, ExampleItem[]> = {
     article: [],
     'hot-news': [],
+    devstats: [],
     invest: [],
     interview: [],
     crm: [],

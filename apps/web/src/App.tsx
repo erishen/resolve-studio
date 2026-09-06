@@ -166,6 +166,7 @@ export function App() {
       : {
           article: FALLBACK_EXAMPLES,
           'hot-news': [],
+          devstats: [],
           invest: [],
           interview: [],
           crm: [],

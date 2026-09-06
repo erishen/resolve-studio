@@ -135,6 +135,7 @@ export function MessageList({
   const grouped: GroupedExamples = examples ?? {
     article: [],
     'hot-news': [],
+    devstats: [],
     invest: [],
     interview: [],
     crm: [],

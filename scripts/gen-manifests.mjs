@@ -81,6 +81,7 @@ const BASE_PLUGINS = [
   { id: 'tool-hot-news-topics', name: 'tool-hot-news-topics' },
   { id: 'tool-hot-news-check', name: 'tool-hot-news-check' },
   { id: 'tool-hot-news-publish', name: 'tool-hot-news-publish' },
+  { id: 'tool-dev-stats', name: 'tool-dev-stats' },
   { id: 'tool-system-info', name: 'tool-system-info' },
 ]
 

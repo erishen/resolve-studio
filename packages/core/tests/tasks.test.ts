@@ -105,6 +105,46 @@ test('agentOptions produces an include whitelist and guards system prompt', asyn
   await ctx.fiber.dispose()
 })
 
+test('explicit hyphenated tool mentions route to the owning task', async () => {
+  const ctx = new Context()
+  await ctx.plugin(tasksPlugin)
+  const svc = ctx.get('tasks') as unknown as TasksService
+
+  // Regression: tokens() strips `-`/`_`, so an explicit `hot-news-publish`
+  // mention used to fragment into hot/news/publish and the router picked the
+  // generic-keyword-heavy `articles` task, which does not whitelist the tool —
+  // the agent then correctly refused a tool it should never have been denied.
+  let hit = svc.match('用 hot-news-publish 工具（platform=toutiao）把最新的热点文章发到今日头条')
+  assert.equal(hit?.id, 'hotnews')
+
+  // Without naming the tool, the sharper 热点文章/头条 keywords now also win.
+  hit = svc.match('把这篇热点文章发到头条')
+  assert.equal(hit?.id, 'hotnews')
+
+  // Generic tool names mentioned in passing must not tilt routing.
+  assert.equal(svc.match('在 shell 里看看文章草稿写完了没')?.id, 'articles')
+
+  await ctx.fiber.dispose()
+})
+
+test('devstats task routes content-stats queries but not publishing', async () => {
+  const ctx = new Context()
+  await ctx.plugin(tasksPlugin)
+  const svc = ctx.get('tasks') as unknown as TasksService
+
+  // Content-stats queries land on devstats.
+  assert.equal(svc.match('看看掘金和思否的文章数据，哪篇阅读量最高')?.id, 'devstats')
+  assert.equal(svc.match('用 dev-stats 工具看看各仓库的 CI 状态')?.id, 'devstats')
+  assert.equal(svc.match('汇总一下文章数据，按日均阅读排序')?.id, 'devstats')
+
+  // Publishing intent still belongs to articles — 掘金/思否 alone must not
+  // be stolen by the devstats keywords (they are scoped to 掘金数据/思否数据).
+  assert.equal(svc.match('把这篇稿子发布到掘金')?.id, 'articles')
+  assert.equal(svc.match('帮我把下一篇未发布的文章发布到思否')?.id, 'articles')
+
+  await ctx.fiber.dispose()
+})
+
 test('custom tasks from config replace built-in defaults by id', async () => {
   const ctx = new Context()
   await ctx.plugin(tasksPlugin, {

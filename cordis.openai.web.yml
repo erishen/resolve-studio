@@ -115,6 +115,8 @@ plugins:
     name: tool-hot-news-check
   - id: tool-hot-news-publish
     name: tool-hot-news-publish
+  - id: tool-dev-stats
+    name: tool-dev-stats
   - id: tool-system-info
     name: tool-system-info
   - id: web
