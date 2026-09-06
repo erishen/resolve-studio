@@ -40,8 +40,9 @@ interface WebServerConfig {
   serenaUv?: string
 }
 
-const PORT = 8787
-const HOST = '127.0.0.1'
+// 导出供 tool 插件拼「预览链接」用（与插件配置保持一致：cordis.web.yml 未覆写时即此默认值）。
+export const PORT = 8787
+export const HOST = '127.0.0.1'
 
 // Workspace analysis: the `workspace-scan.mjs` generator writes its report and
 // a structured `projects.json` (+ a `.scan-status.json` progress file) into
@@ -143,6 +144,41 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
     if (path === '/api/skills' && req.method === 'GET') {
       const skills = ctx.skills ? await ctx.skills.list() : []
       sendJson(res, 200, { skills })
+      return
+    }
+
+    if (path === '/api/examples' && req.method === 'GET') {
+      // 示例问题（HUD 空态建议 / 回答后 follow-up），与 /api/tools 对齐由后端下发。
+      // 风格：具体可执行、组合多个能力点（工作区 / 工具 / 脚本 / 任务 / skills）。
+      sendJson(res, 200, {
+        examples: [
+          {
+            label: '分析工作区',
+            text: '分析我的工作区，按项目列出每个项目的用途、关键目录结构和主要技术栈，并标注项目规模',
+            source: 'builtin',
+          },
+          {
+            label: '列出工具',
+            text: '列出当前可用的所有工具，按用途分类，说明每个工具能完成什么任务、适合哪些场景',
+            source: 'builtin',
+          },
+          {
+            label: '写脚本',
+            text: '写一个 Python 脚本扫描工作区所有 README.md，提取标题与简介生成一份项目摘要，保存为 workspace-summary.md',
+            source: 'builtin',
+          },
+          {
+            label: '总结任务',
+            text: '总结我的任务列表，按进行中/已完成分组，标出每个任务的关键进展与下一步建议',
+            source: 'builtin',
+          },
+          {
+            label: '查看技能',
+            text: '查看当前可用的 skills，按用途分类，推荐 3 个适合提升日常开发效率的 skill 并说明怎么用',
+            source: 'builtin',
+          },
+        ],
+      })
       return
     }
 
@@ -436,6 +472,67 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
         sendJson(res, e.message.includes('outside') || e.message.includes('sandbox') ? 403 : 400, {
           error: e.message,
         })
+      }
+      return
+    }
+
+    // ---- raw HTML preview (rendered by the system browser) ----
+    // Serves the file bytes as text/html so exported reports (e.g. dev-stats
+    // stats-preview.html) can be opened as a real page, unlike /api/file which
+    // returns JSON for in-app text preview. Sandboxed to the read roots plus
+    // DEV_STATS_DIR (tool output dirs live outside the workspace), and locked
+    // to .html — the `sandbox` CSP gives the document an opaque origin, so the
+    // preview cannot call same-origin /api/* while its own scripts still run.
+    if ((path === '/api/raw' || path.startsWith('/api/raw/')) && req.method === 'GET') {
+      let filePath = url.searchParams.get('path') ?? ''
+      if (!filePath) {
+        // 短形态 /api/raw/<文件名>：只允许单段安全文件名，限定 DEV_STATS_DIR/output/。
+        // 用途：给 tool 产出发短链接——旧版桌面端按钮标签取 URL 最后一段，
+        // 长形态 raw?path=%2F... 整段编码后撑破屏幕。
+        const name = decodeURIComponent(path.slice('/api/raw/'.length))
+        if (!/^[A-Za-z0-9._-]+\.html?$/i.test(name)) {
+          sendJson(res, 400, {
+            error: 'short form must be a single safe filename like /api/raw/stats-preview.html',
+          })
+          return
+        }
+        const devStatsRoot = process.env['DEV_STATS_DIR']
+        if (!devStatsRoot) {
+          sendJson(res, 400, { error: 'DEV_STATS_DIR not set' })
+          return
+        }
+        filePath = resolve(devStatsRoot, 'output', name)
+      }
+      if (!/\.html?$/i.test(filePath)) {
+        sendJson(res, 415, { error: 'only .html files can be served raw' })
+        return
+      }
+      try {
+        const abs = resolve(filePath)
+        const devStatsRoot = process.env['DEV_STATS_DIR']
+        const roots = [...ctx.fsRoots.read, ...(devStatsRoot ? [resolve(devStatsRoot)] : [])]
+        assertWithinRoots(abs, roots)
+        const fileStat = await stat(abs)
+        if (!fileStat.isFile()) {
+          sendJson(res, 400, { error: 'not a file' })
+          return
+        }
+        if (fileStat.size > 10 * 1024 * 1024) {
+          sendJson(res, 413, {
+            error: `file too large (${(fileStat.size / 1024 / 1024).toFixed(1)}MB > 10MB)`,
+          })
+          return
+        }
+        const buf = await readFile(abs)
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Content-Security-Policy': 'sandbox allow-scripts',
+          'Cache-Control': 'no-store',
+        })
+        res.end(buf)
+      } catch (err) {
+        const e = err as Error
+        sendJson(res, e.message.includes('escapes') ? 403 : 400, { error: e.message })
       }
       return
     }
