@@ -91,7 +91,9 @@ const failTool = definePlugin(
   ['tools'],
 )
 
-async function buildContext(opts: { slow?: boolean; gated?: boolean; fail?: boolean } = {}): Promise<Context> {
+async function buildContext(
+  opts: { slow?: boolean; gated?: boolean; fail?: boolean } = {},
+): Promise<Context> {
   const root = new Context()
   await root.plugin(ToolRegistry)
   await root.plugin(pse)
@@ -166,7 +168,8 @@ test('job runs to completion and persists its event log', async () => {
   // the web UI uses for dedupe (two events must never share a seq).
   const seqs = rec.events.map((e) => e.seq)
   assert.equal(new Set(seqs).size, seqs.length, 'every persisted event has a unique seq')
-  for (let i = 1; i < seqs.length; i++) assert.ok(seqs[i] > seqs[i - 1], 'seq is strictly increasing')
+  for (let i = 1; i < seqs.length; i++)
+    assert.ok(seqs[i] > seqs[i - 1], 'seq is strictly increasing')
 
   // High-frequency streaming events are live-only: they must NOT bloat the
   // persisted record (the `step` event carries the full content for replay).
@@ -432,7 +435,9 @@ test('jobs force PSE mode even when the global PSE flag is off', async () => {
   // (Planner → Specialist → Evaluator), replacing the old combined prompt.
   const allPrompts = seenPrompts.join('\n')
   assert.ok(
-    allPrompts.includes('Planner') && allPrompts.includes('Specialist') && allPrompts.includes('Evaluator'),
+    allPrompts.includes('Planner') &&
+      allPrompts.includes('Specialist') &&
+      allPrompts.includes('Evaluator'),
     'job run should send Planner/Specialist/Evaluator SOUL.md as system prompts',
   )
 

@@ -93,16 +93,14 @@ function buildRunEnv(provider: 'free' | 'deepseek'): NodeJS.ProcessEnv {
 function refreshProjectKeys(ctx: Context): string[] {
   const fresh = loadProjectKeys()
   if (JSON.stringify(fresh) !== JSON.stringify(projectKeys)) {
-    ctx.logger('article-write').info(
-      'projects.json changed: %d -> %d keys',
-      projectKeys.length,
-      fresh.length,
-    )
+    ctx
+      .logger('article-write')
+      .info('projects.json changed: %d -> %d keys', projectKeys.length, fresh.length)
     projectKeys = fresh
     const tool = ctx.tools.get('article-write')
-    const projectParam = (tool?.parameters as
-      | { properties?: { project?: { enum?: string[] } } }
-      | undefined)?.properties?.project
+    const projectParam = (
+      tool?.parameters as { properties?: { project?: { enum?: string[] } } } | undefined
+    )?.properties?.project
     if (projectParam) {
       projectParam.enum = fresh.length ? fresh : undefined
     }

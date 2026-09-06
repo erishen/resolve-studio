@@ -194,8 +194,14 @@ test('PSE sanitizes malformed XML tool-call syntax from the Planner so it does n
 
   const specialistPrompts = prompts.filter((p) => p.includes('specialist soul'))
   assert.ok(specialistPrompts.length >= 1)
-  assert.ok(!specialistPrompts[0].includes('</parameter>'), 'XML tag soup must not reach the Specialist')
-  assert.ok(!specialistPrompts[0].includes('<tool_call>'), 'pseudo tool-call tag must not reach the Specialist')
+  assert.ok(
+    !specialistPrompts[0].includes('</parameter>'),
+    'XML tag soup must not reach the Specialist',
+  )
+  assert.ok(
+    !specialistPrompts[0].includes('<tool_call>'),
+    'pseudo tool-call tag must not reach the Specialist',
+  )
 
   await root.fiber.dispose()
 })

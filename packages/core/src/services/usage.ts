@@ -138,10 +138,18 @@ export class UsageService extends Service {
 
     if (promptChars && promptTokens > 0) {
       const observed = promptChars / promptTokens
-      this.charPerToken = this.charPerToken === null ? observed : this.charPerToken * 0.8 + observed * 0.2
+      this.charPerToken =
+        this.charPerToken === null ? observed : this.charPerToken * 0.8 + observed * 0.2
     }
 
-    const record: UsageRecord = { model, promptTokens, completionTokens, cost, sessionId, ...(promptChars !== undefined ? { promptChars } : {}) }
+    const record: UsageRecord = {
+      model,
+      promptTokens,
+      completionTokens,
+      cost,
+      sessionId,
+      ...(promptChars !== undefined ? { promptChars } : {}),
+    }
     ;(bus ?? this.ctx.events).emit('llm/usage', record)
     return record
   }

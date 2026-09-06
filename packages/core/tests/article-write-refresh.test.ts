@@ -24,7 +24,8 @@ function makeProjectsDir(keys: string[]): string {
   const taskDir = join(dir, 'tasks', 'project-articles')
   mkdirSync(taskDir, { recursive: true })
   const obj: Record<string, unknown> = {}
-  for (const k of keys) obj[k] = { repo: `x/${k}`, desc: `desc ${k}`, highlights: 'h', source_dir: `src/${k}` }
+  for (const k of keys)
+    obj[k] = { repo: `x/${k}`, desc: `desc ${k}`, highlights: 'h', source_dir: `src/${k}` }
   writeFileSync(join(taskDir, 'projects.json'), JSON.stringify(obj, null, 2))
   return dir
 }
@@ -41,9 +42,11 @@ test('article-write picks up projects added by article-discover after registrati
   await root.plugin(toolArticleWrite)
 
   // Schema enum starts with the registered project.
-  const before = (root.tools.schemas().find((t) => t.name === 'article-write')?.parameters as {
-    properties?: { project?: { enum?: string[] } }
-  })?.properties?.project?.enum
+  const before = (
+    root.tools.schemas().find((t) => t.name === 'article-write')?.parameters as {
+      properties?: { project?: { enum?: string[] } }
+    }
+  )?.properties?.project?.enum
   assert.deepEqual(before, ['alpha'])
 
   // Simulate article-discover appending two new projects to projects.json.
@@ -62,9 +65,11 @@ test('article-write picks up projects added by article-discover after registrati
 
   // The registered schema enum is refreshed in place (same object the LLM schema
   // reads on the next turn), so a chained discover→write turn sees them too.
-  const after = (root.tools.schemas().find((t) => t.name === 'article-write')?.parameters as {
-    properties?: { project?: { enum?: string[] } }
-  })?.properties?.project?.enum
+  const after = (
+    root.tools.schemas().find((t) => t.name === 'article-write')?.parameters as {
+      properties?: { project?: { enum?: string[] } }
+    }
+  )?.properties?.project?.enum
   assert.deepEqual([...after!], ['alpha', 'beta', 'gamma'])
 
   await root.fiber.dispose()

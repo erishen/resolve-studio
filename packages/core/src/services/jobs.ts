@@ -187,9 +187,7 @@ export class JobsService extends Service {
     // Migrate pre-meta rows: add the column if it predates the meta fast-path,
     // then backfill it from each record so list() never has to parse the full
     // (potentially megabyte-sized) record JSON.
-    const cols = this.db
-      .prepare('PRAGMA table_info(jobs)')
-      .all() as Array<{ name: string }>
+    const cols = this.db.prepare('PRAGMA table_info(jobs)').all() as Array<{ name: string }>
     if (!cols.some((c) => c.name === 'meta')) {
       this.db.exec('ALTER TABLE jobs ADD COLUMN meta TEXT')
     }
@@ -201,9 +199,8 @@ export class JobsService extends Service {
   /** True when any row lacks a meta value (needs backfill). */
   private get hasMetaStale(): boolean {
     try {
-      const row = this.db
-        .prepare('SELECT 1 AS x FROM jobs WHERE meta IS NULL LIMIT 1')
-        .get() as { x?: number } | undefined
+      const row = this.db.prepare('SELECT 1 AS x FROM jobs WHERE meta IS NULL LIMIT 1').get() as
+        { x?: number } | undefined
       return !!row
     } catch {
       return true
@@ -383,7 +380,11 @@ export class JobsService extends Service {
       // A row left `running` by a process that died is revived on read: load the
       // full record (rare) so its status is persisted as failed. Live runs are
       // simply reported from meta.
-      if (meta.status === 'running' && !this.running.has(meta.id) && !this.cancelledQueued.has(meta.id)) {
+      if (
+        meta.status === 'running' &&
+        !this.running.has(meta.id) &&
+        !this.cancelledQueued.has(meta.id)
+      ) {
         const rec = await this.load(meta.id)
         if (rec) {
           await this.reviveIfNeeded(rec)

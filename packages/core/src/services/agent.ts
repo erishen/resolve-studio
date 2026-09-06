@@ -796,12 +796,14 @@ export class AgentService extends Service {
   ): Promise<ChatMessage[]> {
     const budgetChars = this.resolveBudgetChars(options)
     if (budgetChars !== undefined && estimateChars(messages) <= budgetChars) return messages
-    this.ctx.logger('agent').info(
-      'context fit: %d chars (budget %s) — compacting %d msgs',
-      estimateChars(messages),
-      budgetChars ?? 'default 60k',
-      messages.length,
-    )
+    this.ctx
+      .logger('agent')
+      .info(
+        'context fit: %d chars (budget %s) — compacting %d msgs',
+        estimateChars(messages),
+        budgetChars ?? 'default 60k',
+        messages.length,
+      )
     return fitContextWithSummary(messages, {
       maxChars: budgetChars,
       // `messages` is the agent loop's private copy (built in run()), so when
@@ -896,7 +898,11 @@ export class AgentService extends Service {
    */
   private async callWithRetry<T>(
     fn: () => Promise<T>,
-    opts: { signal?: AbortSignal; ctx: { logger: (ns: string) => { warn: (msg: string, ...a: unknown[]) => void } }; phase: string },
+    opts: {
+      signal?: AbortSignal
+      ctx: { logger: (ns: string) => { warn: (msg: string, ...a: unknown[]) => void } }
+      phase: string
+    },
     attempts = 3,
   ): Promise<T> {
     let lastErr: unknown
@@ -913,13 +919,15 @@ export class AgentService extends Service {
             msg,
           )
         if (!transient || i === attempts - 1) throw err
-        opts.ctx.logger('agent').warn(
-          '%s transient error (%s) — retry %d/%d',
-          opts.phase,
-          msg.slice(0, 80),
-          i + 1,
-          attempts,
-        )
+        opts.ctx
+          .logger('agent')
+          .warn(
+            '%s transient error (%s) — retry %d/%d',
+            opts.phase,
+            msg.slice(0, 80),
+            i + 1,
+            attempts,
+          )
         // Small backoff so a flaky provider has a beat to recover.
         await new Promise((r) => setTimeout(r, 400 * (i + 1)))
       }
@@ -975,7 +983,9 @@ export class AgentService extends Service {
       }
 
       // ── Phase 1: Planner (single LLM call, no tools) ──
-      this.ctx.logger('agent').info('PSE cycle %d/%d — Planner', cycle + 1, MAX_PSE_ORCH_RETRIES + 1)
+      this.ctx
+        .logger('agent')
+        .info('PSE cycle %d/%d — Planner', cycle + 1, MAX_PSE_ORCH_RETRIES + 1)
       const plannerMessages: ChatMessage[] = [
         { role: 'system', content: plannerSoul ?? '你是 Planner。' },
         {

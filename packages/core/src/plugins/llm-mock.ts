@@ -70,7 +70,10 @@ class LlmMock extends LlmService {
    * exercised offline (no network / API key needed). Also emits a fake
    * `reasoning` block so the thinking UI is visible without a real model.
    */
-  async *chatStream(messages: ChatMessage[], options?: ChatOptions): AsyncIterable<ChatStreamChunk> {
+  async *chatStream(
+    messages: ChatMessage[],
+    options?: ChatOptions,
+  ): AsyncIterable<ChatStreamChunk> {
     // Prose-only phase (PSE Planner/Evaluator): never emit a tool-call.
     if (options?.toolChoice === 'none') {
       for (const char of 'PASS — mock 校验通过') {
