@@ -1,6 +1,7 @@
 /**
- * Web server integration tests: boot the real HTTP bridge on a fixed port and
- * exercise /api/tools, /api/skills and the session CRUD endpoints end-to-end.
+ * Web server integration tests: boot the real HTTP bridge on an ephemeral port
+ * and exercise /api/tools, /api/skills, /api/fs and the session CRUD endpoints
+ * end-to-end.
  */
 
 import { test } from 'node:test'
@@ -46,8 +47,9 @@ const gatedCalculator = definePlugin(
   ['tools'],
 )
 
-const PORT = 8899
-const BASE = `http://127.0.0.1:${PORT}`
+// Port 0 = OS-assigned ephemeral port. A hardcoded port (8899) made the whole
+// suite fail with EADDRINUSE whenever anything else on the machine squatted on
+// it; each test now binds its own free port and learns it via `onListening`.
 
 // Create a temp skills dir with a code-review skill for testing
 const TMP_SKILLS = mkdtempSync(join(tmpdir(), 'resolve-studio-skills-'))
@@ -57,7 +59,15 @@ writeFileSync(
   '---\nname: code-review\ndescription: 审查代码改动并输出结构化报告\n---\n# Code Review\n步骤...\n',
 )
 
-async function buildServer(): Promise<Context> {
+/**
+ * Boot the bridge on an ephemeral port with its own session dir; resolves once
+ * it is actually listening. Both are per-server: test files run in parallel
+ * processes (`node --test`), so a shared port or a shared session dir leaks
+ * state between them.
+ */
+async function buildServer(): Promise<{ root: Context; base: string }> {
+  let bound = 0
+  const sessionDir = mkdtempSync(join(tmpdir(), 'resolve-studio-sessions-'))
   const root = new Context()
   await root.plugin(ToolRegistry)
   await root.plugin(pse)
@@ -72,22 +82,32 @@ async function buildServer(): Promise<Context> {
   await root.plugin(llmMock)
   await root.plugin(toolEcho)
   await root.plugin(gatedCalculator)
-  await root.plugin(webServer, { host: '127.0.0.1', port: PORT })
-  // server.listen is async; give it a beat to bind.
-  await new Promise((r) => setTimeout(r, 300))
-  return root
+  await root.plugin(webServer, {
+    host: '127.0.0.1',
+    port: 0,
+    sessionDir,
+    onListening: (info) => {
+      bound = info.port
+    },
+  })
+  // server.listen is async: wait for the bind instead of sleeping a fixed beat.
+  for (let i = 0; i < 100 && bound === 0; i++) {
+    await new Promise((r) => setTimeout(r, 20))
+  }
+  if (!bound) throw new Error('web server did not bind in time')
+  return { root, base: `http://127.0.0.1:${bound}` }
 }
 
 test('GET /api/tools and /api/skills', async () => {
-  const root = await buildServer()
+  const { root, base } = await buildServer()
 
-  const tools = (await (await fetch(`${BASE}/api/tools`)).json()) as {
+  const tools = (await (await fetch(`${base}/api/tools`)).json()) as {
     tools: { name: string; needsApproval?: boolean }[]
   }
   assert.ok(tools.tools.some((t) => t.name === 'echo'))
   assert.ok(tools.tools.some((t) => t.name === 'calculator' && t.needsApproval))
 
-  const sk = (await (await fetch(`${BASE}/api/skills`)).json()) as {
+  const sk = (await (await fetch(`${base}/api/skills`)).json()) as {
     skills: { name: string }[]
   }
   assert.ok(sk.skills.some((s) => s.name === 'code-review'))
@@ -96,9 +116,9 @@ test('GET /api/tools and /api/skills', async () => {
 })
 
 test('GET /api/tasks lists tasks; POST /api/tasks/match finds the active one', async () => {
-  const root = await buildServer()
+  const { root, base } = await buildServer()
 
-  const body = (await (await fetch(`${BASE}/api/tasks`)).json()) as {
+  const body = (await (await fetch(`${base}/api/tasks`)).json()) as {
     tasks: {
       id: string
       name: string
@@ -123,7 +143,7 @@ test('GET /api/tasks lists tasks; POST /api/tasks/match finds the active one', a
   assert.ok(body.scopes.some((s) => s.id === 'web'))
 
   const hit = (await (
-    await fetch(`${BASE}/api/tasks/match`, {
+    await fetch(`${base}/api/tasks/match`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: '帮我写一篇技术文章并发布到掘金' }),
@@ -132,7 +152,7 @@ test('GET /api/tasks lists tasks; POST /api/tasks/match finds the active one', a
   assert.equal(hit.id, 'articles')
 
   const miss = (await (
-    await fetch(`${BASE}/api/tasks/match`, {
+    await fetch(`${base}/api/tasks/match`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: '你好，介绍一下你自己' }),
@@ -144,10 +164,10 @@ test('GET /api/tasks lists tasks; POST /api/tasks/match finds the active one', a
 })
 
 test('GET /api/fs lists the read roots, then a directory', async () => {
-  const root = await buildServer()
+  const { root, base } = await buildServer()
 
   // Root view: no path → lists the configured read roots as virtual dirs.
-  const roots = (await (await fetch(`${BASE}/api/fs`)).json()) as {
+  const roots = (await (await fetch(`${base}/api/fs`)).json()) as {
     dir: string
     parent: string | null
     entries: { name: string; isDir: boolean; path: string }[]
@@ -163,7 +183,7 @@ test('GET /api/fs lists the read roots, then a directory', async () => {
   // Drill into the cwd root (the first entry) and expect to see its contents.
   const cwdEntry = roots.entries[0]
   const listing = (await (
-    await fetch(`${BASE}/api/fs?path=${encodeURIComponent(cwdEntry.path)}`)
+    await fetch(`${base}/api/fs?path=${encodeURIComponent(cwdEntry.path)}`)
   ).json()) as {
     dir: string
     entries: { name: string }[]
@@ -178,7 +198,7 @@ test('GET /api/fs lists the read roots, then a directory', async () => {
   // A read root must report atRoot:true with a null parent (its filesystem
   // parent is outside the sandbox, so "up" returns to the root list instead).
   const rootView = (await (
-    await fetch(`${BASE}/api/fs?path=${encodeURIComponent(cwdEntry.path)}`)
+    await fetch(`${base}/api/fs?path=${encodeURIComponent(cwdEntry.path)}`)
   ).json()) as {
     atRoot: boolean
     parent: string | null
@@ -191,7 +211,7 @@ test('GET /api/fs lists the read roots, then a directory', async () => {
   const sub = listing.entries.find((e) => e.name === 'packages' || e.name === 'apps')
   if (sub) {
     const subListing = (await (
-      await fetch(`${BASE}/api/fs?path=${encodeURIComponent(sub.path)}`)
+      await fetch(`${base}/api/fs?path=${encodeURIComponent(sub.path)}`)
     ).json()) as {
       parent: string | null
     }
@@ -199,17 +219,17 @@ test('GET /api/fs lists the read roots, then a directory', async () => {
   }
 
   // Path traversal outside the sandbox must be rejected (400), not listed.
-  const bad = await fetch(`${BASE}/api/fs?path=${encodeURIComponent('/etc')}`)
+  const bad = await fetch(`${base}/api/fs?path=${encodeURIComponent('/etc')}`)
   assert.equal(bad.status, 400)
 
   await root.fiber.dispose()
 })
 
 test('session CRUD round-trip', async () => {
-  const root = await buildServer()
+  const { root, base } = await buildServer()
   const id = 't-sess-1'
 
-  const created = await fetch(`${BASE}/api/sessions`, {
+  const created = await fetch(`${base}/api/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -221,23 +241,23 @@ test('session CRUD round-trip', async () => {
   })
   assert.equal(created.status, 200)
 
-  const list = (await (await fetch(`${BASE}/api/sessions`)).json()) as {
+  const list = (await (await fetch(`${base}/api/sessions`)).json()) as {
     sessions: { id: string; messageCount: number }[]
   }
   const found = list.sessions.find((s) => s.id === id)
   assert.ok(found, 'session should appear in list')
   assert.equal(found.messageCount, 1)
 
-  const one = (await (await fetch(`${BASE}/api/sessions/${id}`)).json()) as {
+  const one = (await (await fetch(`${base}/api/sessions/${id}`)).json()) as {
     session: { messages: { content: string }[]; taskMode?: string }
   }
   assert.equal(one.session.messages[0].content, 'hi')
   assert.equal(one.session.taskMode, 'articles', 'taskMode should persist round-trip')
 
-  const del = await fetch(`${BASE}/api/sessions/${id}`, { method: 'DELETE' })
+  const del = await fetch(`${base}/api/sessions/${id}`, { method: 'DELETE' })
   assert.equal(del.status, 200)
 
-  const after = (await (await fetch(`${BASE}/api/sessions`)).json()) as {
+  const after = (await (await fetch(`${base}/api/sessions`)).json()) as {
     sessions: { id: string }[]
   }
   assert.ok(!after.sessions.some((s) => s.id === id), 'session should be gone')
@@ -246,12 +266,12 @@ test('session CRUD round-trip', async () => {
 })
 
 test('DELETE /api/sessions clears all stored sessions', async () => {
-  const root = await buildServer()
+  const { root, base } = await buildServer()
   // Start from a clean slate so other tests' leftovers don't skew the count.
-  await fetch(`${BASE}/api/sessions`, { method: 'DELETE' })
+  await fetch(`${base}/api/sessions`, { method: 'DELETE' })
 
   const seed = (id: string) =>
-    fetch(`${BASE}/api/sessions`, {
+    fetch(`${base}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, title: id, messages: [{ role: 'user', content: 'hi' }] }),
@@ -259,20 +279,61 @@ test('DELETE /api/sessions clears all stored sessions', async () => {
   await seed('clear-a')
   await seed('clear-b')
 
-  const before = (await (await fetch(`${BASE}/api/sessions`)).json()) as {
+  const before = (await (await fetch(`${base}/api/sessions`)).json()) as {
     sessions: { id: string }[]
   }
   assert.equal(before.sessions.length, 2)
 
-  const del = await fetch(`${BASE}/api/sessions`, { method: 'DELETE' })
+  const del = await fetch(`${base}/api/sessions`, { method: 'DELETE' })
   assert.equal(del.status, 200)
   const body = (await del.json()) as { removed: number }
   assert.equal(body.removed, 2)
 
-  const after = (await (await fetch(`${BASE}/api/sessions`)).json()) as {
+  const after = (await (await fetch(`${base}/api/sessions`)).json()) as {
     sessions: { id: string }[]
   }
   assert.equal(after.sessions.length, 0)
 
   await root.fiber.dispose()
+})
+
+test('each server instance gets its own session dir (no cross-test leakage)', async () => {
+  // Session files used to land in the shared `<cwd>/.data/sessions`, so two
+  // servers (or two test files running in parallel) saw each other's sessions
+  // and the DELETE-all assertions counted foreign rows.
+  const a = await buildServer()
+  const b = await buildServer()
+  try {
+    for (const [base, id] of [
+      [a.base, 'iso-a'],
+      [b.base, 'iso-b'],
+    ] as const) {
+      const res = await fetch(`${base}/api/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, title: id, messages: [{ role: 'user', content: 'hi' }] }),
+      })
+      assert.equal(res.status, 200)
+    }
+
+    const listA = (await (await fetch(`${a.base}/api/sessions`)).json()) as {
+      sessions: { id: string }[]
+    }
+    const listB = (await (await fetch(`${b.base}/api/sessions`)).json()) as {
+      sessions: { id: string }[]
+    }
+    assert.deepEqual(
+      listA.sessions.map((s) => s.id),
+      ['iso-a'],
+      'server A sees only its own session',
+    )
+    assert.deepEqual(
+      listB.sessions.map((s) => s.id),
+      ['iso-b'],
+      'server B sees only its own session',
+    )
+  } finally {
+    await a.root.fiber.dispose()
+    await b.root.fiber.dispose()
+  }
 })

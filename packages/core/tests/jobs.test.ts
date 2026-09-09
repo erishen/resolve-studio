@@ -337,13 +337,27 @@ test('maxConcurrent queues excess jobs until a slot frees', async () => {
 })
 
 // ---- web-server surface ----
-const PORT = 8898
-const BASE = `http://127.0.0.1:${PORT}`
+// Ephemeral port + private session dir: `node --test` runs test files in
+// parallel, so a fixed port or the shared `.data/sessions` dir leaks state
+// between files (and breaks outright when something else holds the port).
 
 test('POST/GET /api/jobs and stream snapshot', async () => {
   const root = await buildContext()
-  await root.plugin(webServer, { host: '127.0.0.1', port: PORT })
-  await new Promise((r) => setTimeout(r, 300))
+  let bound = 0
+  await root.plugin(webServer, {
+    host: '127.0.0.1',
+    port: 0,
+    sessionDir: mkdtempSync(join(tmpdir(), 'resolve-studio-jobs-sessions-')),
+    onListening: (info) => {
+      bound = info.port
+    },
+  })
+  // Wait for the actual bind instead of sleeping a fixed beat.
+  for (let i = 0; i < 100 && bound === 0; i++) {
+    await new Promise((r) => setTimeout(r, 20))
+  }
+  if (!bound) throw new Error('web server did not bind in time')
+  const BASE = `http://127.0.0.1:${bound}`
 
   const createdRes = await fetch(`${BASE}/api/jobs`, {
     method: 'POST',

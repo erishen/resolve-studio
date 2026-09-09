@@ -32,12 +32,20 @@ import type { JobEvent, JobsService } from '../services/jobs.js'
 import type { ChatMessage, ModelInfo, RunEventBus } from '../types.js'
 
 interface WebServerConfig {
+  /** Port to bind. `0` = ephemeral (OS-assigned); the real port is reported via `onListening`. */
   port?: number
   host?: string
   /** Directory where workspace-scan.mjs writes its report (projects.json, index.html, .scan-status.json). */
   workspaceOut?: string
   /** Path to the `uv` binary used by workspace-scan.mjs to run serena. */
   serenaUv?: string
+  /** Where conversation sessions are persisted. Defaults to `<cwd>/.data/sessions`. */
+  sessionDir?: string
+  /**
+   * Called once the listener is bound, with the port actually bound. Needed
+   * when `port: 0` (ephemeral) since the real port is only known at bind time.
+   */
+  onListening?: (info: { host: string; port: number }) => void
 }
 
 // 导出供 tool 插件拼「预览链接」用（与插件配置保持一致：cordis.web.yml 未覆写时即此默认值）。
@@ -64,7 +72,8 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
   const workspaceOut = resolveWorkspaceOut(config)
   const serenaUv = resolveSerenaUv(config)
   const workspaceScript = join(process.cwd(), 'packages/core', 'workspace-scan.mjs')
-  const sessions = new SessionStore(join(process.cwd(), '.data', 'sessions'))
+  const sessionDir = config.sessionDir ?? join(process.cwd(), '.data', 'sessions')
+  const sessions = new SessionStore(sessionDir)
   const workspace = new WorkspaceManager(
     {
       outDir: workspaceOut,
@@ -978,7 +987,12 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
   }
 
   server.listen(port, host, () => {
-    log.info('web UI bridge listening on http://%s:%d', host, port)
+    // With port 0 the OS picks the port, so read it back from the socket
+    // instead of logging the requested value.
+    const addr = server.address()
+    const bound = addr && typeof addr === 'object' ? addr.port : port
+    log.info('web UI bridge listening on http://%s:%d', host, bound)
+    config.onListening?.({ host, port: bound })
   })
 
   // Cordis disposes the root context on process exit via its own fiber; the
