@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { readFileSync, readdirSync } from 'node:fs'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
-import type { Tool, ToolExecutionContext } from '../../types.js'
+import type { Tool, ToolExecutionContext, ToolParameter } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -119,27 +119,45 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n…[truncated ${s.length - max} chars]`
 }
 
-function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: string[]) {
+/**
+ * Build the parameter schema on demand, never at registration time.
+ *
+ * The project list is live data: projects.json grows as new articles are
+ * queued, and articles/pse/zh/ gains files while the process is running.
+ * Freezing it into a static `enum` silently hides anything added after
+ * startup (sprite stayed invisible for a whole session because of this).
+ * `ToolRegistry.schemas()` reads `parameters` on every turn, so a getter is
+ * enough to keep the enum fresh.
+ */
+function buildParameters(): ToolParameter {
+  const keys = loadArticleKeys()
+  return {
+    type: 'object',
+    properties: {
+      project: {
+        type: 'string',
+        description:
+          'Project key from crewai-pse projects.json（每次调用实时读取，新加入队列的项目会即时出现）。不传 project 会列出待处理队列清单供用户选择；用户指定后传 project=<key 或 编号>。',
+        enum: keys.length ? keys : undefined,
+      },
+      confirm: {
+        type: 'boolean',
+        description:
+          '安全闸门。必须显式设为 true 才会真正 POST 到 WordPress；缺省或 false 只做只读预览（跑校验、打印将执行的操作，但不发布）。仅在用户已明确点名这篇 project 后才可设 true；禁止对同一队列批量设 true。',
+        default: false,
+      },
+    },
+    required: [],
+  }
+}
+
+function registerTask(ctx: Context, task: CrewAiPublishTaskDef) {
   ctx.tools.register({
     name: task.name,
     description: task.description,
-    parameters: {
-      type: 'object',
-      properties: {
-        project: {
-          type: 'string',
-          description:
-            'Project key from crewai-pse projects.json。不传 project 会列出待处理队列清单供用户选择；用户指定后传 project=<key 或 编号>。',
-          enum: projectKeys.length ? projectKeys : undefined,
-        },
-        confirm: {
-          type: 'boolean',
-          description:
-            '安全闸门。必须显式设为 true 才会真正 POST 到 WordPress；缺省或 false 只做只读预览（跑校验、打印将执行的操作，但不发布）。仅在用户已明确点名这篇 project 后才可设 true；禁止对同一队列批量设 true。',
-          default: false,
-        },
-      },
-      required: [],
+    // getter：每次读取 schema（每个 LLM turn）都重新算 enum
+    get parameters() {
+      return buildParameters()
     },
     async execute(
       args: { project?: string; confirm?: boolean },
@@ -147,6 +165,8 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
     ): Promise<string> {
       const { project: rawProject, confirm } = args
       const onProgress = execCtx?.onProgress
+      // 每次调用现取，别用注册时的快照：进程启动后新增的项目也要能选中
+      const projectKeys = loadArticleKeys()
 
       // Allow numeric index selection (1-based) from the enumerated list, so a
       // user/agent reply like "4" maps to projectKeys[3] instead of failing.
@@ -272,12 +292,11 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef, projectKeys: str
 }
 
 const registerCrewAiPublish = (ctx: Context) => {
-  const articleKeys = loadArticleKeys()
-
   for (const task of TASKS) {
     // 所有任务（publish/validate/archive）共用「目录文章 + json 存档」的并集：
     // 已发布但尚未归档的文章（如 resolve-tui）也能从 UI 重新发布/校验/归档。
-    registerTask(ctx, task, articleKeys)
+    // 具体清单由 buildParameters() / execute 在调用时实时读取，这里不传快照。
+    registerTask(ctx, task)
   }
   ctx
     .logger('crewai-publish')
