@@ -56,6 +56,16 @@ test('article-write picks up projects added by article-discover after registrati
   obj['gamma'] = { repo: 'x/gamma', desc: 'd', highlights: 'h', source_dir: 'src/gamma' }
   writeFileSync(file, JSON.stringify(obj, null, 2))
 
+  // The schema must already be live BEFORE the tool is ever called: the old
+  // implementation only re-synced inside execute(), so a project discovered in
+  // this session stayed invisible until someone invoked the tool once.
+  const live = (
+    root.tools.schemas().find((t) => t.name === 'article-write')?.parameters as {
+      properties?: { project?: { enum?: string[] } }
+    }
+  )?.properties?.project?.enum
+  assert.deepEqual(live, ['alpha', 'beta', 'gamma'], 'enum is live before any execute')
+
   // Calling the tool (without project → returns the candidate list, no make
   // invocation) must reflect the two newly added projects.
   const result = await root.tools.call('article-write', {})

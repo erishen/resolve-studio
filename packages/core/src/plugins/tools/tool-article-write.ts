@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
-import type { Tool, ToolExecutionContext } from '../../types.js'
+import type { Tool, ToolExecutionContext, ToolParameter } from '../../types.js'
 import { runPseTask, MAX_OUTPUT, gateNonFreeProvider } from './util-pse.js'
 
 /** crewai-pse framework root, from CREWAI_PSE_DIR (env-only). Null if unset. */
@@ -22,21 +22,19 @@ const RUN_TIMEOUT_MS = 1_200_000
 const ZH_SAVED_RE = /中文已保存 →\s*(\S+)/
 const EN_SAVED_RE = /英文已保存 →\s*(\S+)/
 
-// Project keys are read from projects.json at registration time so the enum
-// stays in sync without manual edits. Because article-discover can append new
-// projects at runtime, the key list is also re-read and the tool re-registered
-// on every execute() so newly discovered projects surface in the enum for the
-// next agent turn (see refreshProjectKeys).
 function projectsFile(): string | null {
   const dir = crewaiPseDir()
   return dir ? join(dir, 'tasks', 'project-articles', 'projects.json') : null
 }
 
-// Loaded synchronously at module-eval so the `project` enum is populated in the
-// tool schema at registration time. An async load would leave the enum empty,
-// hiding the choices from the model and causing repeated no-project calls.
-// When CREWAI_PSE_DIR is unset the file path is unknown, so the enum is empty
-// (the tool then tells the caller to set the env).
+/**
+ * Project keys, read from projects.json on demand.
+ *
+ * Must NOT be cached at module-eval or registration: article-discover appends
+ * new projects at runtime, and a frozen list would hide them from the model for
+ * the whole session. When CREWAI_PSE_DIR is unset the path is unknown, so the
+ * list is empty (the tool then tells the caller to set the env).
+ */
 function loadProjectKeys(): string[] {
   const file = projectsFile()
   if (!file) return []
@@ -49,7 +47,51 @@ function loadProjectKeys(): string[] {
   }
 }
 
-let projectKeys = loadProjectKeys()
+/**
+ * Rebuilt on every schema read so the `project` enum always mirrors
+ * projects.json. `ToolRegistry.schemas()` reads `parameters` each LLM turn, so
+ * a getter is enough to keep the enum live — no re-registration and no in-place
+ * mutation of a shared object.
+ */
+function buildParameters(): ToolParameter {
+  const keys = loadProjectKeys()
+  return {
+    type: 'object',
+    properties: {
+      project: {
+        type: 'string',
+        description:
+          'Project key from crewai-pse projects.json (read live on every call, so newly ' +
+          'discovered projects appear immediately). Omit it (call WITHOUT `project`) to get ' +
+          'the candidate list; once the user picks one, pass project=<key> to write that single ' +
+          'article. Never guess or invent a project name.',
+        enum: keys.length ? keys : undefined,
+      },
+      publish: {
+        type: 'boolean',
+        description: 'If true, auto-publish the article to WordPress after generation.',
+        default: false,
+      },
+      style: {
+        type: 'string',
+        description:
+          'Narrative style override A-F (F=engineering show-your-work). Omit for auto-rotation.',
+        enum: [...STYLE_NAMES],
+      },
+      provider: {
+        type: 'string',
+        description:
+          'Model provider: "free" (default, matches `make articles`) or "deepseek" (paid, higher quality, matches `make articles-paid`).',
+        enum: ['free', 'deepseek'],
+        default: 'free',
+      },
+    },
+    // `project` is intentionally NOT required: a vague "write an article" request
+    // should route through the no-project branch (returns the candidate list) so the
+    // model lets the USER pick ONE instead of guessing or looping over the enum.
+    required: [],
+  }
+}
 
 const STYLE_NAMES = ['A', 'B', 'C', 'D', 'E', 'F'] as const
 type StyleLetter = (typeof STYLE_NAMES)[number]
@@ -84,30 +126,6 @@ function buildRunEnv(provider: 'free' | 'deepseek'): NodeJS.ProcessEnv {
   return env
 }
 
-/** Re-read projects.json and rebuild the `project` enum so newly discovered
- *  projects (added by article-discover) surface in the tool schema for the
- *  model's next turn. Called on every execute and when registering. The
- *  registered Tool object holds the parameters by reference, so mutating its
- *  `project.enum` in place makes the next `schemas()`/`filterTools` call see
- *  the fresh list without re-registering. */
-function refreshProjectKeys(ctx: Context): string[] {
-  const fresh = loadProjectKeys()
-  if (JSON.stringify(fresh) !== JSON.stringify(projectKeys)) {
-    ctx
-      .logger('article-write')
-      .info('projects.json changed: %d -> %d keys', projectKeys.length, fresh.length)
-    projectKeys = fresh
-    const tool = ctx.tools.get('article-write')
-    const projectParam = (
-      tool?.parameters as { properties?: { project?: { enum?: string[] } } } | undefined
-    )?.properties?.project
-    if (projectParam) {
-      projectParam.enum = fresh.length ? fresh : undefined
-    }
-  }
-  return projectKeys
-}
-
 const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) => {
   ctx.tools.register({
     name: 'article-write',
@@ -135,40 +153,9 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       'locate projects.json, inspect the project directory, or run shell/fs commands yourself: ' +
       'the framework project lives OUTSIDE this sandbox and those reads will fail; the tool owns ' +
       'all file access for article writing.',
-    parameters: {
-      type: 'object',
-      properties: {
-        project: {
-          type: 'string',
-          description:
-            'Project key from crewai-pse projects.json. Omit it (call WITHOUT `project`) to get ' +
-            'the candidate list; once the user picks one, pass project=<key> to write that single ' +
-            'article. Never guess or invent a project name.',
-          enum: projectKeys.length ? projectKeys : undefined,
-        },
-        publish: {
-          type: 'boolean',
-          description: 'If true, auto-publish the article to WordPress after generation.',
-          default: false,
-        },
-        style: {
-          type: 'string',
-          description:
-            'Narrative style override A-F (F=engineering show-your-work). Omit for auto-rotation.',
-          enum: [...STYLE_NAMES],
-        },
-        provider: {
-          type: 'string',
-          description:
-            'Model provider: "free" (default, matches `make articles`) or "deepseek" (paid, higher quality, matches `make articles-paid`).',
-          enum: ['free', 'deepseek'],
-          default: 'free',
-        },
-      },
-      // `project` is intentionally NOT required: a vague "write an article" request
-      // should route through the no-project branch (returns the candidate list) so the
-      // model lets the USER pick ONE instead of guessing or looping over the enum.
-      required: [],
+    // getter：每次读取 schema（每个 LLM turn）都重新算 enum
+    get parameters() {
+      return buildParameters()
     },
     // Paid (deepseek) runs hit a human-in-the-loop approval gate; free runs pass
     // through. This is what gives the user a choice before spending money.
@@ -180,9 +167,8 @@ const registerArticleWrite = (ctx: Context, _config: ArticleWriteConfig = {}) =>
       const { project, publish = false, style, provider = 'free' } = args
       const onProgress = execCtx?.onProgress
 
-      // Re-sync the project enum from projects.json on every call: article-
-      // discover may have added new projects since this tool was registered.
-      refreshProjectKeys(ctx)
+      // 现取项目列表（不依赖注册时快照）：article-discover 可能刚加了新项目
+      const projectKeys = loadProjectKeys()
 
       const CREWAI_PSE = crewaiPseDir()
       if (!CREWAI_PSE) {
