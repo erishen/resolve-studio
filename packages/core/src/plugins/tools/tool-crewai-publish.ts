@@ -87,7 +87,8 @@ const TASKS: CrewAiPublishTaskDef[] = [
     makeTarget: 'validate',
     script: VALIDATE,
     description:
-      '发布前校验文章正确性。检查 articles/pse/zh 和 en 下的文章：文件存在性、frontmatter 完整性（title/date/slug/categories/tags/description/excerpt）、正文有效性（长度/标题数/非计划口吻）、思维链泄漏检测、FAQ 区块存在性与中英文数量一致、slug 命名规范、代码块闭合、日期格式。返回通过/错误/警告清单。 ' +
+      '⚠️ 此工具仅用于【校验】文章正确性，不负责发布；当用户想发布文章或查看「待发布清单」时，必须改用 article-publish（不传 project 即可列出待发布清单，返回的项目列表与本工具相同）。' +
+      '检查 articles/pse/zh 和 en 下的文章：文件存在性、frontmatter 完整性（title/date/slug/categories/tags/description/excerpt）、正文有效性（长度/标题数/非计划口吻）、思维链泄漏检测、FAQ 区块存在性与中英文数量一致、slug 命名规范、代码块闭合、日期格式。返回通过/错误/警告清单。 ' +
       'The project MUST be one from the `project` enum (read it from the tool schema — do NOT call this tool to discover choices). If the user did not specify a project, ASK the user to pick one of the enum values, then call with `project` set. Never guess or invent a project name. 不传 project 会列出待校验队列清单。',
   },
   {
