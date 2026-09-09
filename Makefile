@@ -15,8 +15,9 @@
 #   make            # 默认 = make install
 #   make install    # 装全部 workspace 依赖
 #   make check      # typecheck(core) + test(core)
-#   make dev        # 起后端(真实模型)+前端 dev，开浏览器即可聊
+#   make dev        # 起后端(真实模型)+前端 dev（前台常驻，Ctrl-C 退出）
 #   make dev-mock   # 起后端(mock)+前端 dev（离线，无需密钥）
+#   make dev-bg     # 同上但后台常驻：脱离终端，关窗口/会话回收都不停（配 dev-bg-status / dev-bg-stop）
 #   make stop       # 停掉 dev / dev-mock 起的后台进程
 #   make secret-scan # 本地全量密钥扫描（防泄露，公开前必跑）
 #   make hook-init  # 启用提交前自动密钥扫描钩子
@@ -54,7 +55,8 @@ BACKEND_MATCH := --import tsx .*$(subst .,[.],$(BACKEND_BIN))
 WEB_MATCH     := vite[.]js --host 127.0.0.1 --port $(WEB_PORT)
 
 .PHONY: all install typecheck test check build build-web \
-        chat chat-real dev dev-mock stop clean help new-plugin manifests \
+        chat chat-real dev dev-mock dev-bg dev-bg-mock dev-bg-stop dev-bg-status dev-bg-restart \
+        stop clean help new-plugin manifests \
         lint lint-fix format format-check docker-build docker-up docker-down logs \
         secret-scan hook-init publish publish-dry release
 
@@ -103,31 +105,119 @@ define kill_port
 	fi
 endef
 
+# 后端就绪探测：起 vite 之前先等 :$(BACKEND_PORT) 真能应答。
+# 之前后端与 vite 是同一批 `&` 起步的，而后端（tsx 冷启动 + MCP 握手）比 vite 慢好几秒，
+# 于是前端首屏的 /api/sessions /api/models 全被 vite 反代打成
+# `ECONNREFUSED 127.0.0.1:8787`（见 .run/web.log），页面一打开就一片红。
+# 用 HTTP 探测而非 lsof：端口 LISTEN ≠ 路由已注册；只要拿到任意 HTTP 状态码
+# （200/401/404 都算）即视为就绪，因此有没有鉴权都不影响判定。
+# `--noproxy '*'` 是必须的：本机有 http_proxy 时，curl 会把 127.0.0.1 的请求也发给代理，
+# 连不上的端口会拿到代理回的 502 而不是 000 —— 于是后端还没起来就误判成「ready」，
+# 竞态等于没修（探针只认 000 为「没起来」）。
+# 超时不阻断：万一后端起不来，也照常把前端拉起来，只提示一句，避免 make dev 卡死。
+BACKEND_PROBE        ?= /api/models
+BACKEND_WAIT_TIMEOUT ?= 60
+
+# 注意：define 里第一行的 `@` 要省略——它展开后落在续行中间（不是逻辑行首），
+# make 不会剥离 `@`，shell 会当成命令名 `@printf` 而报 command not found。
+# 调用处也必须写成 `$(call wait_backend); \`：末尾 `fi` 自带的分隔符补不上，
+# 少了这个分号会把后面的 `cd $(WEB) && vite` 粘连成 `fi cd ...` 语法错误。
+define wait_backend
+	printf 'waiting for backend on :$(BACKEND_PORT) '; \
+	i=0; \
+	while [ $$i -lt $(BACKEND_WAIT_TIMEOUT) ]; do \
+		code=$$(curl -s -m 2 --noproxy '*' -o /dev/null -w '%{http_code}' http://127.0.0.1:$(BACKEND_PORT)$(BACKEND_PROBE) 2>/dev/null); \
+		if [ -n "$$code" ] && [ "$$code" != "000" ]; then break; fi; \
+		i=$$((i + 1)); \
+		printf '.'; \
+		sleep 1; \
+	done; \
+	if [ $$i -ge $(BACKEND_WAIT_TIMEOUT) ]; then \
+		echo " timeout after $(BACKEND_WAIT_TIMEOUT)s (starting web anyway)"; \
+	else \
+		echo " ready"; \
+	fi
+endef
+
+# 退出诊断：`wait` 返回 = 有后台 job 退出了（后端崩、前端崩），随后 EXIT trap 会 pkill
+# 掉剩下的那个再打印 `stopped`。也就是说 `stopped` 有三种来源，原来长得一模一样，
+# 完全分不清是「你按了 Ctrl-C」还是「服务自己挂了」——后者正是「跑着跑着自己停」的真相，
+# 却被一行 stopped 盖住了。这里在打印 stopped 之前先把谁退了、去哪看日志说清楚。
+# 后端判活用 HTTP 而不是 pid：后端是 `node | tee` 的管道 job，`$!` 拿到的是 tee 而不是
+# node，拿它判活会失真（tee 健在并不代表后端还在）。
+define diagnose_exit
+	echo "" >&2; \
+	echo "[dev] ⚠️  有服务提前退出（不是 Ctrl-C），正在判断是谁：" >&2; \
+	code=$$(curl -s -m 2 --noproxy '*' -o /dev/null -w '%{http_code}' http://127.0.0.1:$(BACKEND_PORT)$(BACKEND_PROBE) 2>/dev/null); \
+	if [ -z "$$code" ] || [ "$$code" = "000" ]; then \
+		echo "[dev]    ❌ 后端已不在响应 :$(BACKEND_PORT) —— 看日志：tail -50 $(PID_DIR)/backend.log" >&2; \
+	else \
+		echo "[dev]    ✅ 后端仍在响应 :$(BACKEND_PORT)" >&2; \
+	fi; \
+	if kill -0 $$WEB_PID 2>/dev/null; then \
+		echo "[dev]    ✅ 前端(vite)仍在运行 (pid $$WEB_PID)" >&2; \
+	else \
+		echo "[dev]    ❌ 前端(vite)已退出 (pid $$WEB_PID) —— 看日志：tail -50 $(PID_DIR)/web.log" >&2; \
+	fi; \
+	echo "[dev]    提示：另开一个终端跑 make dev 时，开头的 kill_port 会杀掉这里的旧进程，同样表现为 stopped。" >&2
+endef
+
+# ⚠️ 下面 trap 里的 `echo stopped` 不是崩溃信息：dev 会话结束（Ctrl-C、关终端窗口、
+# IDE 任务结束、或上层工具回收进程组 → shell 收到 INT/TERM/EXIT）时，trap 会先 pkill
+# 掉后端与 vite，再打印一行 `stopped`。日志里出现 N 行 stopped = 有 N 个 dev 会话退出了。
+# 但「为什么会停」要看它上面那几行 diagnose 输出 —— 只有 Ctrl-C 才没有诊断（trap 直接退）。
+# 想彻底不停：make dev-bg（服务被 spawn 到独立会话，与终端/会话生命周期解耦）。
+# trap 放在启动之前：否则后端已起、等待就绪期间按 Ctrl-C 会留下没人管的孤儿后端。
 dev: $(PID_DIR)    ## 后端(真实模型)+前端 dev（前台常驻，Ctrl-C 退出）
 	-@pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; true
 	$(call kill_port,$(BACKEND_PORT))
 	$(call kill_port,$(WEB_PORT))
-	@echo "starting backend (real model) on :$(BACKEND_PORT) && web dev on :$(WEB_PORT) ..."; \
+	@echo "starting backend (real model) on :$(BACKEND_PORT) ..."; \
 	echo "--- backend log (live, colored) ---"; \
+	trap 'pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
 	FORCE_COLOR=1 node --import tsx $(CORE)/src/index.ts --config $(DEV_CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & \
+	$(call wait_backend); \
 	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & \
+	WEB_PID=$$!; \
 	echo "ready: http://127.0.0.1:$(WEB_PORT)  (backend :$(BACKEND_PORT), real model)"; \
 	echo "Ctrl-C to stop. web log: $(PID_DIR)/web.log"; \
-	trap 'pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
-	wait
+	wait; \
+	$(call diagnose_exit)
 
 dev-mock: $(PID_DIR)  ## 后端(mock)+前端 dev（离线，无需密钥，Ctrl-C 退出）
 	-@pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; true
 	$(call kill_port,$(BACKEND_PORT))
 	$(call kill_port,$(WEB_PORT))
-	@echo "starting backend (mock) on :$(BACKEND_PORT) && web dev on :$(WEB_PORT) ..."; \
+	@echo "starting backend (mock) on :$(BACKEND_PORT) ..."; \
 	echo "--- backend log (live, colored) ---"; \
+	trap 'pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
 	FORCE_COLOR=1 node --import tsx $(CORE)/src/index.ts --config $(CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & \
+	$(call wait_backend); \
 	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & \
+	WEB_PID=$$!; \
 	echo "ready: http://127.0.0.1:$(WEB_PORT)  (backend :$(BACKEND_PORT), mock)"; \
 	echo "Ctrl-C to stop. web log: $(PID_DIR)/web.log"; \
-	trap 'pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
-	wait
+	wait; \
+	$(call diagnose_exit)
+
+# ⚠️ 上面两个目标打印的 `stopped` 不是崩溃：dev 挂在前台，会话一结束（Ctrl-C / 关终端 /
+# IDE 任务结束 / 上层工具回收进程组）shell 就会收到 INT/TERM/EXIT，trap 先停服务再打印它。
+# **想让它一直跑就用 dev-bg**：服务被 spawn 到独立的会话与进程组，不再挂在当前终端下，
+# 关窗口也不会停；只有 `make dev-bg-stop` 才停。
+dev-bg: $(PID_DIR)      ## 后台常驻：起后端(真实模型)+前端，关终端/会话回收都不停
+	@node scripts/dev-bg.mjs start
+
+dev-bg-mock: $(PID_DIR) ## 后台常驻：起后端(mock)+前端（离线，无需密钥）
+	@node scripts/dev-bg.mjs start --mock
+
+dev-bg-stop:            ## 停掉 dev-bg 起的常驻实例（整组 TERM，不留孤儿）
+	@node scripts/dev-bg.mjs stop
+
+dev-bg-status:          ## 查看常驻实例：pid + 端口是否还在监听
+	@node scripts/dev-bg.mjs status
+
+dev-bg-restart:         ## 重启常驻实例
+	@node scripts/dev-bg.mjs restart
 
 logs:              ## 实时查看后端和前端日志
 	@echo "=== backend log ===" && tail -f $(PID_DIR)/backend.log & \
