@@ -548,6 +548,62 @@ test('an interrupted run after a verbose fetch-style tool only surfaces conclusi
   }
 })
 
+/**
+ * The observed failure: the model calls hot-news-topics, then hot-news-fetch,
+ * then repeats hot-news-topics with identical args. The repeat is deduped and
+ * answered with a "(skipped: … was already called in this same round …)"
+ * placeholder; the follow-up summarize turn then hits the free-tier 429. The
+ * fallback bubble must show the last REAL tool output — not the placeholder,
+ * which tells the user nothing about what actually ran.
+ */
+class ToolDupThenRateLimitedLlm extends LlmService {
+  async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+    if (!messages.some((m) => m.role === 'tool')) {
+      return {
+        toolCalls: [
+          { id: 'call-1', name: 'hotfetch', arguments: '{}' },
+          { id: 'call-2', name: 'hotfetch', arguments: '{}' },
+        ],
+      }
+    }
+    throw new Error('429 You’ve reached the API rate limit for free users.')
+  }
+  async models() {
+    return []
+  }
+}
+
+test('a deduped repeat of a tool call never becomes the interrupted run key output', async () => {
+  const { root, base } = await buildServer(ToolDupThenRateLimitedLlm)
+  await root.plugin(hotfetchTool)
+  try {
+    const res = await fetch(`${base}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'fetch' }],
+        model: 'agnes-2.0-flash',
+      }),
+    })
+    const raw = await res.text()
+    const events = [...raw.matchAll(/^event: (.+)\ndata: (.+)$/gm)].map((m) => ({
+      type: m[1]!,
+      data: JSON.parse(m[2]!) as Record<string, unknown>,
+    }))
+
+    const done = events.find((e) => e.type === 'done')
+    assert.ok(done, 'a `done` is emitted even though the run was interrupted')
+    const answer = String(done?.data['answer'] ?? '')
+
+    assert.ok(!/skipped/.test(answer), 'the duplicate-call placeholder is not surfaced')
+    assert.ok(!/already called/.test(answer), 'no bookkeeping text leaks into the bubble')
+    assert.match(answer, /✅ 完成：新增\/更新 99 条/, 'the real tool conclusion is preserved')
+    assert.match(answer, /📊 总览已生成/, 'the real overview line is preserved')
+  } finally {
+    await root.fiber.dispose()
+  }
+})
+
 test('each server instance gets its own session dir (no cross-test leakage)', async () => {
   // Session files used to land in the shared `<cwd>/.data/sessions`, so two
   // servers (or two test files running in parallel) saw each other's sessions
