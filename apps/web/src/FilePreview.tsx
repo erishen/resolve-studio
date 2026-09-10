@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { fetchFile } from './api'
+import { artifactPath, isIframePreview, previewLabel } from './preview'
 
 interface FilePreviewProps {
   path: string
@@ -76,7 +77,10 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
   // A local .html artifact (e.g. csv-analyze's report saved into the job
   // workspace) is fetched as text then rendered in an iframe via srcDoc, so it
   // shows as a rendered page instead of raw HTML source.
-  const isHtmlUrl = isHttpUrl && /\.html?$/i.test(new URL(path, window.location.href).pathname)
+  // Artifact links (`/api/raw?path=<abs>.html`) keep the .html inside the query
+  // string, so inspect the *decoded* path — not the URL pathname (`/api/raw`) —
+  // or the modal silently falls through to an empty <pre> instead of the iframe.
+  const isHtmlUrl = isIframePreview(path)
   const isLocalHtml = !isHttpUrl && /\.html?$/i.test(path)
 
   const { meta, body } = useMemo(
@@ -122,7 +126,7 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
-  const filename = path.split('/').pop() ?? path
+  const filename = previewLabel(path)
   const displayTitle = (meta.title as string) || filename
 
   return (
@@ -130,7 +134,7 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
       <div className="file-preview-modal" onClick={(e) => e.stopPropagation()}>
         <div className="file-preview-header">
           <span className="file-preview-title">{displayTitle}</span>
-          <span className="file-preview-path">{path}</span>
+          <span className="file-preview-path">{artifactPath(path) ?? path}</span>
           {isMarkdown && !isHtmlUrl && (
             <div className="file-preview-toggle">
               <button

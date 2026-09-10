@@ -6,6 +6,7 @@ import { CATEGORY_LABELS, CATEGORY_ORDER, type ExampleCategory, type ExampleItem
 import { NEXT_STEP_EXAMPLES } from './examples'
 import { ToolCallCard } from './ToolCallCard'
 import { assistantToMarkdown, copyToClipboard } from './export'
+import { previewLabel } from './preview'
 
 /**
  * Extract previewable .md file paths from message text.
@@ -314,7 +315,7 @@ export function MessageList({
                           onClick={() => onPreview(p)}
                           title={/^https?:/.test(p) ? '预览报告 (iframe)' : '预览文件内容'}
                         >
-                          {/^https?:/.test(p) ? '🖥️' : '📄'} {p.split('/').pop()}
+                          {/^https?:/.test(p) ? '🖥️' : '📄'} {previewLabel(p)}
                         </button>
                       ))}
                     </div>
