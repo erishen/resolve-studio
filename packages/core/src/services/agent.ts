@@ -726,25 +726,36 @@ export class AgentService extends Service {
       sessionId: options.sessionId,
       ...(options.toolChoice ? { toolChoice: options.toolChoice } : {}),
     }
-    if (!this.ctx.llm.chatStream) return this.ctx.llm.chat(messages, callOptions)
+    const runOnce = async (): Promise<ChatResponse> => {
+      if (!this.ctx.llm.chatStream) return this.ctx.llm.chat(messages, callOptions)
 
-    const bus = options.bus ?? (this.ctx.events as unknown as RunEventBus)
-    const toolCalls: ToolCall[] = []
-    let content = ''
-    for await (const chunk of this.ctx.llm.chatStream(messages, callOptions)) {
-      if (chunk.content) {
-        content += chunk.content
-        bus.emit('agent/delta', chunk.content)
+      const bus = options.bus ?? (this.ctx.events as unknown as RunEventBus)
+      const toolCalls: ToolCall[] = []
+      let content = ''
+      for await (const chunk of this.ctx.llm.chatStream(messages, callOptions)) {
+        if (chunk.content) {
+          content += chunk.content
+          bus.emit('agent/delta', chunk.content)
+        }
+        if (chunk.reasoning) {
+          bus.emit('agent/reasoning', chunk.reasoning)
+        }
+        if (chunk.toolCalls?.length) this.mergeToolCalls(toolCalls, chunk.toolCalls)
       }
-      if (chunk.reasoning) {
-        bus.emit('agent/reasoning', chunk.reasoning)
+      return {
+        content: content || undefined,
+        toolCalls: toolCalls.length ? toolCalls : undefined,
       }
-      if (chunk.toolCalls?.length) this.mergeToolCalls(toolCalls, chunk.toolCalls)
     }
-    return {
-      content: content || undefined,
-      toolCalls: toolCalls.length ? toolCalls : undefined,
-    }
+    // Retry transient provider errors (incl. 429 rate-limit). The OpenAI SDK does
+    // NOT retry status errors on streaming requests, so without this wrapper a
+    // free-tier 429 on the summarize turn would kill the whole run. A 429 arrives
+    // before any streamed token, so retrying is safe (no partial output to dup).
+    return this.callWithRetry(runOnce, {
+      signal: options.signal,
+      ctx: this.ctx,
+      phase: 'llm',
+    })
   }
 
   /**
@@ -963,11 +974,47 @@ export class AgentService extends Service {
   }
 
   /**
+   * Backoff before the next retry. Honours the provider's `Retry-After` (or the
+   * non-standard `retry-after-ms`) header when present, so a free-tier 429 cools
+   * down for exactly as long as the server asks; otherwise falls back to a short
+   * exponential backoff. Capped so a huge `Retry-After` cannot stall the run.
+   */
+  private retryDelayMs(err: unknown, attempt: number): number {
+    const headers = (err as { headers?: unknown })?.headers
+    const get = (k: string): string | null => {
+      if (headers && typeof (headers as { get?: unknown }).get === 'function') {
+        return (headers as { get: (k: string) => string | null }).get(k) ?? null
+      }
+      if (headers && typeof headers === 'object') {
+        return (headers as Record<string, string>)[k] ?? null
+      }
+      return null
+    }
+    const msHeader = get('retry-after-ms')
+    if (msHeader) {
+      const ms = parseFloat(msHeader)
+      if (Number.isFinite(ms) && ms > 0) return Math.min(ms, 30_000)
+    }
+    const raHeader = get('retry-after')
+    if (raHeader) {
+      // `Retry-After` is either delta-seconds or an HTTP date.
+      const ms = raHeader.includes(':')
+        ? Date.parse(raHeader) - Date.now()
+        : parseFloat(raHeader) * 1000
+      if (Number.isFinite(ms) && ms > 0) return Math.min(ms, 30_000)
+    }
+    return Math.min(400 * (attempt + 1), 5_000)
+  }
+
+  /**
    * Call an LLM-backed function with a bounded number of retries on transient
-   * provider errors (connection terminated / 5xx / aborted-stream blips), so a
-   * single provider hiccup doesn't kill a long-running PSE job. Does not retry
-   * on an intentional abort (the job was cancelled) or on parse/arg errors —
-   * those propagate immediately.
+   * provider errors (429 rate-limit / connection terminated / 5xx / aborted-
+   * stream blips), so a single provider hiccup — or a free-tier quota 429 — does
+   * not kill the run. The OpenAI SDK does NOT retry status errors on streaming
+   * requests (`stream: true` ⇒ "streaming body cannot be retried"), so the main
+   * agent loop relies on this wrapper for 429 recovery. Does not retry on an
+   * intentional abort (the job was cancelled) or on parse/arg errors — those
+   * propagate immediately.
    */
   private async callWithRetry<T>(
     fn: () => Promise<T>,
@@ -986,8 +1033,11 @@ export class AgentService extends Service {
       } catch (err) {
         if (opts.signal?.aborted || (err as Error)?.name === 'AbortError') throw err
         lastErr = err
+        const status = (err as { status?: number })?.status
         const msg = (err as Error)?.message ?? String(err)
         const transient =
+          status === 429 ||
+          (typeof status === 'number' && status >= 500) ||
           /terminated|aborted|ECONNRESET|ETIMEDOUT|socket hang up|5\d\d|rate.?limit|temporarily|unavailable/i.test(
             msg,
           )
@@ -1001,8 +1051,9 @@ export class AgentService extends Service {
             i + 1,
             attempts,
           )
-        // Small backoff so a flaky provider has a beat to recover.
-        await new Promise((r) => setTimeout(r, 400 * (i + 1)))
+        // Back off (honouring Retry-After when the provider sent one) before
+        // the next attempt.
+        await new Promise((r) => setTimeout(r, this.retryDelayMs(err, i)))
       }
     }
     throw lastErr

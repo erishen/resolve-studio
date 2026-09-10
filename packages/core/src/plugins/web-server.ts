@@ -889,29 +889,51 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
    * often the provider rate-limits the follow-up "summarize" turn (429), or the
    * network drops. The tool work is real, so we surface the outcome plus the
    * reason instead of an empty bubble.
+   *
+   * The bubble only carries **conclusion lines** from the tool output, not the
+   * raw log. The tool card above already renders the FULL output (collapsible
+   * with an "展开全部" toggle), so dumping the log into the bubble just buries
+   * the warning under noise — fetch-style tools print a long "✓ weibo / ✓ kr36
+   * / ✓ infoq …" trace where only the last two or three lines carry the actual
+   * outcome. We filter to lines that look like a result: those starting with a
+   * marker emoji (✅ 📊 🎉 📝 🔗 ❌ ⚠️), or pointing at a URL/path via →, or
+   * containing the typical rollup phrases ("已发布/已生成/已记录/本批发布/剩
+   * 余/未发布"). If the tool produced no recognisable conclusion we fall back
+   * to the tail (rare — mostly tiny echoes like the regression fixtures).
    */
   function interruptedAnswer(
     message: string,
     lastTool: { name?: string; result?: string },
+    modelName?: string,
   ): string {
-    const head = /429|rate limit/i.test(message)
-      ? '⚠️ 模型调用被限流（429），本次运行未能生成总结。工具已执行，结果见下方。'
-      : `⚠️ 运行中断：${message}`
+    const is429 = /429|rate limit/i.test(message)
+    const modelHint = modelName ? `（模型 ${modelName}）` : ''
+    const head = is429
+      ? `⚠️ 模型调用被限流（429）${modelHint}，本次运行未能生成总结。工具已执行，结果见上方工具卡片。`
+      : `⚠️ 运行中断${modelHint}：${message}\n\n工具已执行，结果见上方工具卡片。`
+
     const raw = lastTool.result ?? ''
-    // The tool card above already renders the FULL output (collapsible, with an
-    // "展开全部" toggle), so we never lose data there. In the answer bubble we
-    // surface the TAIL of the result: publish-style tools (juejin/wechat/
-    // sf-pw-publish) print their conclusion last — "✅ 已发布 → URL",
-    // "本批发布 N 篇", "剩余 N 篇" — and an earlier 1500-char HEAD cap silently
-    // dropped exactly that, making results look truncated. Keep the tail so
-    // the outcome is visible without expanding the card.
-    const TAIL = 4000
-    const shown =
-      raw.length <= TAIL
-        ? raw
-        : `…[前面已省略，完整输出见上方工具卡片]\n\n${raw.slice(-TAIL)}`
+    const CONCLUSION_RE =
+      /^([✅📊🎉📝🔗❌⚠️])|[→]|已发布|已生成|已写入|已记录|本批发布|剩余未发布|未发布/
+    const conclusionLines = raw
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l && CONCLUSION_RE.test(l))
+
+    let body: string
+    if (conclusionLines.length > 0) {
+      // Last 8 conclusion lines: more than enough for any realistic tool
+      // (publish tools emit ≤3, fetch tools emit ≤4), and short enough that
+      // the bubble still reads at a glance.
+      body = conclusionLines.slice(-8).join('\n')
+    } else if (raw.length <= 600) {
+      body = raw
+    } else {
+      body = `…[前面 ${raw.length - 600} 字已省略，完整输出见上方工具卡片]\n\n${raw.slice(-600)}`
+    }
+
     const name = lastTool.name ? `\`${lastTool.name}\`` : '工具'
-    return `${head}\n\n${name} 输出（末尾 ${Math.min(raw.length, TAIL)} 字，完整内容见上方工具卡片）：\n\n${shown}`
+    return `${head}\n\n${name} 关键输出：\n${body}`
   }
 
   async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -1027,7 +1049,7 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       // `done` carrying the error plus the last tool output so the answer
       // bubble is never blank; the error bar alone is easy to miss.
       if (lastTool?.result) {
-        send('done', { answer: interruptedAnswer(message, lastTool) })
+        send('done', { answer: interruptedAnswer(message, lastTool, parsed.model) })
       }
     } finally {
       if (!res.writableEnded) res.end()

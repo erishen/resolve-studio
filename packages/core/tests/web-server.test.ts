@@ -352,6 +352,54 @@ test('an interrupted run still reports the tool output instead of a blank answer
 })
 
 /**
+ * Provider returns 429 on the FIRST main-loop LLM call, then succeeds. Without
+ * the `nextResponse` retry wrapper the run would die with a blank answer; with
+ * it the 429 is retried and the final answer comes back. This is exactly the
+ * free-tier quota shape that used to kill tool-using runs.
+ */
+class FlakyFirstCallLlm extends LlmService {
+  private calls = 0
+  async chat(_messages: ChatMessage[], _options?: ChatOptions): Promise<ChatResponse> {
+    this.calls += 1
+    if (this.calls === 1) {
+      const e = new Error('429 You have reached the API rate limit for free users.') as Error & {
+        status?: number
+      }
+      e.status = 429
+      throw e
+    }
+    return { content: 'recovered after 429 retry' }
+  }
+  async models() {
+    return []
+  }
+}
+
+test('a 429 on the main loop is retried and the run recovers', async () => {
+  const { root, base } = await buildServer(FlakyFirstCallLlm)
+  try {
+    const res = await fetch(`${base}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }] }),
+    })
+    const raw = await res.text()
+    const events = [...raw.matchAll(/^event: (.+)\ndata: (.+)$/gm)].map((m) => ({
+      type: m[1]!,
+      data: JSON.parse(m[2]!) as Record<string, unknown>,
+    }))
+    const err = events.find((e) => e.type === 'error')
+    assert.ok(!err, 'no error event when the 429 is retried successfully')
+    const done = events.find((e) => e.type === 'done')
+    assert.ok(done, 'a done event is emitted')
+    const answer = String(done?.data['answer'] ?? '')
+    assert.match(answer, /recovered after 429 retry/, 'the recovered answer is returned')
+  } finally {
+    await root.fiber.dispose()
+  }
+})
+
+/**
  * Publish-style tools (juejin/wechat/sf-pw-publish) emit a LONG log whose
  * conclusion prints LAST — "✅ 已发布 → URL", "本批发布 N 篇". An earlier
  * fallback truncated the result to its first 1500 chars, which silently dropped
@@ -418,6 +466,83 @@ test('an interrupted run keeps the tail of a large tool output (the conclusion)'
     assert.match(answer, /✅ 已发布/, 'the published-URL conclusion is preserved')
     assert.match(answer, /本批发布 1 篇/, 'the per-batch summary is preserved')
     assert.match(answer, /剩余未发布 19 篇/, 'the queue reminder is preserved')
+  } finally {
+    await root.fiber.dispose()
+  }
+})
+
+/**
+ * Fetch-style tools (hot-news-fetch, kr36 fetch, …) print a long per-source
+ * trace where only the last two or three lines carry the actual outcome. The
+ * bubble must surface just the conclusion lines — not the ✓/抓取/写入 trace
+ * — and the warning must name the model so the user knows what to switch when
+ * the provider is rate-limiting.
+ */
+const hotfetchTool = definePlugin(
+  (ctx: Context): void => {
+    ctx.tools.register({
+      name: 'hotfetch',
+      description: 'Simulate a verbose fetch-style tool.',
+      parameters: { type: 'object', properties: {} },
+      async execute() {
+        return [
+          'hot-news-fetch 完成 → /Users/erishen/.workbuddy/tasks/hot-news/news (全部源)',
+          '抓取热点新闻 → /Users/erishen/.workbuddy/tasks/hot-news/news (直连) ✓',
+          'weibo: 抓取 30 条 ✓ kr36: 抓取 30 条 ✓ sspai: 抓取 9 条 ✓ qbitai: 抓取 10 条 ✓ infoq: 抓取 20 条 ✓',
+          'weibo: 30 条写入 ✓ sspai: 9 条写入 ✓ qbitai: 10 条写入 ✓ infoq: 20 条写入',
+          '✅ 完成：新增/更新 99 条，清理旧文件 0 个 → /Users/erishen/.workbuddy/tasks/hot-news/news',
+          '📊 总览已生成: /Users/erishen/.workbuddy/tasks/hot-news/hot-news-overview.html',
+          '下一步：用 hot-news-topics 列候选话题，再让 hot-news 按平台生成合规文案。',
+        ].join('\n')
+      },
+    })
+  },
+  'tool-hotfetch',
+  ['tools'],
+)
+
+class ToolThenRateLimitedHotfetchLlm extends LlmService {
+  async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+    if (!messages.some((m) => m.role === 'tool')) {
+      return { toolCalls: [{ id: 'call-1', name: 'hotfetch', arguments: '{}' }] }
+    }
+    throw new Error('429 You’ve reached the API rate limit for free users.')
+  }
+  async models() {
+    return []
+  }
+}
+
+test('an interrupted run after a verbose fetch-style tool only surfaces conclusion lines (not the trace)', async () => {
+  const { root, base } = await buildServer(ToolThenRateLimitedHotfetchLlm)
+  await root.plugin(hotfetchTool)
+  try {
+    const res = await fetch(`${base}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [{ role: 'user', content: 'fetch' }],
+        model: 'agnes-2.0-flash',
+      }),
+    })
+    const raw = await res.text()
+    const events = [...raw.matchAll(/^event: (.+)\ndata: (.+)$/gm)].map((m) => ({
+      type: m[1]!,
+      data: JSON.parse(m[2]!) as Record<string, unknown>,
+    }))
+
+    const done = events.find((e) => e.type === 'done')
+    assert.ok(done, 'a `done` is emitted even though the run was interrupted')
+    const answer = String(done?.data['answer'] ?? '')
+
+    // The warning must name the model that was rate-limited.
+    assert.match(answer, /agnes-2\.0-flash/, 'the warning names the rate-limited model')
+    // Conclusion lines must survive.
+    assert.match(answer, /✅ 完成：新增\/更新 99 条/, 'the completion summary is preserved')
+    assert.match(answer, /📊 总览已生成/, 'the overview-generated line is preserved')
+    // The per-source trace and prose hints must NOT pollute the bubble.
+    assert.ok(!answer.includes('weibo: 抓取 30 条'), 'the per-source trace is filtered out')
+    assert.ok(!answer.includes('下一步：用 hot-news-topics'), 'prose hints are filtered out')
   } finally {
     await root.fiber.dispose()
   }
