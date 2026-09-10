@@ -70,6 +70,25 @@ Copy `.env.example` to `.env` and fill in as needed:
 
 > All path-style configs support environment-variable overrides, so the project can be migrated across machines without touching code.
 
+### Pointing at a local llm-router
+
+`OPENAI_*` accepts any OpenAI-compatible endpoint, including a local
+[llm-router](http://127.0.0.1:9070) gateway. This is the recommended setup for
+local dev: only the router-issued `sk-tr-…` key is stored here, vendor keys stay
+server side, and the router handles alias routing, upstream failover and
+per-key usage accounting.
+
+```dotenv
+OPENAI_BASE_URL=http://127.0.0.1:9070/v1
+OPENAI_API_KEY=sk-tr-...     # mint with the router admin API
+OPENAI_MODEL=chat            # alias: chat / code / fast / reason / auto
+```
+
+The web UI model dropdown is populated from the gateway's `GET /v1/models`, so
+every alias/model the router exposes can be picked per conversation without
+editing `.env`. Inside Docker the host router is not `127.0.0.1` — use
+`host.docker.internal:9070`.
+
 ## Config-driven composition
 
 Four configs = CLI/Web × mock/real model:

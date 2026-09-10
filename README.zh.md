@@ -95,6 +95,23 @@ UI 顶部一键开关，或 `.env` 中设置 `PSE_ENABLED=true`。PSE 模式下 
 
 > 所有路径类配置都支持环境变量覆盖，无需修改代码即可在不同机器间迁移。
 
+### 接入本机 llm-router
+
+`OPENAI_*` 支持任何 OpenAI 兼容端点，包括本机的
+[llm-router](http://127.0.0.1:9070) 网关。本地开发推荐这种接法：本仓只保存
+网关签发的 `sk-tr-…` Key，厂商 Key 只存在网关侧，别名路由 / 上游 failover /
+按 Key 用量记账都由网关完成。
+
+```dotenv
+OPENAI_BASE_URL=http://127.0.0.1:9070/v1
+OPENAI_API_KEY=sk-tr-...     # 用网关管理 API 签发
+OPENAI_MODEL=chat            # 别名：chat / code / fast / reason / auto
+```
+
+Web UI 的模型下拉直接读网关的 `GET /v1/models`，因此网关暴露的每个别名/模型都能
+按会话临时切换，无需改 `.env`。注意 Docker 容器里的 `127.0.0.1` 不是宿主机，
+要写成 `host.docker.internal:9070`。
+
 ## 配置驱动组合
 
 四个配置 = CLI/Web × mock/真实模型：
