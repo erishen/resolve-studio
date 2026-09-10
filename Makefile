@@ -162,10 +162,13 @@ define diagnose_exit
 	echo "[dev]    提示：另开一个终端跑 make dev 时，开头的 kill_port 会杀掉这里的旧进程，同样表现为 stopped。" >&2
 endef
 
-# ⚠️ 下面 trap 里的 `echo stopped` 不是崩溃信息：dev 会话结束（Ctrl-C、关终端窗口、
-# IDE 任务结束、或上层工具回收进程组 → shell 收到 INT/TERM/EXIT）时，trap 会先 pkill
-# 掉后端与 vite，再打印一行 `stopped`。日志里出现 N 行 stopped = 有 N 个 dev 会话退出了。
-# 但「为什么会停」要看它上面那几行 diagnose 输出 —— 只有 Ctrl-C 才没有诊断（trap 直接退）。
+# ⚠️ Ctrl-C / 关终端 / IDE 任务结束 → shell 收到 INT/TERM：INT/TERM trap 设 DEV_INT=1、
+# pkill 掉后端与 vite、然后 `exit 130` 直接退出（EXIT trap 再补一行 `stopped`）。因为
+# 信号路径直接 exit，不会落到下面的 `wait` 之后，所以 diagnose_exit（崩溃诊断）被 DEV_INT
+# 守卫跳过 —— Ctrl-C 不再误报成「有服务提前退出（不是 Ctrl-C）」。
+# 只有「后台 job 自己挂了、wait 正常返回、DEV_INT 仍为 0」才会触发 diagnose_exit 并打印
+# 上面那几行「谁退了 / 去哪看日志」，随后 EXIT trap 打印 `stopped`。
+# 日志里出现 N 行 stopped = 有 N 个 dev 会话退出了；带 diagnose 输出的 stopped = 真·崩溃。
 # 想彻底不停：make dev-bg（服务被 spawn 到独立会话，与终端/会话生命周期解耦）。
 # trap 放在启动之前：否则后端已起、等待就绪期间按 Ctrl-C 会留下没人管的孤儿后端。
 dev: $(PID_DIR)    ## 后端(真实模型)+前端 dev（前台常驻，Ctrl-C 退出）
@@ -174,7 +177,9 @@ dev: $(PID_DIR)    ## 后端(真实模型)+前端 dev（前台常驻，Ctrl-C �
 	$(call kill_port,$(WEB_PORT))
 	@echo "starting backend (real model) on :$(BACKEND_PORT) ..."; \
 	echo "--- backend log (live, colored) ---"; \
-	trap 'pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
+	DEV_INT=0; \
+	trap 'DEV_INT=1; pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; exit 130' INT TERM; \
+	trap 'pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; echo stopped' EXIT; \
 	FORCE_COLOR=1 node --import tsx $(CORE)/src/index.ts --config $(DEV_CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & \
 	$(call wait_backend); \
 	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & \
@@ -182,7 +187,7 @@ dev: $(PID_DIR)    ## 后端(真实模型)+前端 dev（前台常驻，Ctrl-C �
 	echo "ready: http://127.0.0.1:$(WEB_PORT)  (backend :$(BACKEND_PORT), real model)"; \
 	echo "Ctrl-C to stop. web log: $(PID_DIR)/web.log"; \
 	wait; \
-	$(call diagnose_exit)
+	if [ $$DEV_INT -ne 1 ]; then $(call diagnose_exit); fi; \
 
 dev-mock: $(PID_DIR)  ## 后端(mock)+前端 dev（离线，无需密钥，Ctrl-C 退出）
 	-@pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; true
@@ -190,7 +195,9 @@ dev-mock: $(PID_DIR)  ## 后端(mock)+前端 dev（离线，无需密钥，Ctrl-
 	$(call kill_port,$(WEB_PORT))
 	@echo "starting backend (mock) on :$(BACKEND_PORT) ..."; \
 	echo "--- backend log (live, colored) ---"; \
-	trap 'pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; echo stopped' EXIT INT TERM; \
+	DEV_INT=0; \
+	trap 'DEV_INT=1; pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; exit 130' INT TERM; \
+	trap 'pkill -f "$(BACKEND_MATCH)" 2>/dev/null; pkill -f "$(WEB_MATCH)" 2>/dev/null; echo; echo stopped' EXIT; \
 	FORCE_COLOR=1 node --import tsx $(CORE)/src/index.ts --config $(CONFIG) 2>&1 | tee $(PID_DIR)/backend.log & \
 	$(call wait_backend); \
 	cd $(WEB) && pnpm exec vite --host 127.0.0.1 --port $(WEB_PORT) > $(PID_DIR)/web.log 2>&1 & \
@@ -198,7 +205,7 @@ dev-mock: $(PID_DIR)  ## 后端(mock)+前端 dev（离线，无需密钥，Ctrl-
 	echo "ready: http://127.0.0.1:$(WEB_PORT)  (backend :$(BACKEND_PORT), mock)"; \
 	echo "Ctrl-C to stop. web log: $(PID_DIR)/web.log"; \
 	wait; \
-	$(call diagnose_exit)
+	if [ $$DEV_INT -ne 1 ]; then $(call diagnose_exit); fi; \
 
 # ⚠️ 上面两个目标打印的 `stopped` 不是崩溃：dev 挂在前台，会话一结束（Ctrl-C / 关终端 /
 # IDE 任务结束 / 上层工具回收进程组）shell 就会收到 INT/TERM/EXIT，trap 先停服务再打印它。
