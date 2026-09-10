@@ -31,6 +31,48 @@ import type { ApprovalDecision } from '../services/approval.js'
 import type { JobEvent, JobsService } from '../services/jobs.js'
 import type { ChatMessage, ModelInfo, RunEventBus } from '../types.js'
 
+/**
+ * Rewrite absolute `.html` paths inside a chat answer into clickable,
+ * previewable links served by this backend (`/api/raw`). The web client already
+ * renders any `http(s)://*.html` it finds in a message as a "🖥️ 预览" iframe
+ * button, so this both de-clutters the bubble (the long filesystem path hides
+ * behind a short filename label) and gives one-click access to the generated
+ * report. Paths outside the fs sandbox are left untouched so we never emit a
+ * link that would 403 on click.
+ */
+export function linkifyArtifactHtml(text: string, baseUrl: string, readRoots: string[]): string {
+  const re = /(\/(?:Users|home|tmp|var|opt|usr|etc)[^\s'"<>]*\.html?)/g
+  return text.replace(re, (full) => {
+    try {
+      assertWithinRoots(full, readRoots)
+    } catch {
+      return full
+    }
+    const label = basename(full)
+    const href = `${baseUrl}/api/raw?path=${encodeURIComponent(full)}`
+    return `[${label}](${href})`
+  })
+}
+
+/**
+ * Collapse the verbose `→ /abs/fs/path` directory echoes that tools (and the
+ * model, when it merely repeats a tool's stdout) dump into the answer bubble.
+ * Keeps only the trailing directory/file name so the bubble reads at a glance
+ * instead of wrapping three times on a 60-char path. Full paths remain in the
+ * collapsible tool card above; this only touches the answer text.
+ */
+export function tidyToolEcho(text: string): string {
+  return text.replace(
+    /(→\s*)(\/(?:Users|home|tmp|var|opt|usr|etc)[^\s'"<>（）)]*)/g,
+    (_m, arrow: string, p: string) => `${arrow}${basename(p)}`,
+  )
+}
+
+/** Compose the two answer prettifiers: linkify first, then shorten echoes. */
+export function prettifyAnswer(text: string, baseUrl: string, readRoots: string[]): string {
+  return tidyToolEcho(linkifyArtifactHtml(text, baseUrl, readRoots))
+}
+
 interface WebServerConfig {
   /** Port to bind. `0` = ephemeral (OS-assigned); the real port is reported via `onListening`. */
   port?: number
@@ -905,6 +947,7 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
     message: string,
     lastTool: { name?: string; result?: string },
     modelName?: string,
+    baseUrl?: string,
   ): string {
     const is429 = /429|rate limit/i.test(message)
     const modelHint = modelName ? `（模型 ${modelName}）` : ''
@@ -933,7 +976,11 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
     }
 
     const name = lastTool.name ? `\`${lastTool.name}\`` : '工具'
-    return `${head}\n\n${name} 关键输出：\n${body}`
+    // Prettify the conclusion lines the same way the success path does: turn a
+    // generated .html report into a clickable /api/raw link and shorten any
+    // `→ /abs/path` directory echoes so the bubble stays readable.
+    const prettyBody = baseUrl ? prettifyAnswer(body, baseUrl, ctx.fsRoots.read) : body
+    return `${head}\n\n${name} 关键输出：\n${prettyBody}`
   }
 
   async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -957,6 +1004,10 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       sendJson(res, 400, { error: 'messages must be a non-empty array' })
       return
     }
+
+    // Backend origin as the browser reaches it — used to turn absolute artifact
+    // paths into clickable /api/raw links (see prettifyAnswer).
+    const baseUrl = `http://${req.headers.host ?? `${host}:${port}`}`
 
     // Per-request abort controller. When the client disconnects (e.g. the user
     // hits "Stop"), `req` closes and we abort the in-flight model call so we
@@ -1040,7 +1091,7 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
         taskId: typeof parsed.taskId === 'string' ? parsed.taskId : undefined,
         bus,
       })
-      send('done', { answer })
+      send('done', { answer: prettifyAnswer(answer, baseUrl, ctx.fsRoots.read) })
     } catch (err) {
       const message = (err as Error).message
       send('error', { message })
@@ -1049,7 +1100,7 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       // `done` carrying the error plus the last tool output so the answer
       // bubble is never blank; the error bar alone is easy to miss.
       if (lastTool?.result) {
-        send('done', { answer: interruptedAnswer(message, lastTool, parsed.model) })
+        send('done', { answer: interruptedAnswer(message, lastTool, parsed.model, baseUrl) })
       }
     } finally {
       if (!res.writableEnded) res.end()
