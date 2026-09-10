@@ -69,6 +69,10 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [viewMode, setViewMode] = useState<'rendered' | 'source'>('rendered')
+  // Maximise the modal to fill the viewport (a CSS toggle — no Fullscreen API,
+  // so it works the same for local srcDoc and remote iframe content, and Esc
+  // exits the maximised state before closing the preview).
+  const [fullscreen, setFullscreen] = useState(false)
 
   // http(s) preview URLs (e.g. the csv-analyze local report server) are rendered
   // in an iframe as-is; local files go through the /api/file text proxy below.
@@ -120,18 +124,33 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        // Esc backs out of fullscreen first; a second Esc closes the modal.
+        if (fullscreen) setFullscreen(false)
+        else onClose()
+        return
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        const t = e.target as HTMLElement | null
+        // Don't hijack the key while the user is typing somewhere behind us.
+        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+        e.preventDefault()
+        setFullscreen((v) => !v)
+      }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [onClose])
+  }, [onClose, fullscreen])
 
   const filename = previewLabel(path)
   const displayTitle = (meta.title as string) || filename
 
   return (
-    <div className="file-preview-overlay" onClick={onClose}>
-      <div className="file-preview-modal" onClick={(e) => e.stopPropagation()}>
+    <div className={`file-preview-overlay${fullscreen ? ' fullscreen' : ''}`} onClick={onClose}>
+      <div
+        className={`file-preview-modal${fullscreen ? ' fullscreen' : ''}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="file-preview-header">
           <span className="file-preview-title">{displayTitle}</span>
           <span className="file-preview-path">{artifactPath(path) ?? path}</span>
@@ -167,6 +186,32 @@ export function FilePreview({ path, onClose }: FilePreviewProps) {
               </button>
             </div>
           )}
+          <button
+            className="file-preview-fs"
+            onClick={() => setFullscreen((v) => !v)}
+            title={fullscreen ? '退出全屏 (Esc / F)' : '全屏 (F)'}
+            aria-label={fullscreen ? '退出全屏' : '全屏'}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {fullscreen ? (
+                // collapse: corners pointing inward
+                <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
+              ) : (
+                // expand: corners pointing outward
+                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+              )}
+            </svg>
+          </button>
           <button className="file-preview-close" onClick={onClose} title="关闭 (Esc)">
             ×
           </button>
