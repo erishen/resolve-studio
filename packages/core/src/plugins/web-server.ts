@@ -73,6 +73,20 @@ export function prettifyAnswer(text: string, baseUrl: string, readRoots: string[
   return tidyToolEcho(linkifyArtifactHtml(text, baseUrl, readRoots))
 }
 
+/**
+ * The agent loop answers a *duplicate* tool call (same tool + same arguments,
+ * within one round) with a `(skipped: "x" was already called …)` placeholder
+ * instead of running it again (see agent.ts). That placeholder is bookkeeping
+ * meant for the model — it is NOT a tool outcome. When an interrupted run falls
+ * back to "the last tool result", echoing it tells the user nothing: the bubble
+ * shows only "was already called in this same round" while the real output sits
+ * unmentioned right above it. Such results must never displace the last *real*
+ * one.
+ */
+export function isSkipNotice(result: string | undefined): boolean {
+  return typeof result === 'string' && result.trimStart().startsWith('(skipped:')
+}
+
 interface WebServerConfig {
   /** Port to bind. `0` = ephemeral (OS-assigned); the real port is reported via `onListening`. */
   port?: number
@@ -1051,13 +1065,18 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
           case 'agent/tool-call':
             send('tool-call', { call: payload })
             return
-          case 'agent/tool-result':
-            lastTool = {
-              name: (payload as { call?: { name?: string } } | undefined)?.call?.name,
-              result: (payload as { result?: string } | undefined)?.result,
-            }
+          case 'agent/tool-result': {
+            const call = (payload as { call?: { name?: string } } | undefined)?.call
+            const result = (payload as { result?: string } | undefined)?.result
+            // Don't let a duplicate-call placeholder ("(skipped: …)") become
+            // `lastTool` — a model that repeats a call (e.g. hot-news-topics
+            // twice in one round) would otherwise leave an interrupted run
+            // showing "was already called in this same round" as its key
+            // output while the real topics/fetch results sit right above it.
+            if (!isSkipNotice(result)) lastTool = { name: call?.name, result }
             send('tool-result', { payload })
             return
+          }
           case 'agent/tool-progress':
             send('tool-progress', { payload })
             return

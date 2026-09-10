@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { linkifyArtifactHtml, tidyToolEcho, prettifyAnswer } from '../src/plugins/web-server.js'
+import { linkifyArtifactHtml, tidyToolEcho, prettifyAnswer, isSkipNotice } from '../src/plugins/web-server.js'
 
 const BASE = 'http://127.0.0.1:8787'
 const ROOTS = ['/Users/erishen/Workspace/CNB/individular-invest']
@@ -47,4 +47,14 @@ test('prettifyAnswer cleans the real hot-news success bubble', () => {
   // overview is now a clickable preview link, long path gone
   assert.match(out, /📊 总览已生成: \[hot-news-overview\.html\]\(http:\/\/127\.0\.0\.1:8787\/api\/raw\?path=/)
   assert.ok(!out.includes('/Users/erishen/Workspace/CNB/individular-invest/frameworks'), 'no long path leaks')
+})
+
+test('isSkipNotice recognises duplicate-call placeholders but not real output', () => {
+  const skip =
+    '(skipped: "hot-news-topics" was already called in this same round with identical arguments "{}" — its result above is reused)'
+  assert.equal(isSkipNotice(skip), true)
+  assert.equal(isSkipNotice(`  ${skip}`), true, 'leading whitespace tolerated')
+  assert.equal(isSkipNotice('✅ 完成：新增/更新 98 条'), false, 'real conclusions are not skips')
+  assert.equal(isSkipNotice(''), false)
+  assert.equal(isSkipNotice(undefined), false)
 })
