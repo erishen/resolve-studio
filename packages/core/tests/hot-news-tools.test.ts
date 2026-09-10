@@ -16,6 +16,7 @@ import { ToolRegistry } from '../src/services/tools.js'
 import { toolHotNewsFetch } from '../src/plugins/tools/tool-hot-news-fetch.js'
 import { toolHotNewsTopics } from '../src/plugins/tools/tool-hot-news-topics.js'
 import { toolHotNewsCheck } from '../src/plugins/tools/tool-hot-news-check.js'
+import { absolutizeTaskPath } from '../src/plugins/tools/util-pse.js'
 
 async function buildContext(): Promise<Context> {
   const root = new Context()
@@ -63,4 +64,52 @@ test('hot-news-topics fails fast when the news snapshot is missing', async () =>
   const res = await root.tools.call('hot-news-topics', JSON.stringify({ news_dir: missing }))
   assert.match(res, /^error: hot-news-topics 未找到新闻快照目录/)
   await root.fiber.dispose()
+})
+
+/**
+ * Regression: the model filled `out` / `news_dir` with the *documented*
+ * relative form ("tasks/hot-news/news"). Used verbatim it (a) echoed an
+ * unlinkable relative path into the answer bubble and (b) made the Python
+ * child mkdir it relative to its cwd, filing the snapshot under
+ * <taskDir>/tasks/hot-news/news — a corpus fork nothing else reads.
+ */
+test('absolutizeTaskPath anchors a relative path at the framework root', () => {
+  const FW = '/ws/frameworks/llamaindex-pse'
+  const root = () => FW
+  assert.equal(
+    absolutizeTaskPath('tasks/hot-news/news', root),
+    '/ws/frameworks/llamaindex-pse/tasks/hot-news/news',
+    'the documented relative form lands on the canonical task dir',
+  )
+  assert.equal(
+    absolutizeTaskPath('./tasks/hot-news/news', root),
+    '/ws/frameworks/llamaindex-pse/tasks/hot-news/news',
+    './ prefix normalised away',
+  )
+  assert.equal(
+    absolutizeTaskPath('news', root),
+    '/ws/frameworks/llamaindex-pse/news',
+    'plain name',
+  )
+  assert.equal(
+    absolutizeTaskPath('/already/absolute/news', root),
+    '/already/absolute/news',
+    'absolute values pass through untouched',
+  )
+})
+
+/**
+ * The framework root comes from an env var that is legitimately unset in
+ * tests/CI. An absolute path must therefore never resolve it — otherwise the
+ * "missing snapshot dir" guard in hot-news-topics would throw instead of
+ * returning its actionable message.
+ */
+test('absolutizeTaskPath does not touch the framework root for absolute paths', () => {
+  let called = false
+  const root = () => {
+    called = true
+    return '/ws/frameworks/llamaindex-pse'
+  }
+  assert.equal(absolutizeTaskPath('/nonexistent/hot-news/news', root), '/nonexistent/hot-news/news')
+  assert.equal(called, false, 'no env read for an absolute path')
 })

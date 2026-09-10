@@ -15,7 +15,7 @@
 
 import { spawn } from 'node:child_process'
 import { writeFile, mkdtemp, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { tmpdir } from 'node:os'
 
 /** PSE frameworks reachable from this workspace. */
@@ -67,6 +67,32 @@ export function resolvePseDir(framework: PseFramework): string {
 /** Directory of a task inside a framework: `<framework>/tasks/<task>`. */
 export function resolveTaskDir(framework: PseFramework, task: string): string {
   return join(resolvePseDir(framework), 'tasks', task)
+}
+
+/**
+ * Absolutise a path argument a PSE tool received from the model.
+ *
+ * The model frequently fills a path parameter with the *documented* relative
+ * form — `tasks/hot-news/news`, i.e. the path as seen from the framework root.
+ * Using such a value verbatim breaks in two ways (observed 2026-09-10 with
+ * `hot-news-fetch --out=tasks/hot-news/news`):
+ *
+ *   1. the tool echoes a bare relative path into the answer, and the answer
+ *      prettifier can only linkify absolute (`/Users|/home|…`) paths — so the
+ *      generated report showed up as dead text with no way to open it;
+ *   2. the child process resolves it against its own cwd (the task dir),
+ *      silently filing the snapshot under `<taskDir>/tasks/hot-news/news` — a
+ *      fork of the corpus that run.py, the digest and the tools never read.
+ *
+ * Anchoring a relative value at `frameworkRoot` makes the documented form land
+ * exactly on the canonical task directory. Absolute values pass through.
+ *
+ * `frameworkRoot` is a thunk on purpose: resolving it reads the framework's env
+ * var, which is legitimately unset in tests/CI and for absolute-path-only runs.
+ * Only a relative value may depend on it.
+ */
+export function absolutizeTaskPath(rawPath: string, frameworkRoot: () => string): string {
+  return isAbsolute(rawPath) ? rawPath : resolvePath(frameworkRoot(), rawPath)
 }
 
 /**

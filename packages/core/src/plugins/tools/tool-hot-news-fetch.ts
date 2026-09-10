@@ -1,7 +1,13 @@
 import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
-import { resolveTaskDir, resolvePseDirOrNull, runPseScript } from './util-pse.js'
+import {
+  resolveTaskDir,
+  resolvePseDir,
+  resolvePseDirOrNull,
+  runPseScript,
+  absolutizeTaskPath,
+} from './util-pse.js'
 import type { Tool } from '../../types.js'
 
 // llamaindex-pse hot-news task owns the multi-source news fetcher
@@ -86,7 +92,15 @@ const registerHotNewsFetch = (ctx: Context, _config: Record<string, never> = {})
         }
       }
 
-      const out = (args.out as string | undefined)?.trim() || newsDir()
+      // Absolutise a model-supplied `out`: the model tends to pass the
+      // documented relative form ("tasks/hot-news/news"), which must be
+      // anchored at the framework root — otherwise the snapshot is filed under
+      // <taskDir>/tasks/hot-news/news (a corpus fork) and the echoed path is
+      // unlinkable. See absolutizeTaskPath.
+      const rawOut = (args.out as string | undefined)?.trim()
+      const out = rawOut
+        ? absolutizeTaskPath(rawOut, () => resolvePseDir('llamaindex'))
+        : newsDir()
 
       const cmdArgs = [`--out=${out}`]
       if (sources) cmdArgs.push(`--sources=${sources}`)
