@@ -2,7 +2,13 @@ import { access } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
-import { resolveTaskDir, resolvePseDirOrNull, runPseScript } from './util-pse.js'
+import {
+  resolveTaskDir,
+  resolvePseDir,
+  resolvePseDirOrNull,
+  runPseScript,
+  absolutizeTaskPath,
+} from './util-pse.js'
 import type { Tool } from '../../types.js'
 
 // Reads the hot-news task's `run.py --list-topics`, which ranks the weibo hot
@@ -33,7 +39,13 @@ const registerHotNewsTopics = (ctx: Context, _config: Record<string, never> = {}
       required: [],
     },
     async execute(args, execCtx): Promise<string> {
-      const dir = (args.news_dir as string | undefined)?.trim() || newsDir()
+      // Same relative-path trap as hot-news-fetch: the model may pass the
+      // documented "tasks/hot-news/news" form, which used to be resolved
+      // against this process's cwd and failed the access() check below.
+      const rawDir = (args.news_dir as string | undefined)?.trim()
+      const dir = rawDir
+        ? absolutizeTaskPath(rawDir, () => resolvePseDir('llamaindex'))
+        : newsDir()
       try {
         await access(dir)
       } catch {
