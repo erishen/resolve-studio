@@ -80,6 +80,34 @@ function canonicalArgs(args: string | Record<string, unknown>): string {
  *  call tools from burning the whole iteration budget). */
 const MAX_PLAN_INTERRUPTS = 2
 
+/** Cap on "you returned an empty reply after running tools — please summarize"
+ *  nudges. Bounded so a model that keeps answering with nothing still ends the
+ *  run (with a visible fallback) instead of burning the iteration budget. */
+const MAX_EMPTY_REPLY_INTERRUPTS = 2
+
+/**
+ * Visible fallback for the empty-reply case: after tools have run, some models
+ * emit a final turn with no content and no tool-call. Without a fallback the
+ * run ends with a blank answer bubble and the pipeline looks like it died.
+ * Show the last tool result so the user always sees the outcome.
+ */
+function emptyReplyFallback(messages: ChatMessage[], max = 1200): string {
+  let last: string | undefined
+  let toolName: string | undefined
+  for (const m of messages) {
+    if (m.role === 'tool' && typeof m.content === 'string' && m.content.trim()) {
+      last = m.content
+      toolName = m.name
+    }
+  }
+  if (!last) {
+    return '（模型未给出最终回复）工具已执行，但模型在最后一步连续返回空内容。请重试，或直接查看上方工具卡片的输出。'
+  }
+  const body =
+    last.length <= max ? last : `${last.slice(0, max)}\n…[truncated ${last.length - max} chars]`
+  return `（模型未给出最终回复，以下为最后一次工具输出${toolName ? ` \`${toolName}\`` : ''}）\n\n${body}`
+}
+
 /**
  * Natural-language aliases → tool name. Models often write their next step in
  * prose ("生成小红书文案", "校验一下合规") WITHOUT naming the underlying tool,
@@ -282,6 +310,13 @@ export class AgentService extends Service {
     // (see the "declare without calling" guard in the loop). Bounded so a model
     // that keeps promising but never calls still terminates.
     let planInterrupts = 0
+    // How many times we nudged the model for a summary after it replied with an
+    // empty message following a tool round (see the empty-reply guard).
+    let emptyReplyInterrupts = 0
+    // True once at least one tool has actually run in this run — the empty-reply
+    // guard only applies then (a run that never called tools is legitimately
+    // finished when the model stops).
+    let ranToolsThisRun = false
     // Per-run event sink: when the caller supplies one (the web bridge does,
     // once per HTTP request) every `agent/*` / `llm/*` event is scoped to that
     // run so concurrent chats don't cross-talk. Without it we fall back to the
@@ -536,6 +571,7 @@ export class AgentService extends Service {
         for (const { call, result, ok, nsId, durationMs } of ordered) {
           toolResults.push({ call, result, ok })
           if (!ok) failedToolCalls++
+          ranToolsThisRun = true
           bus.emit('agent/tool-result', { call: { ...call, id: nsId }, result, ok, durationMs })
           messages.push({
             role: 'tool',
@@ -577,11 +613,17 @@ export class AgentService extends Service {
       // Loop detection: if the model has gone LOOP_WINDOW rounds with zero tool
       // calls and near-identical content, it is spinning (common in PSE mode
       // where Planner/Evaluator keep restating). Bail with the last answer.
-      recentContents.push((response.content ?? '').trim())
-      recentToolCounts.push(toolCalls.length)
-      if (recentContents.length > LOOP_WINDOW) {
-        recentContents.shift()
-        recentToolCounts.shift()
+      // Empty replies are excluded: they are handled by the dedicated
+      // empty-reply guard below, and counting them here would trip the detector
+      // ("" is trivially similar to "") and end the run with a blank answer.
+      const roundContent = (response.content ?? '').trim()
+      if (roundContent) {
+        recentContents.push(roundContent)
+        recentToolCounts.push(toolCalls.length)
+        if (recentContents.length > LOOP_WINDOW) {
+          recentContents.shift()
+          recentToolCounts.shift()
+        }
       }
       if (
         recentContents.length === LOOP_WINDOW &&
@@ -599,6 +641,36 @@ export class AgentService extends Service {
         // blank line, which would otherwise leak into the UI as an empty line
         // at the top of the answer bubble.
         const answer = (response.content ?? '').trim()
+        // Empty-reply guard: right after a tool round some models return a turn
+        // with neither content nor a tool-call (seen when a duplicate call was
+        // short-circuited with the "(skipped ...) — its result above is reused"
+        // note). Accepting that as "done" ends the run with a blank bubble, so
+        // the user thinks the pipeline died. Nudge for a summary first, then
+        // fall back to showing the last tool result so something is visible.
+        if (!answer && ranToolsThisRun) {
+          if (emptyReplyInterrupts < MAX_EMPTY_REPLY_INTERRUPTS) {
+            emptyReplyInterrupts++
+            this.ctx
+              .logger('agent')
+              .warn('round %d returned an empty reply after tool execution — nudging', i + 1)
+            messages.push({
+              role: 'user',
+              content:
+                '上一步的工具已经执行完毕（结果见上方 tool 消息）。请直接给出中文总结：做了什么、关键结果（ID/链接/篇数等）、以及是否需要继续执行。' +
+                '不要再调用同一个工具来"确认"，直接汇报。',
+            })
+            continue
+          }
+          const fallback = emptyReplyFallback(messages)
+          this.ctx
+            .logger('agent')
+            .warn(
+              'still empty after %d nudges — falling back to last tool result',
+              emptyReplyInterrupts,
+            )
+          bus.emit('agent/done', { answer: fallback, failedToolCalls })
+          return fallback
+        }
         // A model that only "declares" its next tool step in prose — e.g. "用
         // hot-news 生成文案" — without emitting an actual tool-call must not be
         // treated as done: the pipeline silently stops mid-way. If the reply

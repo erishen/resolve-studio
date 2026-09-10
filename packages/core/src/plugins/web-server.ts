@@ -884,6 +884,36 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
     }
   }
 
+  /**
+   * Answer shown when a run dies *after* at least one tool succeeded — most
+   * often the provider rate-limits the follow-up "summarize" turn (429), or the
+   * network drops. The tool work is real, so we surface the outcome plus the
+   * reason instead of an empty bubble.
+   */
+  function interruptedAnswer(
+    message: string,
+    lastTool: { name?: string; result?: string },
+  ): string {
+    const head = /429|rate limit/i.test(message)
+      ? '⚠️ 模型调用被限流（429），本次运行未能生成总结。工具已执行，结果见下方。'
+      : `⚠️ 运行中断：${message}`
+    const raw = lastTool.result ?? ''
+    // The tool card above already renders the FULL output (collapsible, with an
+    // "展开全部" toggle), so we never lose data there. In the answer bubble we
+    // surface the TAIL of the result: publish-style tools (juejin/wechat/
+    // sf-pw-publish) print their conclusion last — "✅ 已发布 → URL",
+    // "本批发布 N 篇", "剩余 N 篇" — and an earlier 1500-char HEAD cap silently
+    // dropped exactly that, making results look truncated. Keep the tail so
+    // the outcome is visible without expanding the card.
+    const TAIL = 4000
+    const shown =
+      raw.length <= TAIL
+        ? raw
+        : `…[前面已省略，完整输出见上方工具卡片]\n\n${raw.slice(-TAIL)}`
+    const name = lastTool.name ? `\`${lastTool.name}\`` : '工具'
+    return `${head}\n\n${name} 输出（末尾 ${Math.min(raw.length, TAIL)} 字，完整内容见上方工具卡片）：\n\n${shown}`
+  }
+
   async function handleChat(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const body = await readBody(req)
     let parsed: {
@@ -926,6 +956,12 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       res.write(`data: ${JSON.stringify(data)}\n\n`)
     }
 
+    // Last tool output seen in this run. Kept so a late failure — typically a
+    // 429 on the "summarize what just happened" turn — can still show the user
+    // what the pipeline actually accomplished instead of leaving a blank
+    // answer bubble (the tool card alone reads as "nothing happened").
+    let lastTool: { name?: string; result?: string } | undefined
+
     // Per-request event bus: route this run's `agent/*` / `llm/*` progress
     // straight to this SSE stream. Because the bus is per-request (not the
     // shared global `ctx.events`), two concurrent /api/chat requests — e.g.
@@ -943,6 +979,10 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
             send('tool-call', { call: payload })
             return
           case 'agent/tool-result':
+            lastTool = {
+              name: (payload as { call?: { name?: string } } | undefined)?.call?.name,
+              result: (payload as { result?: string } | undefined)?.result,
+            }
             send('tool-result', { payload })
             return
           case 'agent/tool-progress':
@@ -980,7 +1020,15 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       })
       send('done', { answer })
     } catch (err) {
-      send('error', { message: (err as Error).message })
+      const message = (err as Error).message
+      send('error', { message })
+      // Tools already ran, so the run is NOT a no-op — but the model never got
+      // to summarize it (rate limit, network blip, provider 5xx…). Emit a
+      // `done` carrying the error plus the last tool output so the answer
+      // bubble is never blank; the error bar alone is easy to miss.
+      if (lastTool?.result) {
+        send('done', { answer: interruptedAnswer(message, lastTool) })
+      }
     } finally {
       if (!res.writableEnded) res.end()
     }

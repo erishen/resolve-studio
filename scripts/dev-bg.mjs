@@ -188,13 +188,27 @@ async function start() {
   await waitBackend()
 
   console.log(`starting web on :${WEB_PORT} ...`)
-  const web = launch(
-    join(PID_DIR, 'web.log'),
-    'pnpm',
-    ['exec', 'vite', '--host', '127.0.0.1', '--port', String(WEB_PORT)],
-    WEB,
-    {},
-  )
+  // Prefer vite's own bin from node_modules: `pnpm exec` is unreliable here —
+  // the pnpm on PATH is a corepack shim that can hang (or get OOM-killed)
+  // before it ever resolves, leaving the web dev server silently dead and
+  // `dev-bg status` reporting "web: DEAD". Fall back to pnpm only when the
+  // local vite bin is missing (e.g. before install).
+  const viteBin = join(WEB, 'node_modules', 'vite', 'bin', 'vite.js')
+  const web = existsSync(viteBin)
+    ? launch(
+        join(PID_DIR, 'web.log'),
+        process.execPath,
+        [viteBin, '--host', '127.0.0.1', '--port', String(WEB_PORT)],
+        WEB,
+        {},
+      )
+    : launch(
+        join(PID_DIR, 'web.log'),
+        'pnpm',
+        ['exec', 'vite', '--host', '127.0.0.1', '--port', String(WEB_PORT)],
+        WEB,
+        {},
+      )
 
   writePids({
     backend: backend.pid,

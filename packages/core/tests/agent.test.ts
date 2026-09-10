@@ -1090,3 +1090,99 @@ test('in-loop compaction bounds context after a long tool round (beyond the entr
 
   await root.fiber.dispose()
 })
+
+// Regression: after a tool round the model can emit a turn with NEITHER content
+// nor a tool-call (observed right after a duplicate call was short-circuited
+// with the "(skipped ...) — its result above is reused" note). Accepting that as
+// final ended the run with a blank answer bubble and the user saw the pipeline
+// "die" even though the tool had succeeded. The loop must nudge for a summary.
+test('an empty reply after a tool round is nudged instead of ending the run blank', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService)
+  await root.plugin(skills, { dir: '../../skills' })
+  root.tools.register({
+    name: 'make-draft',
+    description: 'Create the next draft.',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'draft_id=42'
+    },
+  })
+
+  class EmptyThenSummarize extends LlmService {
+    round = 0
+    rounds: number[] = []
+    async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+      this.round++
+      this.rounds.push(this.round)
+      if (this.round === 1) {
+        return { content: '', toolCalls: [{ id: 'c1', name: 'make-draft', arguments: '{}' }] }
+      }
+      // Round 2: the empty turn that used to terminate the run silently.
+      if (this.round === 2) return { content: '' }
+      // Round 3: after the nudge, summarize from the tool result above.
+      return { content: '草稿已建好，draft_id=42。' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(EmptyThenSummarize)
+
+  const answer = await root.agent.run({
+    messages: [{ role: 'user', content: '建下一篇草稿' }],
+  })
+
+  assert.match(answer, /草稿已建好/, 'the run ends with a real summary, not a blank bubble')
+  assert.ok(answer.length > 0, 'answer is never empty')
+
+  await root.fiber.dispose()
+})
+
+test('a persistently empty reply falls back to showing the last tool result', async () => {
+  const root = new Context()
+  await root.plugin(ToolRegistry)
+  await root.plugin(pse)
+  await root.plugin(AgentService)
+  await root.plugin(FastPathService)
+  await root.plugin(ApprovalService)
+  await root.plugin(skills, { dir: '../../skills' })
+  root.tools.register({
+    name: 'make-draft',
+    description: 'Create the next draft.',
+    parameters: { type: 'object', properties: {} },
+    async execute() {
+      return 'draft-created-42'
+    },
+  })
+
+  // The model never says anything: tool call first, then empty forever.
+  class AlwaysEmpty extends LlmService {
+    round = 0
+    async chat(): Promise<ChatResponse> {
+      this.round++
+      if (this.round === 1) {
+        return { content: '', toolCalls: [{ id: 'c1', name: 'make-draft', arguments: '{}' }] }
+      }
+      return { content: '' }
+    }
+    async models() {
+      return []
+    }
+  }
+  await root.plugin(AlwaysEmpty)
+
+  const answer = await root.agent.run({
+    messages: [{ role: 'user', content: '建下一篇草稿' }],
+  })
+
+  assert.notEqual(answer, '', 'the run must not end with an empty answer')
+  assert.match(answer, /draft-created-42/, 'the last tool result is surfaced to the user')
+  assert.match(answer, /模型未给出最终回复/, 'and it is labelled as a fallback')
+
+  await root.fiber.dispose()
+})

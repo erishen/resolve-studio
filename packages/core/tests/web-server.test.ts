@@ -23,6 +23,8 @@ import { llmMock } from '../src/plugins/llm-mock.js'
 import { toolEcho } from '../src/plugins/tools/tool-echo.js'
 import { webServer } from '../src/plugins/web-server.js'
 import { definePlugin } from '../src/plugins/util.js'
+import { LlmService } from '../src/services/llm.js'
+import type { ChatMessage, ChatOptions, ChatResponse } from '../src/types.js'
 import pse from '@resolve-studio/plugin-pse'
 
 // The shared `calculator` tool is not gated, but /api/tools surfaces gating and
@@ -65,7 +67,12 @@ writeFileSync(
  * processes (`node --test`), so a shared port or a shared session dir leaks
  * state between them.
  */
-async function buildServer(): Promise<{ root: Context; base: string }> {
+async function buildServer(
+  // Cordis refuses a second `llm` service in the same context, so a test that
+  // needs a different model behaviour injects it here rather than registering
+  // it on top of the default mock.
+  llm: unknown = llmMock,
+): Promise<{ root: Context; base: string }> {
   let bound = 0
   const sessionDir = mkdtempSync(join(tmpdir(), 'resolve-studio-sessions-'))
   const root = new Context()
@@ -79,7 +86,7 @@ async function buildServer(): Promise<{ root: Context; base: string }> {
   await root.plugin(skills, { dir: TMP_SKILLS })
   await root.plugin(tasksPlugin)
   await root.plugin(mcpPlugin)
-  await root.plugin(llmMock)
+  await root.plugin(llm as never)
   await root.plugin(toolEcho)
   await root.plugin(gatedCalculator)
   await root.plugin(webServer, {
@@ -295,6 +302,125 @@ test('DELETE /api/sessions clears all stored sessions', async () => {
   assert.equal(after.sessions.length, 0)
 
   await root.fiber.dispose()
+})
+
+/**
+ * LLM that succeeds on the tool round and then gets rate-limited on the
+ * follow-up "summarize" turn — the single most common shape of the "the tool
+ * ran but nothing came back" report. The tool work is real, so the answer must
+ * still show it instead of going blank.
+ */
+class ToolThenRateLimitedLlm extends LlmService {
+  async chat(messages: ChatMessage[], _options?: ChatOptions): Promise<ChatResponse> {
+    if (!messages.some((m) => m.role === 'tool')) {
+      return {
+        toolCalls: [{ id: 'call-1', name: 'echo', arguments: JSON.stringify({ text: 'ping' }) }],
+      }
+    }
+    throw new Error('429 You’ve reached the API rate limit for free users.')
+  }
+  async models() {
+    return []
+  }
+}
+
+test('an interrupted run still reports the tool output instead of a blank answer', async () => {
+  const { root, base } = await buildServer(ToolThenRateLimitedLlm)
+  try {
+    const res = await fetch(`${base}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'ping' }] }),
+    })
+    const raw = await res.text()
+    const events = [...raw.matchAll(/^event: (.+)\ndata: (.+)$/gm)].map((m) => ({
+      type: m[1]!,
+      data: JSON.parse(m[2]!) as Record<string, unknown>,
+    }))
+
+    const err = events.find((e) => e.type === 'error')
+    assert.match(String(err?.data['message']), /429/, 'the provider error is surfaced')
+
+    const done = events.find((e) => e.type === 'done')
+    assert.ok(done, 'a `done` is emitted even though the run was interrupted')
+    const answer = String(done?.data['answer'] ?? '')
+    assert.match(answer, /限流/, 'the answer explains why the run stopped')
+    assert.match(answer, /ping/, 'and carries the tool output the user would otherwise never see')
+  } finally {
+    await root.fiber.dispose()
+  }
+})
+
+/**
+ * Publish-style tools (juejin/wechat/sf-pw-publish) emit a LONG log whose
+ * conclusion prints LAST — "✅ 已发布 → URL", "本批发布 N 篇". An earlier
+ * fallback truncated the result to its first 1500 chars, which silently dropped
+ * exactly that conclusion and made the answer look truncated. This pins the
+ * fixed behaviour: the tail (and therefore the conclusion) is preserved.
+ */
+const bigEcho = definePlugin(
+  (ctx: Context): void => {
+    ctx.tools.register({
+      name: 'bigecho',
+      description: 'Echo a large payload with its conclusion at the end.',
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string' } },
+        required: ['text'],
+      },
+      async execute(args) {
+        const head = 'HEAD_MARK_zzz_被截断的部分'
+        const pad = 'x'.repeat(4500)
+        return `${head}\n${pad}\n✅ 已发布 → https://segmentfault.com/a/1190000048287087（标签 2 个）\n📝 已记录 sf_id 到 firefly_studio-zh.md\n本批发布 1 篇。剩余未发布 19 篇 → 再跑一次继续下一篇。`
+      },
+    })
+  },
+  'tool-big-echo',
+  ['tools'],
+)
+
+class ToolThenRateLimitedBigLlm extends LlmService {
+  async chat(messages: ChatMessage[]): Promise<ChatResponse> {
+    if (!messages.some((m) => m.role === 'tool')) {
+      return {
+        toolCalls: [{ id: 'call-1', name: 'bigecho', arguments: JSON.stringify({ text: 'go' }) }],
+      }
+    }
+    throw new Error('429 You’ve reached the API rate limit for free users.')
+  }
+  async models() {
+    return []
+  }
+}
+
+test('an interrupted run keeps the tail of a large tool output (the conclusion)', async () => {
+  const { root, base } = await buildServer(ToolThenRateLimitedBigLlm)
+  await root.plugin(bigEcho)
+  try {
+    const res = await fetch(`${base}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'publish' }] }),
+    })
+    const raw = await res.text()
+    const events = [...raw.matchAll(/^event: (.+)\ndata: (.+)$/gm)].map((m) => ({
+      type: m[1]!,
+      data: JSON.parse(m[2]!) as Record<string, unknown>,
+    }))
+
+    const done = events.find((e) => e.type === 'done')
+    assert.ok(done, 'a `done` is emitted even though the run was interrupted')
+    const answer = String(done?.data['answer'] ?? '')
+    // The head (HEAD_MARK_zzz …) lives outside the 4000-char tail window, so it
+    // must be elided — proving we no longer dump the whole blob. The conclusion
+    // at the very end must still survive.
+    assert.ok(!answer.includes('HEAD_MARK_zzz'), 'the head is elided, not dumped verbatim')
+    assert.match(answer, /✅ 已发布/, 'the published-URL conclusion is preserved')
+    assert.match(answer, /本批发布 1 篇/, 'the per-batch summary is preserved')
+    assert.match(answer, /剩余未发布 19 篇/, 'the queue reminder is preserved')
+  } finally {
+    await root.fiber.dispose()
+  }
 })
 
 test('each server instance gets its own session dir (no cross-test leakage)', async () => {

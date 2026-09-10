@@ -222,12 +222,39 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
                 break
               }
               case 'done': {
-                patchAssistant({ content: ev.answer, pending: false })
+                // `done.answer` is normally authoritative, but models often
+                // stream the real text through `delta`/`step` and then finish
+                // with an EMPTY answer. Overwriting unconditionally erased the
+                // text the user was already looking at — the "tool ran but the
+                // answer never shows up" bug. Keep whatever we already have.
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? { ...m, content: ev.answer || m.content, pending: false }
+                      : m,
+                  ),
+                )
                 break
               }
               case 'error': {
                 setError(ev.message)
-                patchAssistant({ pending: false })
+                // Never leave a blank bubble: models routinely stream nothing
+                // but whitespace before a tool call, so when the run then dies
+                // (429 / network) the answer area looks empty and the user
+                // thinks the tool never ran. Put the error in the bubble too —
+                // the error bar is easy to miss. A later `done` (the backend
+                // emits one carrying the tool output on late failures) wins.
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? {
+                          ...m,
+                          pending: false,
+                          content: m.content.trim() ? m.content : `⚠️ ${ev.message}`,
+                        }
+                      : m,
+                  ),
+                )
                 break
               }
             }
@@ -348,12 +375,31 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
             break
           }
           case 'done': {
-            patchAssistant({ content: ev.answer, pending: false })
+            // Same guard as the streaming path above: never blank out text that
+            // already arrived when the final `answer` comes back empty.
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: ev.answer || m.content, pending: false }
+                  : m,
+              ),
+            )
             break
           }
           case 'error': {
             setError(ev.message)
-            patchAssistant({ pending: false })
+            // Same "never blank" guard as the streaming path above.
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      pending: false,
+                      content: m.content.trim() ? m.content : `⚠️ ${ev.message}`,
+                    }
+                  : m,
+              ),
+            )
             break
           }
         }
