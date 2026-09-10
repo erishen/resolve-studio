@@ -2460,6 +2460,24 @@ body {
   flex-direction: column;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
+/* Fullscreen: drop the overlay padding and let the modal fill the viewport. */
+.file-preview-overlay.fullscreen {
+  padding: 0;
+}
+.file-preview-modal.fullscreen {
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  border-radius: 0;
+}
+.file-preview-modal.fullscreen .file-preview-body {
+  padding: 0;
+}
+.file-preview-modal.fullscreen .file-preview-iframe {
+  border-radius: 0;
+  min-height: 0;
+}
 .file-preview-header {
   display: flex;
   align-items: center;
@@ -2512,6 +2530,22 @@ body {
   justify-content: center;
 }
 .file-preview-close:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+.file-preview-fs {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.file-preview-fs:hover {
   background: var(--bg);
   color: var(--text);
 }
