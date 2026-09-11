@@ -971,7 +971,7 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
 
     const raw = lastTool.result ?? ''
     const CONCLUSION_RE =
-      /^([✅📊🎉📝🔗❌⚠️])|[→]|已发布|已生成|已写入|已记录|本批发布|剩余未发布|未发布/
+      /^([✅📊🎉📝🔗❌⚠])|[→]|已发布|已生成|已写入|已记录|本批发布|剩余未发布|未发布/u
     const conclusionLines = raw
       .split(/\r?\n/)
       .map((l) => l.trim())
