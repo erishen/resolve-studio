@@ -98,9 +98,7 @@ const registerHotNewsFetch = (ctx: Context, _config: Record<string, never> = {})
       // <taskDir>/tasks/hot-news/news (a corpus fork) and the echoed path is
       // unlinkable. See absolutizeTaskPath.
       const rawOut = (args.out as string | undefined)?.trim()
-      const out = rawOut
-        ? absolutizeTaskPath(rawOut, () => resolvePseDir('llamaindex'))
-        : newsDir()
+      const out = rawOut ? absolutizeTaskPath(rawOut, () => resolvePseDir('llamaindex')) : newsDir()
 
       const cmdArgs = [`--out=${out}`]
       if (sources) cmdArgs.push(`--sources=${sources}`)

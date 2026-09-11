@@ -256,10 +256,7 @@ function status() {
   const st = readPids()
   const bAlive = alive(st.backend)
   const wAlive = st.web ? alive(st.web) : false
-  console.log(
-    `dev-bg instance (started ${st.startedAt}, ` +
-      `${st.mock ? 'mock' : 'real model'}):`,
-  )
+  console.log(`dev-bg instance (started ${st.startedAt}, ` + `${st.mock ? 'mock' : 'real model'}):`)
   console.log(`  backend pid ${st.backend}: ${bAlive ? 'alive' : 'DEAD'}`)
   console.log(`  web     pid ${st.web}: ${wAlive ? 'alive' : 'DEAD'}`)
   // port liveness (independent of pid, in case of orphans)

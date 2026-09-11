@@ -86,11 +86,7 @@ test('absolutizeTaskPath anchors a relative path at the framework root', () => {
     '/ws/frameworks/llamaindex-pse/tasks/hot-news/news',
     './ prefix normalised away',
   )
-  assert.equal(
-    absolutizeTaskPath('news', root),
-    '/ws/frameworks/llamaindex-pse/news',
-    'plain name',
-  )
+  assert.equal(absolutizeTaskPath('news', root), '/ws/frameworks/llamaindex-pse/news', 'plain name')
   assert.equal(
     absolutizeTaskPath('/already/absolute/news', root),
     '/already/absolute/news',

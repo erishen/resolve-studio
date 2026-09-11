@@ -303,7 +303,11 @@ class LlmOpenAI extends LlmService {
       const waitSec = Math.ceil((this._modelNextRetryAt - now) / 1000)
       this.ctx
         .logger('llm-openai')
-        .debug('models.list in backoff, using cache/fallback (next retry in %ds, failures=%d)', waitSec, this._modelFailures)
+        .debug(
+          'models.list in backoff, using cache/fallback (next retry in %ds, failures=%d)',
+          waitSec,
+          this._modelFailures,
+        )
       return this._modelCache ?? this._fallbackModels()
     }
 
@@ -323,9 +327,7 @@ class LlmOpenAI extends LlmService {
           this._modelFailures = 0
           this._modelNextRetryAt = 0
           if (hadPriorFailures) {
-            this.ctx
-              .logger('llm-openai')
-              .info('models.list recovered, %d models', mapped.length)
+            this.ctx.logger('llm-openai').info('models.list recovered, %d models', mapped.length)
           } else if (!background) {
             this.ctx.logger('llm-openai').info('models.list ok, %d models', mapped.length)
           }
@@ -346,7 +348,11 @@ class LlmOpenAI extends LlmService {
         if (this._modelFailures === 1) {
           this.ctx
             .logger('llm-openai')
-            .warn('models.list failed, fallback to default: %s (next retry in %ds)', msg, Math.round(delay / 1000))
+            .warn(
+              'models.list failed, fallback to default: %s (next retry in %ds)',
+              msg,
+              Math.round(delay / 1000),
+            )
         } else {
           this.ctx
             .logger('llm-openai')
