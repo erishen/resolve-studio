@@ -48,6 +48,14 @@ function contentToString(content: ChatMessage['content']): string {
 const TOOL_MSG_MAX_CHARS = 48 * 1024
 const OTHER_MSG_MAX_CHARS = 64 * 1024
 
+// ---- Model catalog caching constants ----
+/** How long a successfully-fetched model catalog stays fresh (5 minutes). */
+const MODEL_CACHE_TTL = 5 * 60 * 1000
+/** Base delay for exponential backoff after models.list fails (5 seconds). */
+const MODEL_RETRY_BASE_DELAY = 5 * 1000
+/** Maximum backoff delay (5 minutes), so we never stop retrying entirely. */
+const MODEL_RETRY_MAX_DELAY = 5 * 60 * 1000
+
 function truncateContent(content: string, role: ChatMessage['role']): string {
   const limit = role === 'tool' ? TOOL_MSG_MAX_CHARS : OTHER_MSG_MAX_CHARS
   if (content.length <= limit) return content
@@ -89,6 +97,18 @@ class LlmOpenAI extends LlmService {
   readonly defaultModel: string
   private readonly temperature: number
   private readonly maxTokens?: number
+
+  // ---- Model catalog cache (stale-while-revalidate + exponential backoff) ----
+  /** Cached model list; null = never fetched successfully. */
+  private _modelCache: ModelInfo[] | null = null
+  /** Timestamp (Date.now()) when the cache was last refreshed successfully. */
+  private _modelCacheTime = 0
+  /** In-flight fetch promise; used for request coalescing (concurrent dedup). */
+  private _modelFetchPromise: Promise<ModelInfo[]> | null = null
+  /** Consecutive failure count; drives exponential backoff. */
+  private _modelFailures = 0
+  /** Earliest timestamp (Date.now()) at which a retry is allowed after failures. */
+  private _modelNextRetryAt = 0
 
   constructor(ctx: Context, config: OpenAiLlmConfig = {}) {
     super(ctx)
@@ -221,21 +241,133 @@ class LlmOpenAI extends LlmService {
     }
   }
 
+  /**
+   * Return the model catalog with stale-while-revalidate caching.
+   *
+   * Behaviour:
+   * - Fresh cache (< TTL): return immediately, no network call.
+   * - Stale cache (>= TTL but has data): return cached data immediately,
+   *   then silently refresh in the background (does not reject the caller).
+   * - No cache: fetch synchronously; on failure fall back to defaultModel.
+   * - Concurrent callers share one in-flight fetch (request coalescing).
+   * - Exponential backoff after consecutive failures (5s → 10s → 20s → ... cap 5m),
+   *   so a downed upstream doesn't spam logs or hammer the network.
+   */
   async models(): Promise<ModelInfo[]> {
-    // Prefer the live model catalog from the upstream `/v1/models` endpoint,
-    // but many OpenAI-compatible gateways (e.g. some model routers / private
-    // endpoints) do not implement `GET /v1/models`. When that call fails we
-    // must NOT break the UI — fall back to the model we already know we
-    // default to, so the dropdown still pre-selects the right entry.
-    try {
-      const list = await this.client.models.list()
-      const mapped = list.data.map((m) => ({ id: m.id, ownedBy: m.owned_by }))
-      if (mapped.length) return mapped
-    } catch (err) {
+    const now = Date.now()
+    const cacheFresh = this._modelCache !== null && now - this._modelCacheTime < MODEL_CACHE_TTL
+
+    // Case 1: fresh cache — return immediately.
+    if (cacheFresh) {
+      return this._modelCache!
+    }
+
+    // Case 2: stale cache with data — return it now, refresh in background.
+    if (this._modelCache !== null) {
+      // Kick off a background refresh (fire-and-forget; errors are logged).
+      void this._fetchModels(true).catch(() => {
+        /* background refresh failures are already logged inside _fetchModels */
+      })
+      return this._modelCache
+    }
+
+    // Case 3: no cache — fetch synchronously (with coalescing + backoff).
+    return this._fetchModels(false)
+  }
+
+  /**
+   * Force a refresh of the model catalog, bypassing cache and backoff.
+   * Useful after the user changes upstream config or restarts the gateway.
+   */
+  async refreshModels(): Promise<ModelInfo[]> {
+    this._modelFailures = 0
+    this._modelNextRetryAt = 0
+    this._modelCache = null
+    this._modelCacheTime = 0
+    return this._fetchModels(false)
+  }
+
+  /**
+   * Core fetch logic with request coalescing and exponential backoff.
+   *
+   * @param background - true = called from stale-while-revalidate; on backoff
+   *   or failure we return the (stale) cache instead of throwing.
+   */
+  private async _fetchModels(background: boolean): Promise<ModelInfo[]> {
+    const now = Date.now()
+
+    // Exponential backoff: if we failed recently and it's not yet time to retry,
+    // return cached/fallback immediately (don't make the caller wait). The next
+    // call after the backoff window will attempt a real fetch.
+    if (this._modelFailures > 0 && now < this._modelNextRetryAt) {
+      const waitSec = Math.ceil((this._modelNextRetryAt - now) / 1000)
       this.ctx
         .logger('llm-openai')
-        .warn('models.list failed, fallback to default: %s', (err as Error).message)
+        .debug('models.list in backoff, using cache/fallback (next retry in %ds, failures=%d)', waitSec, this._modelFailures)
+      return this._modelCache ?? this._fallbackModels()
     }
+
+    // Request coalescing: if a fetch is already in flight, share it.
+    if (this._modelFetchPromise) {
+      return this._modelFetchPromise
+    }
+
+    const promise = (async () => {
+      const hadPriorFailures = this._modelFailures > 0
+      try {
+        const list = await this.client.models.list()
+        const mapped = list.data.map((m) => ({ id: m.id, ownedBy: m.owned_by }))
+        if (mapped.length > 0) {
+          this._modelCache = mapped
+          this._modelCacheTime = Date.now()
+          this._modelFailures = 0
+          this._modelNextRetryAt = 0
+          if (hadPriorFailures) {
+            this.ctx
+              .logger('llm-openai')
+              .info('models.list recovered, %d models', mapped.length)
+          } else if (!background) {
+            this.ctx.logger('llm-openai').info('models.list ok, %d models', mapped.length)
+          }
+          return mapped
+        }
+        // Empty list — treat as failure (upstream returned nothing useful).
+        throw new Error('upstream returned empty model list')
+      } catch (err) {
+        this._modelFailures++
+        const delay = Math.min(
+          MODEL_RETRY_BASE_DELAY * 2 ** (this._modelFailures - 1),
+          MODEL_RETRY_MAX_DELAY,
+        )
+        this._modelNextRetryAt = Date.now() + delay
+        const msg = (err as Error).message
+        // Log at warn only on the first failure; subsequent failures are debug
+        // to avoid log spam when the upstream is down for a long time.
+        if (this._modelFailures === 1) {
+          this.ctx
+            .logger('llm-openai')
+            .warn('models.list failed, fallback to default: %s (next retry in %ds)', msg, Math.round(delay / 1000))
+        } else {
+          this.ctx
+            .logger('llm-openai')
+            .debug('models.list failed again (failures=%d): %s', this._modelFailures, msg)
+        }
+        if (background && this._modelCache) {
+          return this._modelCache
+        }
+        return this._fallbackModels()
+      } finally {
+        // Clear the in-flight promise so the next caller can start a fresh fetch.
+        this._modelFetchPromise = null
+      }
+    })()
+
+    this._modelFetchPromise = promise
+    return promise
+  }
+
+  /** Fallback: just the default model, so callers always get something usable. */
+  private _fallbackModels(): ModelInfo[] {
     return [{ id: this.defaultModel, ownedBy: 'resolve-studio' }]
   }
 }
