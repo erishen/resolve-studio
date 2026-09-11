@@ -43,9 +43,7 @@ const registerHotNewsTopics = (ctx: Context, _config: Record<string, never> = {}
       // documented "tasks/hot-news/news" form, which used to be resolved
       // against this process's cwd and failed the access() check below.
       const rawDir = (args.news_dir as string | undefined)?.trim()
-      const dir = rawDir
-        ? absolutizeTaskPath(rawDir, () => resolvePseDir('llamaindex'))
-        : newsDir()
+      const dir = rawDir ? absolutizeTaskPath(rawDir, () => resolvePseDir('llamaindex')) : newsDir()
       try {
         await access(dir)
       } catch {
