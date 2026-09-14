@@ -9,13 +9,16 @@ services:
       - NODE_ENV=production
       - PORT=8787
       - HOST=0.0.0.0
-      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      # 容器内 127.0.0.1 指向容器自身，需用 host.docker.internal 访问宿主机 llm-router；
+      # .env 的 OPENAI_BASE_URL 是给宿主机 make dev 用的，容器用 DOCKER_OPENAI_BASE_URL 单独覆盖
+      - OPENAI_BASE_URL=${DOCKER_OPENAI_BASE_URL:-http://host.docker.internal:9070/v1}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-}
+      - WEB_HOST=0.0.0.0
       - WORKSPACE_OUT=/app/workspace-analysis
     volumes:
       - ./workspace-analysis:/app/workspace-analysis
-      - ./skills:/app/skills:ro
+      - ./resolve-skills:/app/resolve-skills:ro
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8787/health']

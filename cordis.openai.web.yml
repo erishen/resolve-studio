@@ -122,5 +122,5 @@ plugins:
   - id: web
     name: web-server
     config:
-      host: '127.0.0.1'
+      host: '${WEB_HOST:-127.0.0.1}'
       port: 8787

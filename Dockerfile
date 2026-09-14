@@ -6,18 +6,21 @@ RUN corepack enable && corepack prepare pnpm@9 --activate
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/core/package.json ./packages/core/
-COPY packages/plugin-hello/package.json ./packages/plugin-hello/ 2>/dev/null || true
-COPY packages/plugin-system-info/package.json ./packages/plugin-system-info/ 2>/dev/null || true
+COPY packages/plugin-hello/package.json ./packages/plugin-hello/
+COPY packages/plugin-pse/package.json ./packages/plugin-pse/
+COPY packages/plugin-system-info/package.json ./packages/plugin-system-info/
 
 RUN pnpm install --frozen-lockfile
 
 COPY packages/core ./packages/core
-COPY packages/plugin-hello ./packages/plugin-hello 2>/dev/null || true
-COPY packages/plugin-system-info ./packages/plugin-system-info 2>/dev/null || true
+COPY packages/plugin-hello ./packages/plugin-hello
+COPY packages/plugin-pse ./packages/plugin-pse
+COPY packages/plugin-system-info ./packages/plugin-system-info
 COPY cordis*.yml ./
-COPY skills ./skills 2>/dev/null || true
-COPY scripts ./scripts 2>/dev/null || true
+COPY resolve-skills ./resolve-skills
+COPY scripts ./scripts
 
+RUN pnpm -C packages/plugin-pse run build
 RUN pnpm -C packages/core run build
 
 # ---- runtime stage ----
@@ -32,14 +35,16 @@ ENV HOST=0.0.0.0
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/core/package.json ./packages/core/
-COPY packages/plugin-hello/package.json ./packages/plugin-hello/ 2>/dev/null || true
-COPY packages/plugin-system-info/package.json ./packages/plugin-system-info/ 2>/dev/null || true
+COPY packages/plugin-hello/package.json ./packages/plugin-hello/
+COPY packages/plugin-pse/package.json ./packages/plugin-pse/
+COPY packages/plugin-system-info/package.json ./packages/plugin-system-info/
 
 RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --from=builder /app/packages/plugin-pse/dist ./packages/plugin-pse/dist
 COPY cordis*.yml ./
-COPY skills ./skills 2>/dev/null || true
+COPY resolve-skills ./resolve-skills
 
 EXPOSE 8787
 

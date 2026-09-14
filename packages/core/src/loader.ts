@@ -46,7 +46,7 @@ interface PatchFile {
 
 type ManifestDoc = FlatFile & PatchFile & { fs?: Record<string, unknown> }
 
-const ENV_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
+const ENV_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g
 
 /**
  * Expand `${VAR}` references in manifest string scalars against `process.env`.
@@ -58,12 +58,18 @@ const ENV_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g
  * left as the literal `${VAR}` so a missing `.env` entry is visible (and the
  * path resolves to a harmless non-matching root) rather than silently folding
  * into cwd.
+ *
+ * `${VAR:-default}` is also supported: an unset or empty var falls back to the
+ * inline default (used e.g. for `web-server.host` to bind 127.0.0.1 locally but
+ * 0.0.0.0 inside Docker).
  */
 function expandEnv<T>(node: T): T {
   if (typeof node === 'string') {
     return node.replace(
       ENV_PATTERN,
-      (_, name: string) => process.env[name] ?? `$${name}`,
+      (_, name: string, def?: string) =>
+        (process.env[name] && process.env[name] !== '' ? process.env[name] : def) ??
+        `$${name}`,
     ) as unknown as T
   }
   if (Array.isArray(node)) return node.map((v) => expandEnv(v)) as unknown as T

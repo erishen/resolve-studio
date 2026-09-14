@@ -21,7 +21,7 @@
 
 - [x] **本地提交**：已 `git init` + 根提交 `4caaeea`（104 文件）+ 清理 commit `1774cbd`（清临时脚本），local only 未推送
 - [x] **`.env.example` 补齐**：`PROD_WORDPRESS_USERNAME / PROD_WORDPRESS_APP_PASSWORD`（post-comment 复用）等新变量说明——已含（WordPress 凭证段 + 外部项目路径段全部列出）
-- [ ] **重启后端让改动生效**（较早一轮 MCP/工具改动）：MCP 配置 · `mcp.ts` 120s 连接超时 · 新工具 `analyze-code-dir` · 引擎/用量徽章后端字段——均需**重启 `make dev` 后端进程**才生效
+- [x] **重启后端让改动生效**（较早一轮 MCP/工具改动）：MCP 配置 · `mcp.ts` 120s 连接超时 · 新工具 `analyze-code-dir` · 引擎/用量徽章后端字段——均需**重启 `make dev` 后端进程**才生效。已于 2026-09-14 核验：后端重启后 MCP 7 server 连接成功、`analyze-code-dir` 已注册（118 工具）、`mcp.ts` 含 `timeout: 120_000`、`/api/usage` 正常
 
 ## 第二层方向（差异化，二选一）
 
@@ -41,9 +41,9 @@
 
 ## 站点侧（erishen.cn，与 harness 无关）
 
-- [ ] **正文互链脚本**：扫现有文章，输出 PSE 系列该互相引用的「延伸阅读」清单（站内互链的正确姿势）
-- [ ] **掘金/思否评论草稿技能**（tech-comment-draft）：读对方文章 → 生成真诚评论草稿（带自然链接）→ **只出草稿、人工提交**；知乎外链环境差暂不做
-- [ ] **公众号 API 技能**（wechat-draft）：存草稿/发素材，需 appid+appsecret（待确认是否有开发者权限）
+- [x] **正文互链脚本**：`tools/gen_crosslinks.py`（wordpress-tools）扫描主目录文章，按主题簇（PSE 框架 / RAG / 本地 AI / 证据校验 / 写作成长）聚类，输出互链建议清单到 `docs/crosslinks-pse.md`（20 篇 PSE 系列、112 条建议）；跳过已互链文章与平台分发副本
+- [x] **掘金/思否评论草稿技能**（tech-comment-draft）：`resolve-skills/skills/tech-comment-draft/SKILL.md`——读对方文章 → 提炼可对话切面 → 生成真诚具体、带自然站内链接的评论草稿；**只出草稿、人工提交**，不自动发布；知乎草稿默认去链接
+- [x] **公众号 API 技能**（wechat-draft）：存草稿/发素材，需 appid+appsecret（待确认是否有开发者权限）——已在 `personal-site/wordpress-tools` 实现（Makefile `wechat-draft` 目标，文章 frontmatter 回写 `wechat_draft_id` / `wechat_published`）
 
 ## 已知技术债（待排期）
 
