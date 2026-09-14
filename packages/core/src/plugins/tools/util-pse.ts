@@ -14,6 +14,7 @@
  */
 
 import { spawn } from 'node:child_process'
+import { statSync } from 'node:fs'
 import { writeFile, mkdtemp, readFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -137,6 +138,10 @@ export interface RunPseTaskOptions {
    * overriding/removing `OPENAI_*` before spawning the pipeline.
    */
   env?: NodeJS.ProcessEnv
+  /** 跳过 uv 项目依赖同步（uv run --no-sync）。仅脚本依赖标准库/本地模块/已预装
+   *  小依赖时开启（容器内 llamaindex-pse 的 playwright 在 musl-aarch64 无 wheel，
+   *  同步整个 pyproject 必失败）。本地已有 .venv 时无副作用。 */
+  noSync?: boolean
   /** Progress sink, usually `execCtx.onProgress`. */
   onProgress?: (chunk: string) => void
   /** Logger for the start line, usually `ctx.logger(tool).info`. */
@@ -184,6 +189,10 @@ export interface RunPseScriptOptions {
   maxOutput?: number
   /** Custom process environment (defaults to a copy of `process.env`). */
   env?: NodeJS.ProcessEnv
+  /** 跳过 uv 项目依赖同步（uv run --no-sync）。脚本只依赖标准库/同目录本地模块时
+   *  开启可避免容器内触发重量级 sync（如 playwright/llama-index 在 linux-musl-aarch64
+   *  无 wheel）。本地已有 .venv 时无副作用。 */
+  noSync?: boolean
   /** Progress sink, usually `execCtx.onProgress`. */
   onProgress?: (chunk: string) => void
   /** Logger for the start line. */
@@ -221,7 +230,21 @@ export function uvEnvFor(cwd: string, baseEnv: NodeJS.ProcessEnv = process.env):
   const app = cwd.match(/\/workspace\/[^/]+\/(?:apps\/)?([^/]+)(?:\/|$)/)
   if (fw) name = fw[1]
   else if (app) name = app[1]
-  return { ...baseEnv, UV_PROJECT_ENVIRONMENT: join(venvRoot, name) }
+  const env: NodeJS.ProcessEnv = { ...baseEnv, UV_PROJECT_ENVIRONMENT: join(venvRoot, name) }
+  // 容器内：llamaindex-pse 未 editable 安装，需把框架 src 加进 PYTHONPATH，
+  // 否则 run.py 的 `from llamaindex_pse.model import ...` 在 noSync 模式下找不到包。
+  // 仅当 src 实际存在（容器挂载 /workspace）才注入，本地 macOS 不受影响。
+  if (name === 'llamaindex-pse') {
+    const src = '/workspace/frameworks/llamaindex-pse/src'
+    try {
+      if (statSync(src).isDirectory()) {
+        env.PYTHONPATH = env.PYTHONPATH ? `${src}:${env.PYTHONPATH}` : src
+      }
+    } catch {
+      // 本地环境无 /workspace 挂载，跳过注入
+    }
+  }
+  return env
 }
 
 async function spawnCapture(
@@ -287,6 +310,7 @@ export async function runPseTask(options: RunPseTaskOptions): Promise<PseRunResu
     timeoutMs = DEFAULT_RUN_TIMEOUT_MS,
     maxOutput = MAX_OUTPUT,
     env,
+    noSync = false,
     onProgress,
     logger,
   } = options
@@ -310,7 +334,7 @@ export async function runPseTask(options: RunPseTaskOptions): Promise<PseRunResu
   const res = await spawnCapture({
     tool,
     cwd: taskDir,
-    cmdArgs: ['run', 'python', run, ...args],
+    cmdArgs: ['run', ...(noSync ? ['--no-sync'] : []), 'python', run, ...args],
     timeoutMs,
     maxOutput,
     env: childEnv,
@@ -338,6 +362,7 @@ export async function runPseScript(options: RunPseScriptOptions): Promise<PseScr
     timeoutMs = DEFAULT_RUN_TIMEOUT_MS,
     maxOutput = MAX_OUTPUT,
     env,
+    noSync = false,
     onProgress,
     logger,
   } = options
@@ -345,7 +370,7 @@ export async function runPseScript(options: RunPseScriptOptions): Promise<PseScr
   const res = await spawnCapture({
     tool,
     cwd,
-    cmdArgs: ['run', 'python', script, ...args],
+    cmdArgs: ['run', ...(noSync ? ['--no-sync'] : []), 'python', script, ...args],
     timeoutMs,
     maxOutput,
     env: env ?? { ...process.env },
