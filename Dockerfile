@@ -27,8 +27,13 @@ RUN pnpm -C packages/core run build
 FROM node:22-alpine AS runtime
 WORKDIR /app
 
-# git 供 MCP git server（@cyanheads/git-mcp-server）在容器内调用
-RUN apk add --no-cache git && corepack enable && corepack prepare pnpm@9 --activate
+# git 供 MCP git server（@cyanheads/git-mcp-server）在容器内调用；
+# python3 + uv 供 PSE 工具（hot-news-* / resume-tailor 等）执行框架内 Python 脚本。
+# alpine 的 pip 受 PEP 668 保护，需 --break-system-packages 才能全局安装 uv
+RUN apk add --no-cache git python3 py3-pip && \
+    corepack enable && corepack prepare pnpm@9 --activate && \
+    pip install --no-cache-dir --break-system-packages uv && \
+    ln -s /usr/bin/uv /usr/local/bin/uv || true
 
 ENV NODE_ENV=production
 ENV PORT=8787

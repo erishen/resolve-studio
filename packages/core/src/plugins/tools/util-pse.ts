@@ -210,7 +210,18 @@ async function spawnCapture(
   let stdout = ''
   let stderr = ''
   try {
-    const child = spawn('uv', cmdArgs, { cwd, env })
+    // 容器场景（Docker）：PSE_UV_VENV_ROOT 设置时，把每个框架的 uv venv 隔离到
+    // 容器私有目录（/opt/pse-venvs/<framework>），避免 Linux .venv 写进共享挂载的
+    // 框架目录 —— 否则会覆盖宿主机 macOS .venv，破坏本地 uv 环境。
+    // 本地（未设置 PSE_UV_VENV_ROOT）行为不变：用框架自带的 .venv。
+    let childEnv = env
+    const venvRoot = process.env.PSE_UV_VENV_ROOT
+    if (venvRoot && !env.UV_PROJECT_ENVIRONMENT) {
+      const m = cwd.match(/\/frameworks\/([^/]+)\//)
+      const name = m ? m[1] : 'default'
+      childEnv = { ...env, UV_PROJECT_ENVIRONMENT: join(venvRoot, name) }
+    }
+    const child = spawn('uv', cmdArgs, { cwd, env: childEnv })
 
     const timeout = setTimeout(() => {
       child.kill('SIGTERM')

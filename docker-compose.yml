@@ -14,11 +14,26 @@ services:
       - OPENAI_BASE_URL=${DOCKER_OPENAI_BASE_URL:-http://host.docker.internal:9070/v1}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-}
+      # PSE 框架目录（hot-news / resume-tailor 等工具依赖）挂载进容器并暴露给后端进程；
+      # 值必须与 volumes 里 /frameworks 的挂载点对应
+      - LLAMAINDEX_PSE_DIR=/frameworks/llamaindex-pse
+      - CREWAI_PSE_DIR=/frameworks/crewai-pse
+      - AUTOGEN_PSE_DIR=/frameworks/autogen-pse
+      - LANGGRAPH_PSE_DIR=/frameworks/langgraph-pse
+      # 容器内 uv run 的 venv 放容器私有目录（/opt/pse-venvs/<framework>），
+      # 避免 Linux .venv 写进共享挂载的框架目录（否则会覆盖宿主机 macOS .venv）。
+      # util-pse.ts 读取本变量并在 spawn uv 时注入 UV_PROJECT_ENVIRONMENT。
+      - PSE_UV_VENV_ROOT=/opt/pse-venvs
       - WEB_HOST=0.0.0.0
       - WORKSPACE_OUT=/app/workspace-analysis
     volumes:
       - ./workspace-analysis:/app/workspace-analysis
       - ./resolve-skills:/app/resolve-skills:ro
+      # PSE 框架根目录（宿主 individular-invest/frameworks），供 hot-news 等 Python 工具运行。
+      # 需可写：hot-news-fetch 会把新闻快照写回 tasks/hot-news/news/（与本地共享语料）
+      - ../../../frameworks:/frameworks
+      # 容器内 uv 虚拟环境独立存放（不经挂载写回宿主）
+      - pse-venvs:/opt/pse-venvs
       # 容器版 MCP 配置：只含容器内可运行的 server（fs/fetch/git/memory/think），
       # serena/pse-review 依赖宿主机工具链（uv/serena 仓库/autogen-pse），容器未启用。
       # 容器内通过 POST /api/mcp 添加的 server 会写回本文件（与本地 .data 相互独立）。
@@ -40,3 +55,6 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  pse-venvs:
