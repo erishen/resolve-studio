@@ -1,0 +1,37 @@
+[
+  {
+    "id": "fs",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/app", "/app/workspace-analysis"],
+    "approval": false
+  },
+  {
+    "id": "fetch",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@kazuph/mcp-fetch"],
+    "approval": false
+  },
+  {
+    "id": "git",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@cyanheads/git-mcp-server"],
+    "approval": true
+  },
+  {
+    "id": "memory",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-memory"],
+    "approval": false
+  },
+  {
+    "id": "think",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "mcp-sequentialthinking-tools"],
+    "approval": false
+  }
+]
