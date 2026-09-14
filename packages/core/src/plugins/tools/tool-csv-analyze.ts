@@ -5,6 +5,7 @@ import { access, copyFile, mkdir, readFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
+import { uvEnvFor } from './util-pse.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
@@ -85,7 +86,7 @@ const registerCsvAnalyze = (ctx: Context) => {
           cwd: dir ?? undefined,
           timeout: STEP_TIMEOUT_MS,
           maxBuffer: STEP_MAX_BUFFER,
-          env: process.env,
+          env: uvEnvFor(dir ?? '', process.env),
         })
         const combinedOutput = `${stdout}\n${stderr}`
         const notable = combinedOutput

@@ -28,9 +28,10 @@ FROM node:22-alpine AS runtime
 WORKDIR /app
 
 # git 供 MCP git server（@cyanheads/git-mcp-server）在容器内调用；
-# python3 + uv 供 PSE 工具（hot-news-* / resume-tailor 等）执行框架内 Python 脚本。
+# python3 + uv 供 PSE 工具（hot-news-* / resume-tailor 等）执行框架内 Python 脚本；
+# make/curl 供 crewai-publish / dev-stats / wp-publish / portfolio-check 等工具调用。
 # alpine 的 pip 受 PEP 668 保护，需 --break-system-packages 才能全局安装 uv
-RUN apk add --no-cache git python3 py3-pip && \
+RUN apk add --no-cache git python3 py3-pip make curl && \
     corepack enable && corepack prepare pnpm@9 --activate && \
     pip install --no-cache-dir --break-system-packages uv && \
     ln -s /usr/bin/uv /usr/local/bin/uv || true
