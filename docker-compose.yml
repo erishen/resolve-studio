@@ -39,6 +39,13 @@ services:
       # 避免 Linux .venv 写进共享挂载的框架目录（否则会覆盖宿主机 macOS .venv）。
       # util-pse.ts 读取本变量并在 spawn uv 时注入 UV_PROJECT_ENVIRONMENT。
       - PSE_UV_VENV_ROOT=/opt/pse-venvs
+      # llamaindex-pse 框架 .env 默认 OLLAMA_BASE_URL=http://localhost:11434（宿主）；
+      # 容器内 127.0.0.1 指向容器自身，需覆盖为 host.docker.internal 访问宿主 ollama。
+      # load_dotenv 默认不覆盖已有环境变量，此处优先级高于框架 .env。
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      # 同上：框架 .env 的 FREE_BASE_URL=http://localhost:9070/v1 是给宿主 make dev 用的；
+      # 容器内需指向宿主 llm-router（tsm-hub），否则 hot-news free provider 连不上。
+      - FREE_BASE_URL=http://host.docker.internal:9070/v1
       - WEB_HOST=0.0.0.0
       - WORKSPACE_OUT=/app/workspace-analysis
     volumes:

@@ -159,6 +159,9 @@ const registerHotNews = (ctx: Context, _config: HotNewsConfig = {}) => {
         framework: 'llamaindex',
         task: 'hot-news',
         args: cmdArgs,
+        // run.py 仅依赖 nest_asyncio（容器 venv 已预装）+ LLM 网关网络调用；
+        // noSync 避免容器内触发 llama-index/playwright 重量依赖同步。
+        noSync: true,
         timeoutMs: RUN_TIMEOUT_MS,
         onProgress,
         logger: (msg, ...a) => ctx.logger('hot-news').info(msg, ...a),

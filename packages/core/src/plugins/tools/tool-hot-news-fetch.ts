@@ -112,6 +112,10 @@ const registerHotNewsFetch = (ctx: Context, _config: Record<string, never> = {})
         script: join(hotNewsDir(), 'fetch_news.py'),
         cwd: hotNewsDir(),
         args: cmdArgs,
+        // fetch_news.py 只依赖标准库 + 同目录 compliance/news_digest 本地模块；
+        // noSync 避免容器内 uv run 同步 llama-index/playwright 等重量依赖
+        // （playwright 在 linux-musl-aarch64 无 wheel，会导致工具直接失败）。
+        noSync: true,
         onProgress: execCtx?.onProgress,
         logger: (msg, ...a) => ctx.logger('hot-news-fetch').info(msg, ...a),
       })

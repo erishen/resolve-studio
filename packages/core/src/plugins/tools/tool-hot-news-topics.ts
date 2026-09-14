@@ -55,6 +55,9 @@ const registerHotNewsTopics = (ctx: Context, _config: Record<string, never> = {}
         script: join(hotNewsDir(), 'run.py'),
         cwd: hotNewsDir(),
         args: ['--list-topics', `--news-dir=${dir}`],
+        // run.py 仅依赖 nest_asyncio（已在容器 venv 预装）+ 本地 compliance 模块；
+        // noSync 避免容器内触发 llama-index/playwright 重量依赖同步。
+        noSync: true,
         onProgress: execCtx?.onProgress,
         logger: (msg, ...a) => ctx.logger('hot-news-topics').info(msg, ...a),
       })

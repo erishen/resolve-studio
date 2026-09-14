@@ -85,6 +85,9 @@ const registerHotNewsCheck = (ctx: Context, _config: Record<string, never> = {})
         cwd: hotNewsDir(),
         args: runArgs,
         env,
+        // check 是离线解析校验（stdlib + 本地 compliance/common 模块）；
+        // noSync 避免容器内 uv run 同步 llama-index/playwright 重量依赖。
+        noSync: true,
         onProgress: execCtx?.onProgress,
         logger: (msg, ...a) => ctx.logger('hot-news-check').info(msg, ...a),
       })
