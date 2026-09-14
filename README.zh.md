@@ -263,7 +263,7 @@ dev-stats（掘金/思否文章数据 · CI 巡检 · 仓库统计）
 - **EditorConfig**：统一缩进/换行/编码
 - **CI**（GitHub Actions）：`.github/workflows/ci.yml`，push/PR 自动跑 typecheck + test + build + lint + format-check；`secret-scan` job 跑 [gitleaks](https://github.com/gitleaks/gitleaks)（配置 `.gitleaks.toml`），SARIF 报告上传到 Security 面板
 - **密钥扫描**：`make secret-scan` 本机全量扫描；`make hook-init` 启用 pre-commit 钩子（`.githooks/pre-commit`），提交前用 `gitleaks protect --staged` 拦截暂存区密钥
-- **Docker**：多阶段构建后端镜像，`docker-compose.yml` 起后端 + nginx 前端（`/api` 反代到后端，SSE 支持）
+- **Docker**：多阶段构建后端镜像，`docker-compose.yml` 起后端 + nginx 前端（`/api` 反代到后端，SSE 支持）。运行阶段刻意用 Debian(glibc) 而非 Alpine(musl)：PSE 工具要在容器里跑 `uv run`，而不少 PyPI 包只发 manylinux wheel——典型如 crewai 经 chromadb 依赖的 `onnxruntime`，musl 基底根本装不上。构建阶段仍留在 Alpine（只跑 pnpm，不碰 Python）。
 
 ```bash
 # 本地一键起容器

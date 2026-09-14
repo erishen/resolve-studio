@@ -3,6 +3,7 @@ import { promisify } from 'node:util'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
+import { uvEnvFor } from './util-pse.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -61,6 +62,12 @@ const registerCrewAiDiscover = (ctx: Context) => {
           cwd: CREWAI_PSE,
           timeout: TASK_TIMEOUT_MS,
           maxBuffer: 8 << 20,
+          // `make discover` 内部是 `uv run python …`：容器模式下必须把 uv 的
+          // venv 重定向到容器私有目录（uvEnvFor 读 PSE_UV_VENV_ROOT），否则 uv
+          // 会把 Linux venv 直接建到共享挂载的框架目录里，删掉并覆盖宿主机
+          // macOS 的 .venv（2026-09-14 实际发生过：宿主 crewai-pse/.venv 被换
+          // 成 uv 0.12.13 / CPython 3.14.7 的 musl venv）。
+          env: uvEnvFor(CREWAI_PSE),
         })
         const combined = (stdout || '') + (stderr ? '\n--- stderr ---\n' + stderr : '')
         onProgress?.(combined)
