@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
+import { uvEnvFor } from './util-pse.js'
 import type { Tool } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
@@ -105,7 +106,7 @@ const registerProductAnalyze = (ctx: Context) => {
           cwd: PRODUCT_ANALYST,
           timeout: STEP_TIMEOUT_MS,
           maxBuffer: STEP_MAX_BUFFER,
-          env: process.env,
+          env: uvEnvFor(PRODUCT_ANALYST, process.env),
         })
         const notable = `${stdout}\n${stderr}`
           .split('\n')

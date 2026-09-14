@@ -202,6 +202,28 @@ interface SpawnCaptureOptions {
 }
 
 /** Shared `uv run python` child process: spawn, SIGTERM→SIGKILL timeout, capped output. */
+
+/**
+ * 为一次 uv 子进程计算环境变量。容器场景（Docker）下，PSE_UV_VENV_ROOT 设置时，
+ * 把该项目的 uv venv 隔离到容器私有目录（/opt/pse-venvs/<项目名>），避免 Linux
+ * .venv 写进共享挂载的宿主目录（否则会覆盖宿主机 macOS .venv，破坏本地 uv 环境）。
+ * 本地（未设置 PSE_UV_VENV_ROOT）原样返回 baseEnv，行为不变。
+ *
+ * 项目名从 cwd 推断：优先取 /frameworks/<name>/ 段，其次取挂载仓库根下
+ * /workspace/<...>/<app>/ 的最后一段（invest-kit 等分析项目），兜底 'default'。
+ * 供 util-pse 的 spawnCapture 与直接调 uv 的工具（csv-analyze / product-analyze）共用。
+ */
+export function uvEnvFor(cwd: string, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const venvRoot = process.env.PSE_UV_VENV_ROOT
+  if (!venvRoot || baseEnv.UV_PROJECT_ENVIRONMENT) return baseEnv
+  let name = 'default'
+  const fw = cwd.match(/\/frameworks\/([^/]+)\//)
+  const app = cwd.match(/\/workspace\/[^/]+\/(?:apps\/)?([^/]+)(?:\/|$)/)
+  if (fw) name = fw[1]
+  else if (app) name = app[1]
+  return { ...baseEnv, UV_PROJECT_ENVIRONMENT: join(venvRoot, name) }
+}
+
 async function spawnCapture(
   opts: SpawnCaptureOptions,
 ): Promise<{ ok: true; stdout: string; stderr: string } | { ok: false; error: string }> {
@@ -210,18 +232,7 @@ async function spawnCapture(
   let stdout = ''
   let stderr = ''
   try {
-    // 容器场景（Docker）：PSE_UV_VENV_ROOT 设置时，把每个框架的 uv venv 隔离到
-    // 容器私有目录（/opt/pse-venvs/<framework>），避免 Linux .venv 写进共享挂载的
-    // 框架目录 —— 否则会覆盖宿主机 macOS .venv，破坏本地 uv 环境。
-    // 本地（未设置 PSE_UV_VENV_ROOT）行为不变：用框架自带的 .venv。
-    let childEnv = env
-    const venvRoot = process.env.PSE_UV_VENV_ROOT
-    if (venvRoot && !env.UV_PROJECT_ENVIRONMENT) {
-      const m = cwd.match(/\/frameworks\/([^/]+)\//)
-      const name = m ? m[1] : 'default'
-      childEnv = { ...env, UV_PROJECT_ENVIRONMENT: join(venvRoot, name) }
-    }
-    const child = spawn('uv', cmdArgs, { cwd, env: childEnv })
+    const child = spawn('uv', cmdArgs, { cwd, env: uvEnvFor(cwd, env) })
 
     const timeout = setTimeout(() => {
       child.kill('SIGTERM')

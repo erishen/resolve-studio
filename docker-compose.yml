@@ -14,12 +14,27 @@ services:
       - OPENAI_BASE_URL=${DOCKER_OPENAI_BASE_URL:-http://host.docker.internal:9070/v1}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-}
-      # PSE 框架目录（hot-news / resume-tailor 等工具依赖）挂载进容器并暴露给后端进程；
-      # 值必须与 volumes 里 /frameworks 的挂载点对应
-      - LLAMAINDEX_PSE_DIR=/frameworks/llamaindex-pse
-      - CREWAI_PSE_DIR=/frameworks/crewai-pse
-      - AUTOGEN_PSE_DIR=/frameworks/autogen-pse
-      - LANGGRAPH_PSE_DIR=/frameworks/langgraph-pse
+      # ---- PSE 框架目录（hot-news / resume-tailor 等）----
+      # 值必须与 volumes 里 /workspace 的挂载点对应（宿主仓库根 individular-invest/）
+      - LLAMAINDEX_PSE_DIR=/workspace/frameworks/llamaindex-pse
+      - CREWAI_PSE_DIR=/workspace/frameworks/crewai-pse
+      - AUTOGEN_PSE_DIR=/workspace/frameworks/autogen-pse
+      - LANGGRAPH_PSE_DIR=/workspace/frameworks/langgraph-pse
+      - WORDPRESS_TOOLS_DIR=/workspace/personal/personal-site/wordpress-tools
+      - ASSET_LENS_DIR=/workspace/invest-kit/apps/asset-lens
+      - LANGGRAPH_CSV_ANALYST_DIR=/workspace/invest-kit/apps/langgraph-csv-analyst
+      - PRODUCT_ANALYST_DIR=/workspace/invest-kit/apps/crewai-product-analyst
+      - STOCK_ANALYZER_DIR=/workspace/invest-kit/apps/stock-analyzer
+      - MARKDOWN_LIBRARY_DIR=/workspace/work/rust/markdown-library
+      - PHOTO_LIBRARY_DIR=/workspace/work/rust/photo-library
+      - VIDEO_LIBRARY_DIR=/workspace/work/rust/video-library
+      - DEV_STATS_DIR=/workspace/work/python/dev-stats
+      - PRIVACY_AUDIT_DIR=/workspace/tools/privacy/privacy_audit.py
+      - WORKSPACE_ROOT=/workspace
+      # library 服务跑在宿主机，容器内 127.0.0.1 指向容器自身，需走 host.docker.internal
+      - MARKDOWN_LIBRARY_URL=http://host.docker.internal:3100
+      - PHOTO_LIBRARY_URL=http://host.docker.internal:3100
+      - VIDEO_LIBRARY_URL=http://host.docker.internal:3200
       # 容器内 uv run 的 venv 放容器私有目录（/opt/pse-venvs/<framework>），
       # 避免 Linux .venv 写进共享挂载的框架目录（否则会覆盖宿主机 macOS .venv）。
       # util-pse.ts 读取本变量并在 spawn uv 时注入 UV_PROJECT_ENVIRONMENT。
@@ -29,9 +44,10 @@ services:
     volumes:
       - ./workspace-analysis:/app/workspace-analysis
       - ./resolve-skills:/app/resolve-skills:ro
-      # PSE 框架根目录（宿主 individular-invest/frameworks），供 hot-news 等 Python 工具运行。
-      # 需可写：hot-news-fetch 会把新闻快照写回 tasks/hot-news/news/（与本地共享语料）
-      - ../../../frameworks:/frameworks
+      # 宿主仓库根（individular-invest/）整棵挂载进容器：PSE 框架、invest-kit、work、
+      # tools、personal 等所有 *_DIR 工具依赖都在这棵树下。可写：hot-news-fetch 等
+      # 会把快照写回 tasks/hot-news/news/（与本地共享语料）
+      - ../../../:/workspace
       # 容器内 uv 虚拟环境独立存放（不经挂载写回宿主）
       - pse-venvs:/opt/pse-venvs
       # 容器版 MCP 配置：只含容器内可运行的 server（fs/fetch/git/memory/think），
