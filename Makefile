@@ -57,7 +57,8 @@ WEB_MATCH     := vite[.]js --host 127.0.0.1 --port $(WEB_PORT)
 .PHONY: all install typecheck test check build build-web \
         chat chat-real dev dev-mock dev-bg dev-bg-mock dev-bg-stop dev-bg-status dev-bg-restart \
         stop clean help new-plugin manifests \
-        lint lint-fix format format-check docker-build docker-up docker-down logs \
+        lint lint-fix format format-check docker-build docker-up docker-down docker-stop \
+        docker-restart docker-ps docker-logs docker-logs-backend docker-shell docker-clean logs \
         secret-scan hook-init publish publish-dry release
 
 all: install
@@ -288,14 +289,35 @@ release:            ## 三包版本自增(patch/minor/major)并发布：make rel
 	pnpm install
 	@$(MAKE) publish OTP=$(OTP)
 
-docker-build:      ## 构建 Docker 镜像
+docker-build:      ## 构建 Docker 镜像（后端+前端）
 	docker compose build
 
-docker-up:         ## 启动 Docker 容器（后端+前端）
+docker-up:         ## 启动 Docker 容器（后端+前端，后台）
 	docker compose up -d
 
-docker-down:       ## 停止 Docker 容器
+docker-down:       ## 停止并移除 Docker 容器
 	docker compose down
+
+docker-stop:       ## 停止 Docker 容器（保留容器与数据，可 docker-up 再启动）
+	docker compose stop
+
+docker-restart:    ## 重启 Docker 容器（docker compose restart）
+	docker compose restart
+
+docker-ps:         ## 查看 Docker 容器运行状态
+	docker compose ps
+
+docker-logs:       ## 跟踪查看后端+前端容器日志
+	docker compose logs -f --tail=100
+
+docker-logs-backend: ## 只看后端容器日志
+	docker compose logs -f --tail=100 backend
+
+docker-shell:      ## 进入后端容器交互 shell（exit 退出）
+	docker compose exec backend sh
+
+docker-clean:      ## 停止并移除容器 + 删除本地镜像（保留 .data 卷与 workspace-analysis）
+	docker compose down --rmi local
 
 help:              ## 显示本帮助
 	@echo "可用目标（make <目标>）："
