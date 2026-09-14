@@ -268,7 +268,7 @@ See [docs/plugin-authoring.md](docs/plugin-authoring.md) for a step-by-step guid
 
 ```bash
 # bring up containers locally in one step
-make docker-up        # backend :8787 + frontend :18080
+make docker-up        # backend :18787 + frontend :18080
 make docker-down
 ```
 
