@@ -264,7 +264,7 @@ See [docs/plugin-authoring.md](docs/plugin-authoring.md) for a step-by-step guid
 - **EditorConfig**: unified indentation / line endings / encoding
 - **CI** (GitHub Actions): `.github/workflows/ci.yml` runs typecheck + test + build + lint + format-check on every push/PR; a `secret-scan` job runs [gitleaks](https://github.com/gitleaks/gitleaks) (config `.gitleaks.toml`) and uploads the SARIF report to the Security tab
 - **Secret scanning**: `make secret-scan` scans the whole repo locally; `make hook-init` enables a pre-commit hook (`.githooks/pre-commit`) that blocks staged secrets via `gitleaks protect --staged`
-- **Docker**: multi-stage backend image build; `docker-compose.yml` brings up backend + nginx frontend (`/api` reverse-proxied to the backend, with SSE support)
+- **Docker**: multi-stage backend image build; `docker-compose.yml` brings up backend + nginx frontend (`/api` reverse-proxied to the backend, with SSE support). The runtime stage is Debian-based (glibc) rather than Alpine on purpose: the PSE tools run `uv run` inside the container, and several PyPI packages ship only manylinux wheels — notably `onnxruntime`, which crewai pulls in via chromadb, so a musl base cannot install them at all. The build stage stays on Alpine (pnpm only, no Python).
 
 ```bash
 # bring up containers locally in one step

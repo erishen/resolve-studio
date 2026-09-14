@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext, ToolParameter } from '../../types.js'
+import { uvEnvFor } from './util-pse.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -218,6 +219,11 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef) {
               cwd: CREWAI_PSE,
               timeout: 60_000,
               maxBuffer: 4 << 20,
+              // crewai-pse 的 Makefile 用 `uv run python`：容器模式下必须用
+              // uvEnvFor 注入 UV_PROJECT_ENVIRONMENT，把 venv 关进容器私有目录，
+              // 否则 uv 会把 Linux venv 建到共享挂载的框架目录、覆盖宿主机
+              // macOS 的 .venv（2026-09-14 实际发生过）。本地运行时行为不变。
+              env: uvEnvFor(CREWAI_PSE),
             })
             onProgress?.((v.stdout || '') + (v.stderr ? '\n' + v.stderr : ''))
             validated = true
@@ -248,6 +254,8 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef) {
             cwd: CREWAI_PSE,
             timeout: 60_000,
             maxBuffer: 4 << 20,
+            // 同上：把 uv venv 关进容器私有目录，避免覆盖宿主 .venv。
+            env: uvEnvFor(CREWAI_PSE),
           })
           const vout = (v.stdout || '') + (v.stderr ? '\n' + v.stderr : '')
           onProgress?.(vout)
@@ -273,6 +281,8 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef) {
           cwd: CREWAI_PSE,
           timeout: TASK_TIMEOUT_MS,
           maxBuffer: 4 << 20,
+          // 同上：publish/archive 也是 `uv run python`，venv 必须留在容器内。
+          env: uvEnvFor(CREWAI_PSE),
         })
         const combined = (stdout || '') + (stderr ? '\n--- stderr ---\n' + stderr : '')
         onProgress?.(combined)
