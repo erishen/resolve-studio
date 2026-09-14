@@ -19,6 +19,10 @@ services:
     volumes:
       - ./workspace-analysis:/app/workspace-analysis
       - ./resolve-skills:/app/resolve-skills:ro
+      # 容器版 MCP 配置：只含容器内可运行的 server（fs/fetch/git/memory/think），
+      # serena/pse-review 依赖宿主机工具链（uv/serena 仓库/autogen-pse），容器未启用。
+      # 容器内通过 POST /api/mcp 添加的 server 会写回本文件（与本地 .data 相互独立）。
+      - ./docker/mcp-servers.json:/app/.data/mcp-servers.json
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8787/health']
@@ -29,7 +33,7 @@ services:
   frontend:
     image: nginx:alpine
     ports:
-      - '5173:80'
+      - '8080:80'
     volumes:
       - ./apps/web/dist:/usr/share/nginx/html:ro
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro

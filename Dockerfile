@@ -27,7 +27,8 @@ RUN pnpm -C packages/core run build
 FROM node:22-alpine AS runtime
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@9 --activate
+# git 供 MCP git server（@cyanheads/git-mcp-server）在容器内调用
+RUN apk add --no-cache git && corepack enable && corepack prepare pnpm@9 --activate
 
 ENV NODE_ENV=production
 ENV PORT=8787

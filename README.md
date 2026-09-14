@@ -268,9 +268,13 @@ See [docs/plugin-authoring.md](docs/plugin-authoring.md) for a step-by-step guid
 
 ```bash
 # bring up containers locally in one step
-make docker-up        # backend :8787 + frontend :5173
+make docker-up        # backend :8787 + frontend :8080
 make docker-down
 ```
+
+Docker 内置 5 个容器版 MCP server（fs/fetch/git/memory/think，见 `docker/mcp-servers.json`）；
+serena / pse-review 依赖宿主机工具链（uv、serena 仓库、autogen-pse），容器未启用。
+前端静态产物需先 `make build-web`（挂载 `apps/web/dist`）。
 
 ## Related Articles
 
