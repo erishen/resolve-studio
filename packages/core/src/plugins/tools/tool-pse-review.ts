@@ -139,6 +139,7 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
         args: [],
         env: runEnv,
         timeoutMs: PREPARE_TIMEOUT_MS,
+        noSync: true,
         logger: (msg, ...a) => ctx.logger('pse-review').info(msg, ...a),
       })
       if (!prep.ok) {
@@ -157,6 +158,7 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
         env: runEnv,
         timeoutMs: RUN_TIMEOUT_MS,
         maxOutput: RUN_MAX_OUTPUT,
+        noSync: true,
         logger: (msg, ...a) => ctx.logger('pse-review').info(msg, ...a),
       })
       if (!run.ok) {

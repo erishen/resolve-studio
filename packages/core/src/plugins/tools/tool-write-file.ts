@@ -27,10 +27,18 @@ const MAX_CONTENT = 256 * 1024
 const SANDBOX_DIR = 'sandbox'
 
 const registerWriteFile = (ctx: Context) => {
+  // Surface the *runtime-resolved* write sandbox so the agent stops guessing
+  // paths like /app/workspace/… that don't exist. Host and container each
+  // report their own actual roots.
+  const writableRoots = ctx.fsRoots.write
+  const sandboxNote = writableRoots.length
+    ? `\nSandbox (authoritative): absolute paths are ONLY accepted under these writable roots — ${writableRoots.join(', ')}. Anything else is blocked ("path escapes the allowed sandbox"); when that happens, write to a path under one of these roots or a relative sandbox/<task>/ path instead.`
+    : ''
   ctx.tools.register({
     name: 'write-file',
     description:
-      'Create or overwrite a file with the given content (creates parent directories as needed). Relative paths write to the current run workspace (or sandbox/<task>/ otherwise); use absolute paths to write elsewhere. Requires human approval.',
+      'Create or overwrite a file with the given content (creates parent directories as needed). Relative paths write to the current run workspace (or sandbox/<task>/ otherwise); use absolute paths to write elsewhere. Requires human approval.' +
+      sandboxNote,
     parameters: {
       type: 'object',
       properties: {

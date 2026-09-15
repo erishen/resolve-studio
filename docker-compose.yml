@@ -14,9 +14,14 @@ services:
       - OPENAI_BASE_URL=${DOCKER_OPENAI_BASE_URL:-http://host.docker.internal:9070/v1}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-}
+      # 有头浏览器（sf-pw-publish Playwright 脚本 headless:false）需要 DISPLAY；
+      # entrypoint 会在容器内起 Xvfb 兜底
+      - DISPLAY=:99
       # ---- PSE 框架目录（hot-news / resume-tailor 等）----
       # 值必须与 volumes 里 /workspace 的挂载点对应（宿主仓库根 individular-invest/）
       - LLAMAINDEX_PSE_DIR=/workspace/frameworks/llamaindex-pse
+      # write-file 沙箱额外放开的写目录：hot-news 生成/修订文章落盘处（共享语料）
+      - HOT_NEWS_TASKS_DIR=/workspace/frameworks/llamaindex-pse/tasks/hot-news
       - CREWAI_PSE_DIR=/workspace/frameworks/crewai-pse
       - AUTOGEN_PSE_DIR=/workspace/frameworks/autogen-pse
       - LANGGRAPH_PSE_DIR=/workspace/frameworks/langgraph-pse
@@ -46,8 +51,21 @@ services:
       # 同上：框架 .env 的 FREE_BASE_URL=http://localhost:9070/v1 是给宿主 make dev 用的；
       # 容器内需指向宿主 llm-router（tsm-hub），否则 hot-news free provider 连不上。
       - FREE_BASE_URL=http://host.docker.internal:9070/v1
+      # 框架 .env 里 FREE_KEY 有的是宿主时代的旧 key（langgraph 甚至是 agnes hub key），
+      # 容器统一复用宿主网关 key（与 OPENAI_API_KEY 同源，sk-tr-…），load_dotenv 不覆盖。
+      - FREE_KEY=${FREE_KEY:-${OPENAI_API_KEY:-}}
+      # PSE_ROOT 决定任务读取 work/docs 等目录的基准；框架 .env 存的是宿主 macOS 路径，
+      # 容器内必须指向挂载根 /workspace。
+      - PSE_ROOT=${PSE_ROOT:-/workspace}
       - WEB_HOST=0.0.0.0
       - WORKSPACE_OUT=/app/workspace-analysis
+      # dev-stats 无 gh 登录 / GITHUB_TOKEN 时代的默认 GitHub 用户名；可整体改为
+      # DEV_STATS_USER=<你的账号>，前提是把 token 也注入容器（否则 public 指标可查）。
+      - DEV_STATS_USER=${DEV_STATS_USER:-erishen}
+      # dev-stats 匿名调用 GitHub API 会被限流（60 次/时，够扫一两次 CI 就 429）；
+      # 需要更高配额就把 token 写进宿主 .env（gitignored），自动透传进容器。
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GH_TOKEN=${GH_TOKEN:-}
     volumes:
       - ./workspace-analysis:/app/workspace-analysis
       - ./resolve-skills:/app/resolve-skills:ro
@@ -57,6 +75,9 @@ services:
       - ../../../:/workspace
       # 容器内 uv 虚拟环境独立存放（不经挂载写回宿主）
       - pse-venvs:/opt/pse-venvs
+      # uv 下载缓存持久化：容器重建（--build）会清空可写层，否则每次都得重新
+      # 拉取 nvidia-cusparselt(210MB) 等重量 wheel。
+      - uv-cache:/root/.cache/uv
       # 容器版 MCP 配置：只含容器内可运行的 server（fs/fetch/git/memory/think），
       # serena/pse-review 依赖宿主机工具链（uv/serena 仓库/autogen-pse），容器未启用。
       # 容器内通过 POST /api/mcp 添加的 server 会写回本文件（与本地 .data 相互独立）。
@@ -81,3 +102,4 @@ services:
 
 volumes:
   pse-venvs:
+  uv-cache:

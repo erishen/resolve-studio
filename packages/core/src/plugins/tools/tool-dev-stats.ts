@@ -114,7 +114,22 @@ const registerDevStats = (ctx: Context) => {
       if (!TARGETS.includes(target)) {
         return `error: 未知目标 "${target}"，可用目标：${TARGETS.join(' / ')}。`
       }
-      const rawArgs = (args.args as string | undefined)?.trim()
+      let rawArgs = (args.args as string | undefined)?.trim() ?? ''
+      // 容器内没有 gh 登录 / GITHUB_TOKEN / GH_TOKEN 时，dev-stats 必须显式给 --user，
+      // 否则直接"未指定 --user，且未检测到登录态"退出。仅当调用方已显式指定身份
+      // （--user/--token）或存在 token 环境变量时才不加；内容平台子命令（juejin/
+      // segmentfault/report）用户标识语义不同，也不加。
+      const needsIdentity =
+        target !== 'juejin' &&
+        target !== 'segmentfault' &&
+        target !== 'report' &&
+        !/\b--user\b|\b--token\b/.test(rawArgs) &&
+        !process.env.GITHUB_TOKEN &&
+        !process.env.GH_TOKEN
+      if (needsIdentity) {
+        const defaultUser = process.env.DEV_STATS_USER ?? 'erishen'
+        rawArgs = `${rawArgs} --user ${defaultUser}`.trim()
+      }
       const makeArgs: string[] = [target]
       if (rawArgs) makeArgs.push(`ARGS=${rawArgs}`)
 

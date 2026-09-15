@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 interface ToolCallCardProps {
   name: string
@@ -40,6 +40,26 @@ function renderArgs(args: string | Record<string, unknown>): string {
   } catch {
     return String(args)
   }
+}
+
+/** Live stopwatch for pending tool cards so long runs don't look frozen. */
+function useElapsedMs(active: boolean): number {
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (!active) return
+    const start = Date.now()
+    setElapsed(0)
+    const timer = window.setInterval(() => setElapsed(Date.now() - start), 1000)
+    return () => window.clearInterval(timer)
+  }, [active])
+  return elapsed
+}
+
+function formatElapsed(ms: number): string {
+  const total = Math.floor(ms / 1000)
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return m > 0 ? `${m}m${String(s).padStart(2, '0')}s` : `${s}s`
 }
 
 /** Turn URLs in plain text into clickable links (open in new tab). */
@@ -96,7 +116,7 @@ function screenshotUrl(result?: string): string | null {
 
 /**
  * Extract previewable .md file paths from a tool result.
- * Matches absolute paths under a known root (/Users|/home|/tmp|/var|/opt|/usr|/etc)
+ * Matches absolute paths under a known root (/workspace|/Users|/home|/tmp|/var|/opt|/usr|/etc)
  * and relative paths containing at least one "/" (e.g. sandbox/.../foo.md,
  * ./x.md, ../a/b.md) — the server resolves relatives against its cwd and serves
  * them if within fsRoots. URLs containing "://" are skipped. Keep in sync with
@@ -105,7 +125,7 @@ function screenshotUrl(result?: string): string | null {
 function extractMarkdownPaths(result?: string): string[] {
   if (!result) return []
   const paths = new Set<string>()
-  const re = /((?:\/(?:Users|home|tmp|var|opt|usr|etc)|[A-Za-z0-9_.-]+)\/[^\s'"<>]*\.md)/g
+  const re = /((?:\/(?:workspace|Users|home|tmp|var|opt|usr|etc)|[A-Za-z0-9_.-]+)\/[^\s'"<>]*\.md)/g
   let m
   while ((m = re.exec(result)) !== null) {
     const p = m[1]
@@ -155,6 +175,8 @@ export function ToolCallCard({
   retryDisabled,
 }: ToolCallCardProps) {
   const resolved = ok === undefined ? 'pending' : ok ? 'ok' : 'error'
+  const running = resolved === 'pending' && !awaitingApproval
+  const elapsedMs = useElapsedMs(running)
   const shot = screenshotUrl(result)
   const engineInfo = parseEngineInfo(result)
   const mdPaths = extractMarkdownPaths(result)
@@ -175,6 +197,7 @@ export function ToolCallCard({
           {gated ? ' ⚠' : ''}
         </span>
         <span className="tool-head-right">
+          {running && <span className="tool-duration">⏱ {formatElapsed(elapsedMs)}</span>}
           {durationLabel && <span className="tool-duration">{durationLabel}</span>}
           <span className={`tool-badge tool-badge-${resolved}`}>
             {awaitingApproval ? 'awaiting approval' : (decision ?? resolved)}

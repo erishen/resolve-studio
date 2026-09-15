@@ -144,6 +144,8 @@ const registerCrmTask = (ctx: Context, _config: CrmTaskConfig = {}) => {
         task,
         args: cmdArgs,
         timeoutMs: DEFAULT_RUN_TIMEOUT_MS,
+        // 依赖已预装在 /opt/pse-venvs 持久卷，禁止 uv 同步（避免重量 wheel 反复下载）。
+        noSync: true,
         onProgress,
         logger: (msg, ...a) => ctx.logger('crm-task').info(msg, ...a),
       })
