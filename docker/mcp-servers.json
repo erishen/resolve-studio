@@ -3,7 +3,13 @@
     "id": "fs",
     "transport": "stdio",
     "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/app", "/app/workspace-analysis"],
+    "args": [
+      "-y",
+      "@modelcontextprotocol/server-filesystem",
+      "/app",
+      "/app/workspace-analysis",
+      "/workspace/frameworks/llamaindex-pse/tasks/hot-news"
+    ],
     "approval": false
   },
   {

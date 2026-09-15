@@ -95,9 +95,15 @@ const LLM_MOCK = { id: 'llm', name: 'llm-mock', config: { tool: 'echo' } }
 // unset means the deployed model is whatever the operator configures.
 const LLM_OPENAI = { id: 'llm', name: 'llm-openai', config: { temperature: 0.7 } }
 
-// Interface variant — `cli` and `web` are mutually exclusive.
+// Interface variant — `cli` and `web` are mutually exclusive. The host stays
+// local-only by default; docked runs override it via WEB_HOST (docker-compose
+// sets WEB_HOST=0.0.0.0 so the nginx frontend container can reach the API).
 const CLI = { id: 'cli', name: 'cli-chat' }
-const WEB = { id: 'web', name: 'web-server', config: { host: '127.0.0.1', port: 8787 } }
+const WEB = {
+  id: 'web',
+  name: 'web-server',
+  config: { host: '${WEB_HOST:-127.0.0.1}', port: 8787 },
+}
 
 /**
  * Build one composition.
@@ -136,9 +142,22 @@ const VARIANTS = {
     // env reference resolved at load time from `.env` (gitignored), so the
     // absolute sibling path is NEVER committed; a checkout without CREWAI_PSE_DIR
     // set simply has no crewai-pse shell root.
+    //
+    // readRoots carries BOTH anchors because `.` differs by runtime:
+    //   - host `make dev`  cwd = repo → `../../..` = the invest workspace root
+    //   - docker container cwd = /app → `../../..` = '/' (would break every
+    //     containment check, so FsRootsService drops a bare '/')
+    // `${WORKSPACE_ROOT}` is the explicit absolute workspace root in both worlds
+    // (.env on host, docker-compose in the container); unset (fresh checkout)
+    // it stays a literal `${...}` and FsRootsService drops it.
     fs: {
-      readRoots: ['../../..'],
-      writeRoots: ['.'],
+      readRoots: ['${WORKSPACE_ROOT}', '../../..'],
+      // Writes stay pinned to this repo (cwd) by default; hot-news tasks dir
+      // alone is opened up so the agent's own write-file can append/finalize
+      // generated articles (shared语料, same place hot-news-fetch/publish write
+      // via the PSE subprocess anyway). Resolved from HOT_NEWS_TASKS_DIR at
+      // load time; a checkout without it set simply has no extra write root.
+      writeRoots: ['.', '${HOT_NEWS_TASKS_DIR}'],
       shellRoots: ['.', '${CREWAI_PSE_DIR}'],
     },
   }),

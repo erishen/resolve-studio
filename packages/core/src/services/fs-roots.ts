@@ -48,6 +48,35 @@ export interface FsRootsConfig {
   shellRoots?: string[]
 }
 
+/**
+ * Sanitize configured roots: strip entries that are useless or dangerous after
+ * resolution.
+ *  - Unexpanded `${ENV}` literals (a fresh checkout without the var set leaves
+ *    the literal in place) are not real paths and would break the picker.
+ *  - A bare filesystem root `/` is almost always an accident: a relative
+ *    `../../..` anchor resolves to `/` when the cwd sits one level above the
+ *    underlying mount point (e.g. container WORKDIR=/app with workspace at
+ *    /workspace). Kept as-is it defeats every containment check via
+ *    `startsWith(root + sep)` quirk, so drop it whenever a real root remains.
+ *  - Duplicates (host `.env` and the relative anchor resolving to the same
+ *    directory) only clutter the root view.
+ * A lone `/` is kept unchanged: dropping it would empty the sandbox, and
+ * nobody maps `readRoots: ['/']` deliberately.
+ */
+function sanitizeRoots(roots: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const r of roots) {
+    const abs = resolve(r)
+    if (abs.includes('${')) continue
+    if (abs === '/' && out.length > 0) continue
+    if (seen.has(abs)) continue
+    seen.add(abs)
+    out.push(abs)
+  }
+  return out
+}
+
 export class FsRootsService extends Service {
   readonly read: string[]
   readonly write: string[]
@@ -56,14 +85,10 @@ export class FsRootsService extends Service {
   constructor(ctx: Context, config: FsRootsConfig = {}) {
     super(ctx, 'fsRoots')
     this.read = config.readRoots?.length
-      ? config.readRoots.map((r) => resolve(r))
+      ? sanitizeRoots(config.readRoots)
       : resolveRoots({ extraRoots: envExtraRoots() })
-    this.write = config.writeRoots?.length
-      ? config.writeRoots.map((r) => resolve(r))
-      : resolveRoots()
-    this.shell = config.shellRoots?.length
-      ? config.shellRoots.map((r) => resolve(r))
-      : resolveRoots()
+    this.write = config.writeRoots?.length ? sanitizeRoots(config.writeRoots) : resolveRoots()
+    this.shell = config.shellRoots?.length ? sanitizeRoots(config.shellRoots) : resolveRoots()
     ctx
       .logger('fs-roots')
       .info('sandbox roots — read=%s | write=%s | shell=%s', this.read, this.write, this.shell)
