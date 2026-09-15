@@ -84,6 +84,9 @@ const registerResumeTailor = (ctx: Context, _config: ResumeTailorConfig = {}) =>
         task: 'resume-tailor',
         args: cmdArgs,
         timeoutMs: 600_000,
+        // 依赖已预装在 /opt/pse-venvs 持久卷，禁止 uv 同步（避免每次触发
+        // nvidia-cusparselt 等重量 wheel 下载）。
+        noSync: true,
         onProgress,
         logger: (msg, ...a) => ctx.logger('resume-tailor').info(msg, ...a),
       })

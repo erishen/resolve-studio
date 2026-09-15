@@ -244,6 +244,10 @@ export function uvEnvFor(cwd: string, baseEnv: NodeJS.ProcessEnv = process.env):
       // 本地环境无 /workspace 挂载，跳过注入
     }
   }
+  // Python 子进程接到管道时默认块缓冲，中间 print 会攒到退出才 flush——
+  // onProgress 因此在长任务期间拿不到任何输出，UI 看起来「卡死」。
+  // 开 unbuffered 让步骤日志实时流式进入工具卡片的 running… 面板。
+  env.PYTHONUNBUFFERED = '1'
   return env
 }
 

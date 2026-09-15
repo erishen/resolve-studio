@@ -12,7 +12,7 @@ import { previewLabel } from './preview'
  * Extract previewable .md file paths from message text.
  *
  * Matches two shapes so the web UI can offer a "preview" button:
- *  - absolute paths under a known root (/Users|/home|/tmp|/var|/opt|/usr|/etc)
+ *  - absolute paths under a known root (/workspace|/Users|/home|/tmp|/var|/opt|/usr|/etc)
  *  - relative paths containing at least one "/" (e.g. sandbox/.../foo.md,
  *    ./x.md, ../a/b.md) — the server resolves them against its cwd and serves
  *    them if within fsRoots.
@@ -23,7 +23,7 @@ import { previewLabel } from './preview'
  */
 function extractMarkdownPaths(text: string): string[] {
   const paths = new Set<string>()
-  const re = /((?:\/(?:Users|home|tmp|var|opt|usr|etc)|[A-Za-z0-9_.-]+)\/[^\s'"<>]*\.md)/g
+  const re = /((?:\/(?:workspace|Users|home|tmp|var|opt|usr|etc)|[A-Za-z0-9_.-]+)\/[^\s'"<>]*\.md)/g
   let m
   while ((m = re.exec(text)) !== null) {
     const p = m[1]

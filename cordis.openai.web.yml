@@ -4,9 +4,11 @@
 # approval unless a server opts out via its `approval` policy.
 fs:
   readRoots:
+    - ${WORKSPACE_ROOT}
     - ../../..
   writeRoots:
     - .
+    - ${HOT_NEWS_TASKS_DIR}
   shellRoots:
     - .
     - ${CREWAI_PSE_DIR}

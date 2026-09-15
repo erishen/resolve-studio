@@ -111,6 +111,8 @@ const registerInterviewQuestions = (ctx: Context, _config: InterviewQuestionsCon
         framework: 'langgraph',
         task: 'interview-questions',
         args: cmdArgs,
+        // 依赖已预装在 /opt/pse-venvs 持久卷，禁止 uv 同步（避免重量 wheel 反复下载）。
+        noSync: true,
         onProgress,
         logger: (msg, ...a) => ctx.logger('interview-questions').info(msg, ...a),
       })

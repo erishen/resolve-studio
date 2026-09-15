@@ -261,7 +261,7 @@ export class AgentService extends Service {
     // A per-run `options.pse` overrides the global `ctx.pse.enabled` flag, so
     // background jobs can force PSE on while interactive chat keeps it off.
     const pseActive = options.pse ?? this.ctx.pse?.enabled ?? false
-    const maxIterations = options.maxIterations ?? (pseActive ? 15 : 8)
+    const maxIterations = options.maxIterations ?? (pseActive ? 15 : 12)
     // A per-run include/exclude filter (see `AgentToolFilter`) prunes BOTH the
     // schema the LLM sees and the approval map below, so a filtered-out tool is
     // never advertised to the model nor approved. This is the main lever for
@@ -692,6 +692,42 @@ export class AgentService extends Service {
         }
         bus.emit('agent/done', { answer, failedToolCalls })
         return answer
+      }
+    }
+
+    // Iterations exhausted. If tools actually ran this far, all the work may
+    // already be done — the budget just ran out before the model's final
+    // summarizing turn. Rather than a bare "maximum iterations" notice, spend
+    // ONE extra tool-less turn to force a real final answer (bounded: no retry
+    // loop, failure falls through to the same visible fallback as before).
+    if (ranToolsThisRun) {
+      try {
+        const forced = await this.nextResponse(
+          [
+            ...messages,
+            {
+              role: 'user',
+              content:
+                '本轮迭代预算已用完，但前面的工具已经执行过（结果见上方 tool 消息）。' +
+                '这是最后一次机会：请不要再调用任何工具，直接基于已有执行结果给出最终中文总结——' +
+                '做了什么、关键结果（文件路径 / 篇数 / 校验结论）、以及建议的下一步。',
+            },
+          ],
+          {
+            model: options.model,
+            signal: options.signal,
+            bus,
+            sessionId: options.sessionId,
+          },
+        )
+        const forcedAnswer = (forced.content ?? '').trim()
+        if (forcedAnswer) {
+          this.ctx.logger('agent').warn('max iterations reached — force-generated final answer')
+          bus.emit('agent/done', { answer: forcedAnswer, failedToolCalls })
+          return forcedAnswer
+        }
+      } catch (err) {
+        this.ctx.logger('agent').warn('final summarization turn failed: %o', err)
       }
     }
 

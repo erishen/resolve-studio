@@ -18,13 +18,20 @@ import { definePlugin } from '../util.js'
 const MAX_BYTES = 64 * 1024
 
 const registerReadFile = (ctx: Context) => {
+  // Surface the *runtime-resolved* read sandbox so the agent uses real paths
+  // (host and container each report their own roots).
+  const readableRoots = ctx.fsRoots.read
+  const sandboxNote = readableRoots.length
+    ? `\nSandbox (authoritative): absolute paths are accepted under these read roots — ${readableRoots.join(', ')}. Paths outside (or non-existent like "/app/workspace/…") are blocked; check the target file path against these roots first.`
+    : ''
   ctx.tools.register({
     name: 'read-file',
     description:
       'Read a text file from disk and return its contents (up to 64 KiB per call). ' +
       'For large files, pass `offset` (byte position) and `limit` (bytes to read, max 65536) ' +
       'to read it in slices; the response reports the slice range and total size so you can ' +
-      'decide the next offset.',
+      'decide the next offset.' +
+      sandboxNote,
     parameters: {
       type: 'object',
       properties: {

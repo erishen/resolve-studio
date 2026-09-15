@@ -53,6 +53,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && python3 -m pip install --no-cache-dir --break-system-packages uv \
     && uv --version
 
+# ---- 浏览器（system Chrome + Xvfb 虚拟显示）----
+# browser-open/screenshot 与思否发布 sf-pw-publish 都用 playwright-core 驱动 channel:'chrome'，
+# 容器里没有宿主 Chrome，镜像内装真实 Google Chrome：官方 apt 源只发 amd64，arm64 需直接下 .deb。
+# Xvfb 提供虚拟显示：sf-pw-publish 脚本 headless:false，容器无真实显示器会导致 launch 直接失败。
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      xvfb fonts-liberation \
+    && curl -fsSL -o /tmp/google-chrome.deb \
+         https://dl.google.com/linux/direct/google-chrome-stable_current_arm64.deb \
+    && apt-get install -y --no-install-recommends /tmp/google-chrome.deb \
+    && rm -rf /tmp/google-chrome.deb /var/lib/apt/lists/*
+
 ENV NODE_ENV=production
 ENV PORT=8787
 ENV HOST=0.0.0.0
@@ -69,6 +80,13 @@ COPY --from=builder /app/packages/core/dist ./packages/core/dist
 COPY --from=builder /app/packages/plugin-pse/dist ./packages/plugin-pse/dist
 COPY cordis*.yml ./
 COPY resolve-skills ./resolve-skills
+COPY docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+# 有头浏览器（sf-pw-publish）需要 DISPLAY；entrypoint 里会起 Xvfb 兜底
+ENV DISPLAY=:99
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["docker-entrypoint.sh"]
 
 EXPOSE 8787
 
