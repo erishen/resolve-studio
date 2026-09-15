@@ -68,8 +68,7 @@ function expandEnv<T>(node: T): T {
     return node.replace(
       ENV_PATTERN,
       (_, name: string, def?: string) =>
-        (process.env[name] && process.env[name] !== '' ? process.env[name] : def) ??
-        `$${name}`,
+        (process.env[name] && process.env[name] !== '' ? process.env[name] : def) ?? `$${name}`,
     ) as unknown as T
   }
   if (Array.isArray(node)) return node.map((v) => expandEnv(v)) as unknown as T
