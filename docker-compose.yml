@@ -33,6 +33,16 @@ services:
       - AUTOGEN_PSE_DIR=/workspace/frameworks/autogen-pse
       - LANGGRAPH_PSE_DIR=/workspace/frameworks/langgraph-pse
       - WORDPRESS_TOOLS_DIR=/workspace/personal/personal-site/wordpress-tools
+      # crewai-pse 的 publish.py / archive.py 读的是另一个名字 WP_TOOLS_DIR；容器内不设
+      # 就会被 load_dotenv(crewai-pse/.env) 里的宿主路径顶上 → publish.py:371 直接打印
+      # 「请设置 WP_TOOLS_DIR 环境变量」并 exit 1。值必须与上面 WORDPRESS_TOOLS_DIR 一致
+      # （前者给 harness 的 TS 工具枚举文章，后者给 PSE 发布脚本；改一处记得同步另一处）。
+      - WP_TOOLS_DIR=/workspace/personal/personal-site/wordpress-tools
+      # PSE 发布链路强行走代理：publish.py 用 WP_PROXY（缺省回落到 HTTP(S)_PROXY 或写死的
+      # 127.0.0.1:7897）覆盖 node/axios 与本进程 urllib 的代理变量。容器内 127.0.0.1 是
+      # 容器自身（实测 ECONNREFUSED），宿主代理要从 host.docker.internal 进（实测 200）。
+      # crewai-pse 的 Makefile 用 `?=` 取该变量，所以这里注入的值优先于框架 .env。
+      - WP_PROXY=http://host.docker.internal:7897
       - ASSET_LENS_DIR=/workspace/invest-kit/apps/asset-lens
       - LANGGRAPH_CSV_ANALYST_DIR=/workspace/invest-kit/apps/langgraph-csv-analyst
       - PRODUCT_ANALYST_DIR=/workspace/invest-kit/apps/crewai-product-analyst
