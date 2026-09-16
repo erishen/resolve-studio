@@ -10,8 +10,9 @@ services:
       - PORT=8787
       - HOST=0.0.0.0
       # 容器内 127.0.0.1 指向容器自身，需用 host.docker.internal 访问宿主机 llm-router；
-      # .env 的 OPENAI_BASE_URL 是给宿主机 make dev 用的，容器用 DOCKER_OPENAI_BASE_URL 单独覆盖
-      - OPENAI_BASE_URL=${DOCKER_OPENAI_BASE_URL:-http://host.docker.internal:9070/v1}
+      # .env 的 OPENAI_BASE_URL 是给宿主机 make dev 用的，容器用 DOCKER_OPENAI_BASE_URL 单独覆盖。
+      # 注意：tsm-hub 现在跑在 docker（宿主只暴露 127.0.0.1:19070），所以这里指 19070 而非 9070。
+      - OPENAI_BASE_URL=${DOCKER_OPENAI_BASE_URL:-http://host.docker.internal:19070/v1}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-}
       # 有头浏览器（sf-pw-publish Playwright 脚本 headless:false）需要 DISPLAY；
@@ -49,8 +50,9 @@ services:
       # load_dotenv 默认不覆盖已有环境变量，此处优先级高于框架 .env。
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       # 同上：框架 .env 的 FREE_BASE_URL=http://localhost:9070/v1 是给宿主 make dev 用的；
-      # 容器内需指向宿主 llm-router（tsm-hub），否则 hot-news free provider 连不上。
-      - FREE_BASE_URL=http://host.docker.internal:9070/v1
+      # 容器内需指向宿主 llm-router（tsm-hub，docker 部署 → 宿主端口 19070），
+      # 否则 hot-news free provider 连不上。
+      - FREE_BASE_URL=http://host.docker.internal:19070/v1
       # 框架 .env 里 FREE_KEY 有的是宿主时代的旧 key（langgraph 甚至是 agnes hub key），
       # 容器统一复用宿主网关 key（与 OPENAI_API_KEY 同源，sk-tr-…），load_dotenv 不覆盖。
       - FREE_KEY=${FREE_KEY:-${OPENAI_API_KEY:-}}
