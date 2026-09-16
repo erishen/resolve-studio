@@ -59,6 +59,9 @@ services:
       - PSE_ROOT=${PSE_ROOT:-/workspace}
       - WEB_HOST=0.0.0.0
       - WORKSPACE_OUT=/app/workspace-analysis
+      # 工具拼「预览链接」用的宿主可达入口：nginx 前端宿主端口 18080（/api 反代到
+      # backend:8787）。默认 127.0.0.1:8787 是 make dev 的宿主直连端口，容器内不成立。
+      - DEV_STATS_PREVIEW_BASE_URL=${DEV_STATS_PREVIEW_BASE_URL:-http://127.0.0.1:18080}
       # dev-stats 无 gh 登录 / GITHUB_TOKEN 时代的默认 GitHub 用户名；可整体改为
       # DEV_STATS_USER=<你的账号>，前提是把 token 也注入容器（否则 public 指标可查）。
       - DEV_STATS_USER=${DEV_STATS_USER:-erishen}
