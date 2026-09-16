@@ -55,8 +55,13 @@ NODE_BIN=""
 if command -v node >/dev/null 2>&1; then
   NODE_BIN="$(command -v node)"
 else
+  # 顺序按「更可能装着 node」排；nvm 与 WorkBuddy 托管目录用 glob（glob 无匹配时保留字面量，
+  # 由 [ -x ] 挡掉，不会误判）。本机 node 就在 nvm 下，/opt/homebrew/bin/node 反而没有 —— 
+  # 所以这几条回退是**载荷路径**，删掉就会静默退化。
   for candidate in \
     /opt/homebrew/bin/node \
+    /opt/homebrew/opt/node/bin/node \
+    "$HOME"/.nvm/versions/node/*/bin/node \
     /usr/local/bin/node \
     "$HOME/.local/bin/node" \
     "$HOME"/.workbuddy/binaries/node/versions/*/bin/node
