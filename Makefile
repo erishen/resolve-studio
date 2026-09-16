@@ -255,9 +255,9 @@ secret-scan:       ## 本地全量密钥扫描（需 gitleaks）
 	@command -v gitleaks >/dev/null 2>&1 || { echo "gitleaks 未安装：brew install gitleaks"; exit 1; }
 	gitleaks detect --source=. --config=.gitleaks.toml --redact --no-banner
 
-hook-init:         ## 启用本地 pre-commit 密钥扫描钩子
+hook-init:         ## 启用本地 pre-commit 钩子（密钥扫描 + 格式检查）
 	git config core.hooksPath .githooks
-	@echo "已启用 .githooks/pre-commit（提交前自动扫描密钥）"
+	@echo "已启用 .githooks/pre-commit（提交前扫描暂存区密钥，并校验暂存文件格式）"
 
 # ---- 发布 ----
 

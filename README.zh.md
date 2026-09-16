@@ -262,7 +262,7 @@ dev-stats（掘金/思否文章数据 · CI 巡检 · 仓库统计）
 - **ESLint**（flat config）+ **Prettier**：`pnpm run lint` / `pnpm run format`，配置在根目录 `eslint.config.js` / `.prettierrc.json`
 - **EditorConfig**：统一缩进/换行/编码
 - **CI**（GitHub Actions）：`.github/workflows/ci.yml`，push/PR 自动跑 typecheck + test + build + lint + format-check；`secret-scan` job 跑 [gitleaks](https://github.com/gitleaks/gitleaks)（配置 `.gitleaks.toml`），SARIF 报告上传到 Security 面板
-- **密钥扫描**：`make secret-scan` 本机全量扫描；`make hook-init` 启用 pre-commit 钩子（`.githooks/pre-commit`），提交前用 `gitleaks protect --staged` 拦截暂存区密钥
+- **提交前闸门**：`make hook-init` 启用 pre-commit 钩子（`.githooks/pre-commit`），提交时守两道——`gitleaks protect --staged` 拦截暂存区密钥（缺 gitleaks 时跳过），`prettier --check --ignore-unknown` 校验暂存文件是否符合格式规则（缺 `node_modules/prettier` 时跳过）。跳过方式：`SKIP_PRETTIER_CHECK=1` 或 `--no-verify`。`make secret-scan` 则是对本机全量的按需扫描。钩子只存在于 `.githooks/`，新克隆的仓库需跑一次 `make hook-init`。
 - **Docker**：多阶段构建后端镜像，`docker-compose.yml` 起后端 + nginx 前端（`/api` 反代到后端，SSE 支持）。运行阶段刻意用 Debian(glibc) 而非 Alpine(musl)：PSE 工具要在容器里跑 `uv run`，而不少 PyPI 包只发 manylinux wheel——典型如 crewai 经 chromadb 依赖的 `onnxruntime`，musl 基底根本装不上。构建阶段仍留在 Alpine（只跑 pnpm，不碰 Python）。
 
 ```bash
