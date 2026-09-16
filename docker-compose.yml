@@ -24,6 +24,12 @@ services:
       # write-file 沙箱额外放开的写目录：hot-news 生成/修订文章落盘处（共享语料）
       - HOT_NEWS_TASKS_DIR=/workspace/frameworks/llamaindex-pse/tasks/hot-news
       - CREWAI_PSE_DIR=/workspace/frameworks/crewai-pse
+      # article-write 生成文章的输出根（{zh,en}/）。必须指向 /workspace 挂载点而非宿主
+      # 绝对路径：crewai-pse/.env 里的 ARTICLES_DIR 是宿主 macOS 绝对路径形态，在容器内
+      # 会解析到 OrbStack 临时视图（不绑定宿主），导致文章落到 ephemeral 层、宿主磁盘看不到，
+      # 且 Web UI 预览时路径过不了 fs-guard 读守卫。load_dotenv 默认不覆盖已有 env，此处的
+      # /workspace 形态优先级高于框架 .env。
+      - ARTICLES_DIR=/workspace/personal/personal-site/wordpress-tools/articles/pse
       - AUTOGEN_PSE_DIR=/workspace/frameworks/autogen-pse
       - LANGGRAPH_PSE_DIR=/workspace/frameworks/langgraph-pse
       - WORDPRESS_TOOLS_DIR=/workspace/personal/personal-site/wordpress-tools
@@ -59,6 +65,10 @@ services:
       # PSE_ROOT 决定任务读取 work/docs 等目录的基准；框架 .env 存的是宿主 macOS 路径，
       # 容器内必须指向挂载根 /workspace。
       - PSE_ROOT=${PSE_ROOT:-/workspace}
+      # 放开 fs-guard 只读根：article-write 生成的预览路径（/workspace/personal/.../pse/{zh,en}/*.md）
+      # 落在 /workspace 挂载树下，否则 Web UI 渲染预览时 assertWithin(read) 抛
+      # "path escapes the allowed sandbox"。仅放开读，写根仍限 /app。
+      - HARNESS_EXTRA_ROOTS=/workspace
       - WEB_HOST=0.0.0.0
       - WORKSPACE_OUT=/app/workspace-analysis
       # 工具拼「预览链接」用的宿主可达入口：nginx 前端宿主端口 18080（/api 反代到
