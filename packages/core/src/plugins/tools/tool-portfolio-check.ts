@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { readdir, readFile } from 'node:fs/promises'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
+import { uvEnvFor } from './util-pse.js'
 import type { Tool } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
@@ -64,9 +65,24 @@ const registerPortfolioCheck = (ctx: Context) => {
       if (!assetLens) {
         return 'error: ASSET_LENS_DIR is not set. Export it to the absolute path of the asset-lens project root (e.g. in .env).'
       }
-      const steps = ['calculate', 'analyze', 'compare']
+      // 容器里 asset-lens 的 uv venv 必须隔离到容器私有目录（PSE_UV_VENV_ROOT），
+      // 否则 make 的 `uv run --no-sync` 会在共享挂载的 .venv（宿主 macOS venv）
+      // 里重建空 venv——既覆盖宿主环境，又因 --no-sync 不装依赖导致 import 失败。
+      // 这里先把环境变量重定向好，并同步一次让依赖落到容器私有 venv。
+      const env = uvEnvFor(assetLens, process.env)
       const logs: string[] = [`数据目录：${assetLens}`, '']
 
+      // asset-lens Makefile 用 `uv run --no-sync`（跳过同步），首次容器私有 venv
+      // 还不存在时直接跑必然缺依赖。先显式 uv sync 预热，后续 make 复用已就绪 venv。
+      logs.push('🔄 uv sync（首次为 asset-lens 构建容器私有 venv）...')
+      try {
+        await execFileAsync('uv', ['sync'], { cwd: assetLens, timeout: STEP_TIMEOUT_MS, maxBuffer: STEP_MAX_BUFFER, env })
+      } catch (err) {
+        const e = err as { message?: string; stderr?: string; stdout?: string }
+        return `error: portfolio-check 在 uv sync 阶段失败 — ${truncate(e.stderr ?? e.stdout ?? e.message ?? String(err), 800)}`
+      }
+
+      const steps = ['calculate', 'analyze', 'compare']
       for (const step of steps) {
         logs.push(`🔄 make ${step} ...`)
         try {
@@ -74,7 +90,7 @@ const registerPortfolioCheck = (ctx: Context) => {
             cwd: assetLens,
             timeout: STEP_TIMEOUT_MS,
             maxBuffer: STEP_MAX_BUFFER,
-            env: process.env,
+            env,
           })
           const notable = `${stdout}\n${stderr}`
             .split('\n')

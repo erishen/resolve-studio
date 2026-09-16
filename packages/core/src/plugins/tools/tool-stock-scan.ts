@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
+import { uvEnvFor } from './util-pse.js'
 import type { Tool } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
@@ -56,7 +57,8 @@ const registerStockScan = (ctx: Context) => {
             cwd: stockAnalyzer,
             timeout: STEP_TIMEOUT_MS,
             maxBuffer: STEP_MAX_BUFFER,
-            env: process.env,
+            // 容器里把 venv 重定向到容器私有目录，避免在共享挂载重建覆盖宿主 macOS venv
+            env: uvEnvFor(stockAnalyzer, process.env),
           },
         )
         stdout = res.stdout
