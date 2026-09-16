@@ -3,7 +3,28 @@
 # 未安装 gitleaks 时优雅跳过（CI 仍会拦截），不阻断既有工作流。
 set -e
 
-if ! command -v gitleaks >/dev/null 2>&1; then
+# 解析 gitleaks 可执行文件。不能只靠 `command -v`：由 GUI / 沙箱启动的 shell
+# （WorkBuddy、编辑器内置终端等）常带精简 PATH，不含 /opt/homebrew/bin，会把已安装
+# 的 gitleaks 误判成「未安装」而静默跳过扫描 —— 本地防线形同虚设。
+# 故按 PATH → 常见安装位置依次回退。
+GITLEAKS_BIN=""
+if command -v gitleaks >/dev/null 2>&1; then
+  GITLEAKS_BIN="$(command -v gitleaks)"
+else
+  for candidate in \
+    /opt/homebrew/bin/gitleaks \
+    /usr/local/bin/gitleaks \
+    "$HOME/.local/bin/gitleaks" \
+    "$HOME/go/bin/gitleaks"
+  do
+    if [ -x "$candidate" ]; then
+      GITLEAKS_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+if [ -z "$GITLEAKS_BIN" ]; then
   echo "[secret-scan] 未检测到 gitleaks，跳过本地扫描（CI 仍会拦截）。"
   echo "[secret-scan] 安装：brew install gitleaks"
   exit 0
@@ -11,7 +32,7 @@ fi
 
 # gitleaks v8.30：staged 扫描用 `protect --staged`（detect 已无 --staged 旗标）。
 # --redact 避免密钥回显到终端。
-if ! gitleaks protect --staged --config=.gitleaks.toml --redact --no-banner; then
+if ! "$GITLEAKS_BIN" protect --staged --config=.gitleaks.toml --redact --no-banner; then
   echo "[secret-scan] 发现疑似密钥，已阻止提交。请检查上方输出后重试。"
   exit 1
 fi
