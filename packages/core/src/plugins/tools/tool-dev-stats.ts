@@ -1,8 +1,14 @@
 import { execFile } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
 import { promisify } from 'node:util'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import { HOST as WEB_HOST, PORT as WEB_PORT } from '../web-server.js'
+
+// 宿主浏览器可访问的前端/网关入口。默认 make dev（后端直连 127.0.0.1:8787）；
+// docker 部署里宿主监听的是 nginx 前端端口（18080，/api 反代到 backend:8787），
+// 由 docker-compose 注入，否则拼出来的 127.0.0.1:8787 在宿主无人监听、打不开。
+const PREVIEW_BASE_URL = process.env.DEV_STATS_PREVIEW_BASE_URL ?? `http://${WEB_HOST}:${WEB_PORT}`
 
 const execFileAsync = promisify(execFile)
 
@@ -38,6 +44,45 @@ function cleanOutput(raw: string): string {
     .trim()
 }
 
+/** Parse manifest-level stats.csv (name + traffic columns) without a dep. */
+function parseStatsCsv(path: string): Record<string, string>[] {
+  if (!existsSync(path)) return []
+  const raw = readFileSync(path, 'utf8')
+  const rows: string[][] = []
+  let fields: string[] = []
+  let cur: string[] = []
+  let inQ = false
+  let field = ''
+  const flushField = () => {
+    cur.push(field)
+    field = ''
+  }
+  const flushRow = () => {
+    if (cur.length === 0) return
+    if (!fields.length) fields = cur
+    else rows.push(cur)
+    cur = []
+  }
+  for (const ch of raw) {
+    if (inQ) {
+      if (ch === '"') inQ = false
+      else field += ch
+    } else if (ch === '"') {
+      inQ = true
+    } else if (ch === ',') {
+      flushField()
+    } else if (ch === '\n' || ch === '\r') {
+      flushField()
+      flushRow()
+    } else {
+      field += ch
+    }
+  }
+  flushField()
+  flushRow()
+  return rows.map((r) => Object.fromEntries(fields.map((f, i) => [f, r[i] ?? ''])))
+}
+
 /** 可暴露给 Agent 的 make 目标：全部只读查询或本地导出，不碰依赖与代码。 */
 const TARGETS = [
   'report',
@@ -63,11 +108,12 @@ const TARGET_DESCRIPTIONS: Record<Target, string> = {
     'CI 巡检（推荐）：只输出「CI 巡检小结」——失败仓库 + workflow + 失败步骤 + 报错注解，跳过流量采集与仓库大表，约 50 秒。' +
     '问「哪些仓库 CI 挂了」时优先用这个。',
   actions:
-    '巡检各仓库 CI 状态并附带完整仓库统计大表（--actions，默认排除 fork 与老仓噪音）。' +
+    '巡检各仓库 CI 状态并附带完整仓库统计大表（等价 make actions：--actions --no-forks --sort updated --exclude wildsKick,king-power,skeleton-ssr，默认排除 fork 与老仓噪音、按最近推送排序）。' +
     '注意：管道输出里表格的 CI 列会被挤没，只要「哪些挂了」的结论请改用 target=ci。',
-  csv: '导出仓库公开统计到 output/stats.csv（含详情/社区/活跃度，默认脱敏、不含 clone/views 流量）。只适合公开维度分析。',
+  csv: '导出仓库公开统计到 output/stats.csv（等价 make csv：--sort clones --detail --community --activity --no-traffic）。' +
+    '--no-traffic 不采 clone/views 流量所以快（约 1-2 分钟），同时生成 stats-preview.html；不含流量列，只适合公开维度分析，热度/clone 排名必须用 csv-traffic。',
   'csv-traffic':
-    '导出含 clone/views 流量的完整统计（= csv + --include-traffic，采集 60/104 仓库流量，约 4-5 分钟）。' +
+    '导出含 clone/views 流量的完整统计（等价 make csv-traffic：= csv 目标 + 流量采集 + --include-traffic，约 4-5 分钟）。' +
     '问「最近两周哪个仓库 clone 最多 / 热度最高 / 传播数据」时必须用这个——csv 目标不含流量列，拿它回答热度问题必然无数据或导致编造。',
   run: '透传运行 dev-stats CLI（等价 make run ARGS=...），用于上面的目标覆盖不到的参数组合。',
 }
@@ -83,6 +129,7 @@ const registerDevStats = (ctx: Context) => {
       '请勿用 shell 直接访问项目目录，所有查询一律走本工具；失败时先读返回的错误信息再决定动作，不要盲目重试。' +
       '导出 CSV 后不要再用 read-file / shell 读取该文件：它位于 dev-stats 项目目录内、已被 .gitignore、可能较大，且 read-file 的相对路径以 harness 工作区为基准、找不到它；直接基于本工具返回的导出结论汇报即可。' +
       '回答里提到预览 HTML 时，必须渲染成完整 URL 的 Markdown 链接方便一键打开：逐字引用工具结果里「预览链接：」后的完整地址（形如 http://127.0.0.1:<端口>/api/raw/stats-preview.html），如 [打开 CSV 预览](http://...)。链接必须以 http:// 开头且整条复制，不要自己改写或拼接路径——相对路径 /api/raw 在前端不可点击，即使本会话历史消息里有旧格式也不要模仿；拿不准就直接告诉用户「点击上方工具卡片中的预览按钮」。' +
+      '工具结果末尾附的【仓库热度排名】清单是标准化排名：仓库名/排位/数字一律以此清单为准——上面的 Rich 表格在窄终端会被拆成竖排字符、容易读错（如把 tsm-hub 读成 spring-m-hub），不要根据表格文字拼仓库名。' +
       '输出末尾自带「文章链接」清单（每篇的原文 URL）；回答涉及具体文章时，请把标题渲染成 Markdown 链接指向该 URL，方便直接跳转查看。' +
       '铁律：回答中的仓库名、排名、数值必须逐字取自本工具的实际输出，禁止编造、改写或「补充」任何仓库存在与数字；表格很长时只引用排名靠前的几行，宁少勿错。\n' +
       targetHelp,
@@ -167,8 +214,29 @@ const registerDevStats = (ctx: Context) => {
           // 短形态 /api/raw/<文件名>：按钮标签取 URL 最后一段，长形态
           // raw?path=%2F... 整段编码后撑破屏幕；短形态标签就是干净的文件名。
           const base = previewRel.split('/').pop() ?? ''
-          const shortUrl = `http://${WEB_HOST}:${WEB_PORT}/api/raw/${base}`
+          const shortUrl = `${PREVIEW_BASE_URL}/api/raw/${base}`
           body.push(`预览链接：${shortUrl}`)
+        }
+        // CLI 大表格在窄终端里会按字符拆列换行，模型读不准仓库名（曾把 tsm-hub
+        // 读成 spring-m-hub）。这里直接从 stats.csv 解析出一份不换行的干净排名，
+        // 仓库名/排位/数字一律以这份清单为准，别用上面的表格猜。
+        if (target === 'csv' || target === 'csv-traffic') {
+          const rows = parseStatsCsv(`${dir}/output/stats.csv`)
+          if (rows.length > 0) {
+            const byClone = [...rows]
+              .filter((r) => Number(r.cloners_14d ?? 0) > 0)
+              .sort((a, b) => Number(b.cloners_14d ?? 0) - Number(a.cloners_14d ?? 0))
+              .slice(0, 10)
+              .map((r) => `${r.name}（近14天独立clone ${r.cloners_14d ?? 0} / clone总 ${r.clones_total_14d ?? 0} / views ${r.views_total_14d ?? 0}）`)
+            if (byClone.length > 0) {
+              body.push('', '【仓库热度排名（按近14天独立clone数，来自 stats.csv，仓库名以此处为准）】')
+              byClone.forEach((line, i) => body.push(`${i + 1}. ${line}`))
+              body.push(
+                '⚠ 注意：仓库名一律以上方排名清单为准，不要自行编造、拼凑或凭记忆补全。' +
+                  '清单里没有出现的名字就是本次统计里没有的，宁可少写也不要写出来。'
+              )
+            }
+          }
         }
         return body.join('\n')
       } catch (err) {

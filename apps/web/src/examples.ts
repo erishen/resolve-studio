@@ -507,7 +507,30 @@ export function buildExamples(
         id: 'tool:dev-stats-csv',
         title: '导出仓库统计',
         prompt:
-          '用 dev-stats 工具（target=csv）把仓库 clone 统计导出成 CSV，再告诉我哪个仓库最近两周热度最高。',
+          '用 dev-stats 工具（target=csv）把仓库公开统计导出成 CSV，并生成 stats-preview.html 预览，告诉我仓库的社区/活跃度概况。',
+        category: 'devstats',
+        tool: 'dev-stats',
+      },
+      {
+        id: 'tool:dev-stats-csv-traffic',
+        title: '导出含流量完整统计',
+        prompt:
+          '用 dev-stats 工具（target=csv-traffic）导出含 clone/views 流量的完整统计，告诉我最近两周哪个仓库 clone 最多、热度最高。',
+        category: 'devstats',
+        tool: 'dev-stats',
+      },
+      {
+        id: 'tool:dev-stats-segmentfault',
+        title: '思否单平台数据',
+        prompt: '用 dev-stats 工具（target=segmentfault）查思否文章数据，按日均阅读排序取前 5 篇。',
+        category: 'devstats',
+        tool: 'dev-stats',
+      },
+      {
+        id: 'tool:dev-stats-actions',
+        title: '完整 CI 巡检大表',
+        prompt:
+          '用 dev-stats 工具（target=actions）巡检各仓库 CI 状态并输出完整仓库统计大表，按最近推送排序。',
         category: 'devstats',
         tool: 'dev-stats',
       },

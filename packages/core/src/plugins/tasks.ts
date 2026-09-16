@@ -196,9 +196,11 @@ const DEFAULT_TASKS: TaskDef[] = [
     includeTools: [...CORE_TOOLS, ...FS_TOOLS, 'dev-stats'],
     systemPrompt:
       'dev-stats 工具通过 make 目标执行：report（掘金+思否汇总，默认按日均阅读）、' +
-      'juejin / segmentfault（单平台数据）、actions（CI 巡检）、csv（导出仓库统计）、' +
+      'juejin / segmentfault（单平台数据）、ci / actions（CI 巡检，ci 只输出小结更短）、' +
+      'csv（仓库裸数据，快！无流量列）、csv-traffic（含 clone/views 流量的完整统计，热度/clone 排名必须用这个）、' +
       'run（透传 CLI 参数）。默认参数已内置，仅在用户要求换排序/条数/过滤时才传 args ' +
-      '（如 "--sort views --limit 5"）。输出为表格文本，可直接摘录关键行回答，长列表只取前几名。',
+      '（如 "--sort views --limit 5"）。输出为表格文本，可直接摘录关键行回答，长列表只取前几名，' +
+      '仓库名/排名/数值一律以工具返回的【仓库热度排名】清单为准，禁止编造。',
   },
   {
     id: 'investment',
