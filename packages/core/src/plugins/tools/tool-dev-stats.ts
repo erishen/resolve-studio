@@ -110,7 +110,8 @@ const TARGET_DESCRIPTIONS: Record<Target, string> = {
   actions:
     '巡检各仓库 CI 状态并附带完整仓库统计大表（等价 make actions：--actions --no-forks --sort updated --exclude wildsKick,king-power,skeleton-ssr，默认排除 fork 与老仓噪音、按最近推送排序）。' +
     '注意：管道输出里表格的 CI 列会被挤没，只要「哪些挂了」的结论请改用 target=ci。',
-  csv: '导出仓库公开统计到 output/stats.csv（等价 make csv：--sort clones --detail --community --activity --no-traffic）。' +
+  csv:
+    '导出仓库公开统计到 output/stats.csv（等价 make csv：--sort clones --detail --community --activity --no-traffic）。' +
     '--no-traffic 不采 clone/views 流量所以快（约 1-2 分钟），同时生成 stats-preview.html；不含流量列，只适合公开维度分析，热度/clone 排名必须用 csv-traffic。',
   'csv-traffic':
     '导出含 clone/views 流量的完整统计（等价 make csv-traffic：= csv 目标 + 流量采集 + --include-traffic，约 4-5 分钟）。' +
@@ -227,13 +228,19 @@ const registerDevStats = (ctx: Context) => {
               .filter((r) => Number(r.cloners_14d ?? 0) > 0)
               .sort((a, b) => Number(b.cloners_14d ?? 0) - Number(a.cloners_14d ?? 0))
               .slice(0, 10)
-              .map((r) => `${r.name}（近14天独立clone ${r.cloners_14d ?? 0} / clone总 ${r.clones_total_14d ?? 0} / views ${r.views_total_14d ?? 0}）`)
+              .map(
+                (r) =>
+                  `${r.name}（近14天独立clone ${r.cloners_14d ?? 0} / clone总 ${r.clones_total_14d ?? 0} / views ${r.views_total_14d ?? 0}）`,
+              )
             if (byClone.length > 0) {
-              body.push('', '【仓库热度排名（按近14天独立clone数，来自 stats.csv，仓库名以此处为准）】')
+              body.push(
+                '',
+                '【仓库热度排名（按近14天独立clone数，来自 stats.csv，仓库名以此处为准）】',
+              )
               byClone.forEach((line, i) => body.push(`${i + 1}. ${line}`))
               body.push(
                 '⚠ 注意：仓库名一律以上方排名清单为准，不要自行编造、拼凑或凭记忆补全。' +
-                  '清单里没有出现的名字就是本次统计里没有的，宁可少写也不要写出来。'
+                  '清单里没有出现的名字就是本次统计里没有的，宁可少写也不要写出来。',
               )
             }
           }
