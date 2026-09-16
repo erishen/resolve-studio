@@ -54,10 +54,7 @@ test('prettifyAnswer cleans the real hot-news success bubble', () => {
     out,
     /📊 总览已生成: \[hot-news-overview\.html\]\(http:\/\/127\.0\.0\.1:8787\/api\/raw\?path=/,
   )
-  assert.ok(
-    !out.includes('/opt/workspace/frameworks'),
-    'no long path leaks',
-  )
+  assert.ok(!out.includes('/opt/workspace/frameworks'), 'no long path leaks')
 })
 
 test('isSkipNotice recognises duplicate-call placeholders but not real output', () => {

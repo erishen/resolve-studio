@@ -76,7 +76,12 @@ const registerPortfolioCheck = (ctx: Context) => {
       // 还不存在时直接跑必然缺依赖。先显式 uv sync 预热，后续 make 复用已就绪 venv。
       logs.push('🔄 uv sync（首次为 asset-lens 构建容器私有 venv）...')
       try {
-        await execFileAsync('uv', ['sync'], { cwd: assetLens, timeout: STEP_TIMEOUT_MS, maxBuffer: STEP_MAX_BUFFER, env })
+        await execFileAsync('uv', ['sync'], {
+          cwd: assetLens,
+          timeout: STEP_TIMEOUT_MS,
+          maxBuffer: STEP_MAX_BUFFER,
+          env,
+        })
       } catch (err) {
         const e = err as { message?: string; stderr?: string; stdout?: string }
         return `error: portfolio-check 在 uv sync 阶段失败 — ${truncate(e.stderr ?? e.stdout ?? e.message ?? String(err), 800)}`
