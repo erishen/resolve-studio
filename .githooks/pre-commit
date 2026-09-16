@@ -1,8 +1,13 @@
 #!/bin/sh
-# 本地 pre-commit 钩子：提交前扫描暂存区，阻止密钥进入版本库（公开前关键防线）。
-# 未安装 gitleaks 时优雅跳过（CI 仍会拦截），不阻断既有工作流。
+# 本地 pre-commit 钩子：① 阻止密钥进入版本库（公开前关键防线）；
+# ② 阻止不符合 Prettier 规则的文件进库（CI 的 Lint + Format 必然要拦，
+#    本地先拦能省一次红叉 + 一次补丁提交）。
+# 缺工具时优雅跳过（CI 仍会拦截），不阻断既有工作流。
 set -e
 
+ROOT="$(git rev-parse --show-toplevel)"
+
+# ---------------------------------------------------------------- 密钥扫描
 # 解析 gitleaks 可执行文件。不能只靠 `command -v`：由 GUI / 沙箱启动的 shell
 # （WorkBuddy、编辑器内置终端等）常带精简 PATH，不含 /opt/homebrew/bin，会把已安装
 # 的 gitleaks 误判成「未安装」而静默跳过扫描 —— 本地防线形同虚设。
@@ -27,13 +32,71 @@ fi
 if [ -z "$GITLEAKS_BIN" ]; then
   echo "[secret-scan] 未检测到 gitleaks，跳过本地扫描（CI 仍会拦截）。"
   echo "[secret-scan] 安装：brew install gitleaks"
+else
+  # gitleaks v8.30：staged 扫描用 `protect --staged`（detect 已无 --staged 旗标）。
+  # --redact 避免密钥回显到终端。
+  if ! "$GITLEAKS_BIN" protect --staged --config="$ROOT/.gitleaks.toml" --redact --no-banner; then
+    echo "[secret-scan] 发现疑似密钥，已阻止提交。请检查上方输出后重试。"
+    exit 1
+  fi
+  echo "[secret-scan] 暂存区无密钥"
+fi
+
+# ---------------------------------------------------------------- 格式检查
+# 只检查**本次暂存**的文件。CI 跑的是 `prettier --check .`（全仓），这里故意窄一档：
+# 别人留下的未格式化文件不该拦住你的提交，而你带上去的那几个才是 CI 红灯的来源。
+# node 同样按 PATH → 常见位置回退（见上），避免精简 PATH 下静默跳过。
+if [ "${SKIP_PRETTIER_CHECK:-0}" = "1" ]; then
+  echo "[format] 已按 SKIP_PRETTIER_CHECK=1 跳过格式检查。"
   exit 0
 fi
 
-# gitleaks v8.30：staged 扫描用 `protect --staged`（detect 已无 --staged 旗标）。
-# --redact 避免密钥回显到终端。
-if ! "$GITLEAKS_BIN" protect --staged --config=.gitleaks.toml --redact --no-banner; then
-  echo "[secret-scan] 发现疑似密钥，已阻止提交。请检查上方输出后重试。"
+NODE_BIN=""
+if command -v node >/dev/null 2>&1; then
+  NODE_BIN="$(command -v node)"
+else
+  for candidate in \
+    /opt/homebrew/bin/node \
+    /usr/local/bin/node \
+    "$HOME/.local/bin/node" \
+    "$HOME"/.workbuddy/binaries/node/versions/*/bin/node
+  do
+    if [ -x "$candidate" ]; then
+      NODE_BIN="$candidate"
+      break
+    fi
+  done
+fi
+
+PRETTIER="$ROOT/node_modules/prettier/bin/prettier.cjs"
+if [ -z "$NODE_BIN" ] || [ ! -f "$PRETTIER" ]; then
+  echo "[format] 未检测到 node 或 node_modules/prettier，跳过本地格式检查（CI 仍会拦截）。"
+  echo "[format] 修复：在仓库根目录跑 pnpm install"
+  exit 0
+fi
+
+# -z + xargs -0：文件名含空格/中文也不会被拆坏（命令替换无法携带 NUL，故走临时文件）。
+STAGED_LIST="$(mktemp)"
+trap 'rm -f "$STAGED_LIST"' EXIT
+git diff --cached --name-only --diff-filter=ACMR -z > "$STAGED_LIST"
+
+if [ ! -s "$STAGED_LIST" ]; then
+  echo "[format] 暂存区无可检查文件，跳过。"
+  exit 0
+fi
+
+# --ignore-unknown：没有 parser 的文件（.png/.csv/.toml 等）自动放过，不报错。
+# cwd 切到仓库根，让 .prettierrc.json / .prettierignore 正常生效。
+FORMAT_STATUS=0
+FORMAT_OUT="$(
+  cd "$ROOT" && xargs -0 "$NODE_BIN" "$PRETTIER" --check --ignore-unknown < "$STAGED_LIST" 2>&1
+)" || FORMAT_STATUS=$?
+
+if [ "$FORMAT_STATUS" -ne 0 ]; then
+  echo "[format] 以下暂存文件不符合 Prettier 规则："
+  printf '%s\n' "$FORMAT_OUT" | grep -E '^\[warn\]' | grep -v 'Code style issues found' | sed 's/^\[warn\] /  - /'
+  echo "[format] 已阻止提交。修复：pnpm format（或 npx prettier --write <上述文件>）后重试。"
+  echo "[format] 确需跳过本检查：git commit --no-verify"
   exit 1
 fi
-echo "[secret-scan] 暂存区无密钥"
+echo "[format] 暂存文件格式合规"
