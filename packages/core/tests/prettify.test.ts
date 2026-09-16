@@ -8,16 +8,16 @@ import {
 } from '../src/plugins/web-server.js'
 
 const BASE = 'http://127.0.0.1:8787'
-const ROOTS = ['/Users/erishen/Workspace/CNB/individular-invest']
+const ROOTS = ['/opt/workspace']
 
 test('linkifyArtifactHtml turns an in-sandbox .html path into a /api/raw link', () => {
   const text =
-    '📊 总览已生成: /Users/erishen/Workspace/CNB/individular-invest/frameworks/llamaindex-pse/tasks/hot-news/hot-news-overview.html'
+    '📊 总览已生成: /opt/workspace/frameworks/llamaindex-pse/tasks/hot-news/hot-news-overview.html'
   const out = linkifyArtifactHtml(text, BASE, ROOTS)
   assert.match(out, /\[hot-news-overview\.html\]\(http:\/\/127\.0\.0\.1:8787\/api\/raw\?path=/)
   assert.ok(out.includes('hot-news-overview.html'), 'filename label preserved')
   // the raw absolute path must NOT appear in clear text anymore
-  assert.ok(!out.includes('/Users/erishen/Workspace'), 'long fs path hidden behind the link')
+  assert.ok(!out.includes('/opt/workspace'), 'long fs path hidden behind the link')
 })
 
 test('linkifyArtifactHtml leaves out-of-sandbox paths untouched (no dead link)', () => {
@@ -28,7 +28,7 @@ test('linkifyArtifactHtml leaves out-of-sandbox paths untouched (no dead link)',
 
 test('tidyToolEcho collapses → /abs/path directory echoes to the trailing name', () => {
   const text =
-    'hot-news-fetch 完成 → /Users/erishen/Workspace/CNB/individular-invest/frameworks/llamaindex-pse/tasks/hot-news/news（全部源）'
+    'hot-news-fetch 完成 → /opt/workspace/frameworks/llamaindex-pse/tasks/hot-news/news（全部源）'
   const out = tidyToolEcho(text)
   assert.equal(
     out,
@@ -39,10 +39,10 @@ test('tidyToolEcho collapses → /abs/path directory echoes to the trailing name
 
 test('prettifyAnswer cleans the real hot-news success bubble', () => {
   const raw = [
-    'hot-news-fetch 完成 → /Users/erishen/Workspace/CNB/individular-invest/frameworks/llamaindex-pse/tasks/hot-news/news（全部源）',
-    '▶ 抓取热点新闻 → /Users/erishen/Workspace/CNB/individular-invest/frameworks/llamaindex-pse/tasks/hot-news/news（直连）',
-    '✅ 完成：新增/更新 98 条，清理旧文件 88 个 → /Users/erishen/Workspace/CNB/individular-invest/frameworks/llamaindex-pse/tasks/hot-news/news',
-    '📊 总览已生成: /Users/erishen/Workspace/CNB/individular-invest/frameworks/llamaindex-pse/tasks/hot-news/hot-news-overview.html',
+    'hot-news-fetch 完成 → /opt/workspace/frameworks/llamaindex-pse/tasks/hot-news/news（全部源）',
+    '▶ 抓取热点新闻 → /opt/workspace/frameworks/llamaindex-pse/tasks/hot-news/news（直连）',
+    '✅ 完成：新增/更新 98 条，清理旧文件 88 个 → /opt/workspace/frameworks/llamaindex-pse/tasks/hot-news/news',
+    '📊 总览已生成: /opt/workspace/frameworks/llamaindex-pse/tasks/hot-news/hot-news-overview.html',
   ].join('\n')
   const out = prettifyAnswer(raw, BASE, ROOTS)
   // directory echoes collapsed
@@ -55,7 +55,7 @@ test('prettifyAnswer cleans the real hot-news success bubble', () => {
     /📊 总览已生成: \[hot-news-overview\.html\]\(http:\/\/127\.0\.0\.1:8787\/api\/raw\?path=/,
   )
   assert.ok(
-    !out.includes('/Users/erishen/Workspace/CNB/individular-invest/frameworks'),
+    !out.includes('/opt/workspace/frameworks'),
     'no long path leaks',
   )
 })

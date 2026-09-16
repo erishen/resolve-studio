@@ -486,12 +486,12 @@ const hotfetchTool = definePlugin(
       parameters: { type: 'object', properties: {} },
       async execute() {
         return [
-          'hot-news-fetch 完成 → /Users/erishen/.workbuddy/tasks/hot-news/news (全部源)',
-          '抓取热点新闻 → /Users/erishen/.workbuddy/tasks/hot-news/news (直连) ✓',
+          'hot-news-fetch 完成 → /opt/workspace/tasks/hot-news/news (全部源)',
+          '抓取热点新闻 → /opt/workspace/tasks/hot-news/news (直连) ✓',
           'weibo: 抓取 30 条 ✓ kr36: 抓取 30 条 ✓ sspai: 抓取 9 条 ✓ qbitai: 抓取 10 条 ✓ infoq: 抓取 20 条 ✓',
           'weibo: 30 条写入 ✓ sspai: 9 条写入 ✓ qbitai: 10 条写入 ✓ infoq: 20 条写入',
-          '✅ 完成：新增/更新 99 条，清理旧文件 0 个 → /Users/erishen/.workbuddy/tasks/hot-news/news',
-          '📊 总览已生成: /Users/erishen/.workbuddy/tasks/hot-news/hot-news-overview.html',
+          '✅ 完成：新增/更新 99 条，清理旧文件 0 个 → /opt/workspace/tasks/hot-news/news',
+          '📊 总览已生成: /opt/workspace/tasks/hot-news/hot-news-overview.html',
           '下一步：用 hot-news-topics 列候选话题，再让 hot-news 按平台生成合规文案。',
         ].join('\n')
       },
