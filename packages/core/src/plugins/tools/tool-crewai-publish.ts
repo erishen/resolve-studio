@@ -276,8 +276,18 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef) {
         .logger(task.name)
         .info('running make %s P=%s (cwd=%s)', task.makeTarget, project, CREWAI_PSE)
 
+      // confirm=true 已经是「人工已确认」的授权点（上方 preview gate 保证到这里必然
+      // confirm===true），因此必须把 --yes 透传给脚本自己的确认门。否则：
+      //   make publish P=x → publish.py x（FLAGS 为空）→ input() 在非交互 exec 下读到
+      //   EOF → 视为未确认 → 直接「已取消，未发布任何内容」。
+      // 这正是 article-publish 带 confirm=true 却从未真正 POST 到 WordPress 的根因。
+      // FLAGS 只有 `publish` 这条 make 配方消费（validate/archive 配方不含 $(FLAGS)），
+      // 故仅对 article-publish 追加，语义最窄。
+      const makeArgs = [task.makeTarget, `P=${project}`]
+      if (task.name === 'article-publish') makeArgs.push('FLAGS=--yes')
+
       try {
-        const { stdout, stderr } = await execFileAsync('make', [task.makeTarget, `P=${project}`], {
+        const { stdout, stderr } = await execFileAsync('make', makeArgs, {
           cwd: CREWAI_PSE,
           timeout: TASK_TIMEOUT_MS,
           maxBuffer: 4 << 20,
