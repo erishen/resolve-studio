@@ -4,6 +4,9 @@ import type { Tool } from '../../types.js'
 
 const BASE_URL = process.env.VIDEO_LIBRARY_URL ?? 'http://127.0.0.1:3200'
 
+/** video-library 的 API key（服务端配置了 API_KEY 时，非本机访问需带 x-api-key）。 */
+const VIDEO_LIBRARY_KEY = process.env.VIDEO_LIBRARY_KEY ?? ''
+
 /** Root of the video-library service, from VIDEO_LIBRARY_DIR (env-only). */
 function videoLibraryDir(): string {
   return process.env.VIDEO_LIBRARY_DIR ?? ''
@@ -38,7 +41,7 @@ const registerVideoLibraryList = (ctx: Context) => {
       }
 
       const limit = (args.limit as number | undefined) ?? 30
-      const res = await fetchJson(`${BASE_URL}/videos?limit=${limit}`)
+      const res = await fetchJson(`${BASE_URL}/api/videos?limit=${limit}`)
       const videos = ((res.data as { items?: unknown } | undefined)?.items ??
         res.data ??
         []) as Array<Record<string, unknown>>
@@ -49,7 +52,10 @@ const registerVideoLibraryList = (ctx: Context) => {
       ]
       for (const v of videos.slice(0, limit)) {
         const name = v.name ?? v.title ?? v.path ?? '?'
-        const dur = v.duration_sec ?? v.duration ?? ''
+        const dur =
+          v.duration_ms != null
+            ? Math.round(Number(v.duration_ms) / 1000)
+            : (v.duration_sec ?? v.duration ?? '')
         const codec = v.video_codec ?? v.codec ?? ''
         const reso = v.resolution ?? (v.width && v.height ? `${v.width}x${v.height}` : '')
         out.push(
@@ -67,7 +73,8 @@ async function fetchJson(url: string): Promise<{ ok: boolean; data?: unknown }> 
   try {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 4000)
-    const res = await fetch(url, { signal: ctrl.signal })
+    const headers = VIDEO_LIBRARY_KEY ? { 'x-api-key': VIDEO_LIBRARY_KEY } : undefined
+    const res = await fetch(url, { signal: ctrl.signal, headers })
     clearTimeout(timer)
     if (!res.ok) return { ok: false }
     return { ok: true, data: await res.json() }

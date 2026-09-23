@@ -95,6 +95,8 @@ services:
       # 服务端配置了 API_KEY 时必须带 x-api-key，否则 photo-duplicates 返回 401。
       # 在宿主 .env 配 PHOTO_LIBRARY_KEY=<photo-library/.env 的 API_KEY> 自动透传。
       - PHOTO_LIBRARY_KEY=${PHOTO_LIBRARY_KEY:-}
+      # video-library 同理（host.docker.internal:3200），video-library-list 工具自动带 key。
+      - VIDEO_LIBRARY_KEY=${VIDEO_LIBRARY_KEY:-}
     volumes:
       - ./workspace-analysis:/app/workspace-analysis
       - ./resolve-skills:/app/resolve-skills:ro
