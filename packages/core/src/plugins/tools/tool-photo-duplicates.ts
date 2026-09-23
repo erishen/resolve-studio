@@ -49,28 +49,40 @@ const registerPhotoDuplicates = (ctx: Context) => {
       if (args.stats) {
         const s = await fetchJson(`${BASE_URL}/stats`)
         const st = (s.data ?? {}) as Record<string, unknown>
-        out.push(`📊 照片库统计：${st.imageCount ?? st.total ?? '?'} 张`, '')
+        out.push(
+          `📊 照片库统计：${st.unique_images ?? st.total_images ?? '?'} 张（去重后）` +
+            ` / 重复 ${st.duplicate_groups ?? '?'} 组（${st.duplicate_images ?? '?'} 张）` +
+            ` / 相似 ${st.similar_groups ?? '?'} 组（${st.similar_images ?? '?'} 张）`,
+          '',
+        )
       }
 
       const d = await fetchJson(`${BASE_URL}/duplicates`)
-      const groups = (d.data ?? {}) as { groups?: unknown; duplicates?: unknown }
-      const dupGroups = Array.isArray(groups)
-        ? groups
-        : ((groups.groups ?? groups.duplicates ?? []) as Array<Record<string, unknown>>)
+      const dPage = (d.data ?? {}) as {
+        items?: Array<{
+          content_hash?: string
+          count?: number
+          items?: Array<{ relative_path?: string; name?: string }>
+        }>
+      }
+      const dupGroups = Array.isArray(dPage.items) ? dPage.items : []
       if (!dupGroups.length) {
         out.push('✅ 无重复照片（content 哈希去重）')
       } else {
         out.push(`重复照片 ${dupGroups.length} 组：`)
         for (const g of dupGroups.slice(0, 15)) {
-          const items = (g.files ?? g.images ?? g.items ?? []) as Array<Record<string, unknown>>
-          out.push(`- ${g.hash ?? ''} (${items.length} 张)`)
-          for (const f of items.slice(0, 3)) out.push(`  - ${f.path ?? f.name ?? String(f)}`)
+          const items = Array.isArray(g.items) ? g.items : []
+          out.push(`- ${g.content_hash ?? ''} (${g.count ?? items.length} 张)`)
+          for (const f of items.slice(0, 3)) {
+            out.push(`  - ${f.relative_path ?? f.name ?? String(f)}`)
+          }
         }
       }
 
       if (args.similar) {
         const si = await fetchJson(`${BASE_URL}/similar`)
-        const sg = Array.isArray(si.data) ? (si.data as unknown[]) : []
+        const sPage = (si.data ?? {}) as { items?: unknown[] }
+        const sg = Array.isArray(sPage.items) ? sPage.items : []
         out.push('', `相似照片（感知哈希）${sg.length} 组`)
       }
 
