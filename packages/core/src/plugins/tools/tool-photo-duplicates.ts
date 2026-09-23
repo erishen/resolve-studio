@@ -47,7 +47,7 @@ const registerPhotoDuplicates = (ctx: Context) => {
 
       const out: string[] = []
       if (args.stats) {
-        const s = await fetchJson(`${BASE_URL}/stats`)
+        const s = await fetchJson(`${BASE_URL}/api/stats`)
         const st = (s.data ?? {}) as Record<string, unknown>
         out.push(
           `📊 照片库统计：${st.unique_images ?? st.total_images ?? '?'} 张（去重后）` +
@@ -57,7 +57,7 @@ const registerPhotoDuplicates = (ctx: Context) => {
         )
       }
 
-      const d = await fetchJson(`${BASE_URL}/duplicates`)
+      const d = await fetchJson(`${BASE_URL}/api/duplicates`)
       const dPage = (d.data ?? {}) as {
         items?: Array<{
           content_hash?: string
@@ -80,7 +80,7 @@ const registerPhotoDuplicates = (ctx: Context) => {
       }
 
       if (args.similar) {
-        const si = await fetchJson(`${BASE_URL}/similar`)
+        const si = await fetchJson(`${BASE_URL}/api/similar`)
         const sPage = (si.data ?? {}) as { items?: unknown[] }
         const sg = Array.isArray(sPage.items) ? sPage.items : []
         out.push('', `相似照片（感知哈希）${sg.length} 组`)
