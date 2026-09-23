@@ -2,7 +2,10 @@ import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool } from '../../types.js'
 
-const BASE_URL = process.env.MARKDOWN_LIBRARY_URL ?? 'http://127.0.0.1:3100'
+const BASE_URL = process.env.MARKDOWN_LIBRARY_URL ?? 'http://127.0.0.1:3300'
+
+/** markdown-library 的 API key（服务端配置了 API_KEY 时，非本机访问需带 x-api-key）。 */
+const MARKDOWN_LIBRARY_KEY = process.env.MARKDOWN_LIBRARY_KEY ?? ''
 
 /** Root of the markdown-library service, from MARKDOWN_LIBRARY_DIR (env-only). */
 function markdownLibraryDir(): string {
@@ -48,20 +51,22 @@ const registerDocLibrarySearch = (ctx: Context) => {
       }
 
       const out: string[] = []
-      const res = await fetchJson(`${BASE_URL}/docs?q=${encodeURIComponent(q)}`)
-      const items = (res.data as { docs?: unknown } | undefined)?.docs ?? []
+      const res = await fetchJson(`${BASE_URL}/api/docs?q=${encodeURIComponent(q)}`)
+      const items = (res.data as { items?: unknown } | undefined)?.items ?? []
       const rows = Array.isArray(items) ? (items as Array<Record<string, unknown>>) : []
       out.push(`检索「${q}」命中 ${rows.length} 篇：`, '')
       for (const d of rows.slice(0, 20)) {
         const title = d.title ?? d.name ?? d.path ?? '?'
         const snippet = d.snippet ?? d.excerpt ?? ''
-        out.push(`- **${title}**${d.updated_at ? `（${d.updated_at}）` : ''}`)
+        const ts = Number(d.updated_at ?? 0)
+        const when = ts > 0 ? new Date(ts * 1000).toLocaleDateString('zh-CN') : ''
+        out.push(`- **${title}**${when ? `（${when}）` : ''}`)
         if (snippet) out.push(`  ${String(snippet).slice(0, 160)}`)
       }
       if (!rows.length) out.push('（无命中）')
 
       if (args.check_broken) {
-        const b = await fetchJson(`${BASE_URL}/broken`)
+        const b = await fetchJson(`${BASE_URL}/api/broken`)
         const broken = Array.isArray(b.data) ? (b.data as Array<Record<string, unknown>>) : []
         out.push(
           '',
@@ -79,7 +84,8 @@ async function fetchJson(url: string): Promise<{ ok: boolean; data?: unknown }> 
   try {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 4000)
-    const res = await fetch(url, { signal: ctrl.signal })
+    const headers = MARKDOWN_LIBRARY_KEY ? { 'x-api-key': MARKDOWN_LIBRARY_KEY } : undefined
+    const res = await fetch(url, { signal: ctrl.signal, headers })
     clearTimeout(timer)
     if (!res.ok) return { ok: false }
     return { ok: true, data: await res.json() }

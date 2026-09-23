@@ -54,7 +54,7 @@ services:
       - PRIVACY_AUDIT_DIR=/workspace/tools/privacy/privacy_audit.py
       - WORKSPACE_ROOT=/workspace
       # library 服务跑在宿主机，容器内 127.0.0.1 指向容器自身，需走 host.docker.internal
-      - MARKDOWN_LIBRARY_URL=http://host.docker.internal:3100
+      - MARKDOWN_LIBRARY_URL=http://host.docker.internal:3300
       - PHOTO_LIBRARY_URL=http://host.docker.internal:3100
       - VIDEO_LIBRARY_URL=http://host.docker.internal:3200
       # 容器内 uv run 的 venv 放容器私有目录（/opt/pse-venvs/<framework>），
@@ -97,6 +97,8 @@ services:
       - PHOTO_LIBRARY_KEY=${PHOTO_LIBRARY_KEY:-}
       # video-library 同理（host.docker.internal:3200），video-library-list 工具自动带 key。
       - VIDEO_LIBRARY_KEY=${VIDEO_LIBRARY_KEY:-}
+      # markdown-library 同理（host.docker.internal:3300），doc-library-search 工具自动带 key。
+      - MARKDOWN_LIBRARY_KEY=${MARKDOWN_LIBRARY_KEY:-}
     volumes:
       - ./workspace-analysis:/app/workspace-analysis
       - ./resolve-skills:/app/resolve-skills:ro
