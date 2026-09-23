@@ -91,6 +91,10 @@ services:
       # 需要更高配额就把 token 写进宿主 .env（gitignored），自动透传进容器。
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - GH_TOKEN=${GH_TOKEN:-}
+      # photo-library 的 API key：容器经 host.docker.internal 访问 3100 属非本机来源，
+      # 服务端配置了 API_KEY 时必须带 x-api-key，否则 photo-duplicates 返回 401。
+      # 在宿主 .env 配 PHOTO_LIBRARY_KEY=<photo-library/.env 的 API_KEY> 自动透传。
+      - PHOTO_LIBRARY_KEY=${PHOTO_LIBRARY_KEY:-}
     volumes:
       - ./workspace-analysis:/app/workspace-analysis
       - ./resolve-skills:/app/resolve-skills:ro

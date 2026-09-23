@@ -4,6 +4,9 @@ import type { Tool } from '../../types.js'
 
 const BASE_URL = process.env.PHOTO_LIBRARY_URL ?? 'http://127.0.0.1:3100'
 
+/** photo-library 的 API key（服务端配置了 API_KEY 时，非本机访问需带 x-api-key）。 */
+const PHOTO_LIBRARY_KEY = process.env.PHOTO_LIBRARY_KEY ?? ''
+
 /** Root of the photo-library service, from PHOTO_LIBRARY_DIR (env-only). */
 function photoLibraryDir(): string {
   return process.env.PHOTO_LIBRARY_DIR ?? ''
@@ -80,7 +83,8 @@ async function fetchJson(url: string): Promise<{ ok: boolean; data?: unknown }> 
   try {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), 4000)
-    const res = await fetch(url, { signal: ctrl.signal })
+    const headers = PHOTO_LIBRARY_KEY ? { 'x-api-key': PHOTO_LIBRARY_KEY } : undefined
+    const res = await fetch(url, { signal: ctrl.signal, headers })
     clearTimeout(timer)
     if (!res.ok) return { ok: false }
     return { ok: true, data: await res.json() }
