@@ -107,6 +107,10 @@ services:
       # serena/pse-review 依赖宿主机工具链（uv/serena 仓库/autogen-pse），容器未启用。
       # 容器内通过 POST /api/mcp 添加的 server 会写回本文件（与本地 .data 相互独立）。
       - ./docker/mcp-servers.json:/app/.data/mcp-servers.json
+      # 会话持久化：会话目录默认 <cwd>/.data/sessions（容器内 /app/.data/sessions 属
+      # 可写层，镜像重建/容器 recreate 会被清空 → 前端「切换会话」报 session not found）。
+      # bind 到宿主 .data/sessions：重建不丢会话，且与宿主 make dev 共用同一会话池。
+      - ./.data/sessions:/app/.data/sessions
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8787/health']
