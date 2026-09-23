@@ -59,6 +59,7 @@ WEB_MATCH     := vite[.]js --host 127.0.0.1 --port $(WEB_PORT)
         stop clean help new-plugin manifests \
         lint lint-fix format format-check docker-build docker-up docker-down docker-stop \
         docker-restart docker-ps docker-logs docker-logs-backend docker-shell docker-clean logs \
+        libs libs-status \
         secret-scan hook-init publish publish-dry release
 
 all: install
@@ -289,10 +290,40 @@ release:            ## 三包版本自增(patch/minor/major)并发布：make rel
 	pnpm install
 	@$(MAKE) publish OTP=$(OTP)
 
+# ---- 宿主 library 服务（photo 3100 / video 3200 / markdown 3300）----
+# 容器经 host.docker.internal 访问这些服务；photo-duplicates / video-library-list /
+# doc-library-search 三个工具依赖它们在线。幂等：端口已监听则跳过，未跑才拉起。
+RUST_LIBS_DIR := ../../rust
+RUST_LIBS := photo-library:3100 video-library:3200 markdown-library:3300
+
+libs:              ## 幂等拉起宿主 library 服务（已在跑跳过；docker-up 会自动先执行）
+	@for entry in $(RUST_LIBS); do \
+		name=$${entry%%:*}; port=$${entry##*:}; \
+		if lsof -nP -iTCP:$$port -sTCP:LISTEN >/dev/null 2>&1; then \
+			echo "  [libs] $$name 已在跑（:$$port），跳过"; \
+		elif [ -x "$(RUST_LIBS_DIR)/target/release/$$name" ]; then \
+			mkdir -p "$(RUST_LIBS_DIR)/$$name/logs"; \
+			(cd "$(RUST_LIBS_DIR)/$$name" && nohup "../target/release/$$name" >> "logs/server.log" 2>&1 &); \
+			echo "  [libs] $$name 已启动（:$$port，日志 logs/server.log）"; \
+		else \
+			echo "  [libs] $$name 无编译产物，跳过（先 cd $(RUST_LIBS_DIR)/$$name && cargo build --release）"; \
+		fi; \
+	done
+
+libs-status:       ## 查看三个 library 服务运行状态
+	@for entry in $(RUST_LIBS); do \
+		name=$${entry%%:*}; port=$${entry##*:}; \
+		if lsof -nP -iTCP:$$port -sTCP:LISTEN >/dev/null 2>&1; then \
+			echo "  $$name: 运行中（:$$port）"; \
+		else \
+			echo "  $$name: 未运行"; \
+		fi; \
+	done
+
 docker-build:      ## 构建 Docker 镜像（后端+前端）
 	docker compose build
 
-docker-up:         ## 启动 Docker 容器（后端+前端，后台）
+docker-up: libs    ## 启动 Docker 容器（先幂等拉起宿主 library 服务）
 	docker compose up -d
 
 docker-down:       ## 停止并移除 Docker 容器
