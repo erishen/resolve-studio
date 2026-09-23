@@ -5,9 +5,14 @@
 set -eu
 
 export DISPLAY="${DISPLAY:-:99}"
-if [ ! -e "/tmp/.X${DISPLAY#:}-lock" ]; then
-  Xvfb "$DISPLAY" -screen 0 1600x1200x24 -nolisten tcp &
-fi
+
+# 旧实现用 lock 文件判断「Xvfb 是否在跑」，但 Xvfb 崩溃 / 容器重启后
+# /tmp/.X99-lock 会残留 → 误判 Xvfb 还活着 → 不再拉起 → Playwright 有头启动
+# 报 "launched a headed browser without having a XServer running"。
+# 改为无条件清理残留进程与 lock，再幂等拉起 Xvfb。
+pkill -f "Xvfb ${DISPLAY}" 2>/dev/null || true
+rm -f "/tmp/.X${DISPLAY#:}-lock"
+Xvfb "$DISPLAY" -screen 0 1600x1200x24 -nolisten tcp &
 sleep 1
 
 exec "$@"
