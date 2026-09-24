@@ -28,21 +28,21 @@ const TASKS: WpTaskDef[] = [
     label: '掘金草稿',
     makeTarget: 'juejin-draft',
     description:
-      '建掘金草稿：调用 wordpress-tools 的 `make juejin-draft`，为下一篇未发布文章创建掘金草稿并写回 juejin_draft_id。每次只处理一篇。需要 wordpress-tools/.env 中的掘金 cookie。',
+      '建掘金草稿：调用 wordpress-tools 的 `make juejin-draft`，为下一篇未发布文章创建掘金草稿并写回 juejin_draft_id。每次只处理一篇。需要 wordpress-tools/.env 中的掘金 cookie。⚠️ 每次调用本工具自动建队列中的下一篇；要连续建多篇就重复调用本工具，不要自己用 shell 跑 node 命令。',
   },
   {
     name: 'wechat-draft',
     label: '微信草稿',
     makeTarget: 'wechat-draft',
     description:
-      '建微信公众号草稿：调用 wordpress-tools 的 `make wechat-draft`，为下一篇未发布文章创建公众号草稿箱草稿并写回 wechat_draft_id。每次只处理一篇。必须在本机 Mac 运行（微信校验 IP），需要 .env 中的 appid/appsecret。',
+      '建微信公众号草稿：调用 wordpress-tools 的 `make wechat-draft`，为下一篇未发布文章创建公众号草稿箱草稿并写回 wechat_draft_id。每次只处理一篇。必须在本机 Mac 运行（微信校验 IP），需要 .env 中的 appid/appsecret。⚠️ 每次调用本工具自动建队列中的下一篇；要连续建多篇就重复调用本工具，不要自己用 shell 跑 node 命令。',
   },
   {
     name: 'sf-pw-publish',
     label: '思否发布',
     makeTarget: 'sf-pw-publish',
     description:
-      '思否发布（Playwright 真浏览器版）：调用 wordpress-tools 的 `make sf-pw-publish`，启动浏览器登录思否并发布下一篇未发布文章，写回 sf_id。每次只发一篇。需要 Chrome 已登录思否（或设置 SF_USER_DATA_DIR）。',
+      '思否发布（Playwright 真浏览器版）：调用 wordpress-tools 的 `make sf-pw-publish`，启动浏览器登录思否并发布下一篇未发布文章，写回 sf_id。每次只发一篇。需要 Chrome 已登录思否（或设置 SF_USER_DATA_DIR）。⚠️ 每次调用本工具自动发队列中的下一篇；要连续发多篇就重复调用本工具，不要自己用 shell 跑 node 命令（cwd 不对会找不到模块）。',
   },
 ]
 
