@@ -136,12 +136,11 @@ const VARIANTS = {
     pseReviewConfig: { provider: 'free' },
     // Read widened to the whole invest workspace so the web file-picker can
     // reach sibling projects; writes stay pinned to this repo for safety.
-    // shellRoots carries one targeted exemption: crewai-pse, so the
-    // "校验文章回链" example can run `make check-links` there (read-only
-    // validation; its fix path is FLAGS=--dry preview only). The path is an
-    // env reference resolved at load time from `.env` (gitignored), so the
-    // absolute sibling path is NEVER committed; a checkout without CREWAI_PSE_DIR
-    // set simply has no crewai-pse shell root.
+    // shellRoots aligned with readRoots: the whole invest workspace, so the
+    // agent can explore and `make` any framework (crewai-pse, llamaindex-pse,
+    // …) — not pinned to one dir. Writes stay guarded by writeRoots.
+    // `${WORKSPACE_ROOT}` + '../../..' resolve to the absolute workspace root in
+    // both host and docker runtimes (see readRoots note below); unset → dropped.
     //
     // readRoots carries BOTH anchors because `.` differs by runtime:
     //   - host `make dev`  cwd = repo → `../../..` = the invest workspace root
@@ -158,7 +157,7 @@ const VARIANTS = {
       // via the PSE subprocess anyway). Resolved from HOT_NEWS_TASKS_DIR at
       // load time; a checkout without it set simply has no extra write root.
       writeRoots: ['.', '${HOT_NEWS_TASKS_DIR}'],
-      shellRoots: ['.', '${CREWAI_PSE_DIR}'],
+      shellRoots: ['.', '${WORKSPACE_ROOT}', '../../..'],
     },
   }),
 }

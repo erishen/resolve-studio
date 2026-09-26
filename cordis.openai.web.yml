@@ -11,7 +11,8 @@ fs:
     - ${HOT_NEWS_TASKS_DIR}
   shellRoots:
     - .
-    - ${CREWAI_PSE_DIR}
+    - ${WORKSPACE_ROOT}
+    - ../../..
 plugins:
   - id: tools
     name: tools

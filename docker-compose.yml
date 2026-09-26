@@ -79,6 +79,10 @@ services:
       # 落在 /workspace 挂载树下，否则 Web UI 渲染预览时 assertWithin(read) 抛
       # "path escapes the allowed sandbox"。仅放开读，写根仍限 /app。
       - HARNESS_EXTRA_ROOTS=/workspace
+      # 放开 fs-guard 的 `..` 相对遍历检查：agent 在 /app 内用 `cd ../workspace`
+      # 等相对导航时不再被拦（绝对越界如 /etc 仍被 assertWithinRoots 拦，containment 不破）。
+      # 配合 entrypoint 把 /workspace 软链进 /app，agent 既可用 `cd crewai-pse`（软链）也可 `cd ../workspace`。
+      - HARNESS_SHELL_ALLOW_TRAVERSAL=1
       - WEB_HOST=0.0.0.0
       - WORKSPACE_OUT=/app/workspace-analysis
       # 工具拼「预览链接」用的宿主可达入口：nginx 前端宿主端口 18080（/api 反代到

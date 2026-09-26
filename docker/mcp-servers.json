@@ -8,6 +8,7 @@
       "@modelcontextprotocol/server-filesystem",
       "/app",
       "/app/workspace-analysis",
+      "/workspace",
       "/workspace/frameworks/llamaindex-pse/tasks/hot-news"
     ],
     "approval": false
