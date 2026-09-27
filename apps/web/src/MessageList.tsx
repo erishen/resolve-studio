@@ -23,7 +23,8 @@ import { previewLabel } from './preview'
  */
 function extractMarkdownPaths(text: string): string[] {
   const paths = new Set<string>()
-  const re = /((?:\/(?:workspace|Users|home|tmp|var|opt|usr|etc)|[A-Za-z0-9_.-]+)\/[^\s'"<>]*\.md)/g
+  const re =
+    /((?:\/(?:workspace|app|Users|home|tmp|var|opt|usr|etc)|[A-Za-z0-9_.-]+)\/[^\s'"<>]*\.md)/g
   let m
   while ((m = re.exec(text)) !== null) {
     const p = m[1]

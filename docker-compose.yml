@@ -31,6 +31,10 @@ services:
       # /workspace 形态优先级高于框架 .env。
       - ARTICLES_DIR=/workspace/personal/personal-site/wordpress-tools/articles/pse
       - AUTOGEN_PSE_DIR=/workspace/frameworks/autogen-pse
+      # pse-review 沙箱副本根（tool-pse-review.ts 的 STUDIO_ROOT）：指向 /workspace 挂载树
+      # —— 副本持久化到宿主（落 /app 容器层的话容器重建即丢）、/workspace 前缀被前端
+      # extractMarkdownPaths 捕获（/app 不识别）、且在读根内可预览。
+      - RESOLVE_STUDIO_DIR=/workspace/work/harness/resolve-studio
       - LANGGRAPH_PSE_DIR=/workspace/frameworks/langgraph-pse
       - WORDPRESS_TOOLS_DIR=/workspace/personal/personal-site/wordpress-tools
       # crewai-pse 的 publish.py / archive.py 读的是另一个名字 WP_TOOLS_DIR；容器内不设

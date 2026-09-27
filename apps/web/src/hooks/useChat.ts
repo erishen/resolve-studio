@@ -81,10 +81,42 @@ export function useChat({ tools, model, sessionId, systemPrompt, onRunComplete }
       setError(null)
       setBusy(true)
 
-      const history = [
-        ...messagesRef.current.map((m) => ({ role: m.role, content: m.content })),
-        { role: 'user', content: text },
-      ]
+      // 回传历史必须保留工具调用与结果：只回传 role+content 会让上一轮
+      // pse-review 的报告全文与产物绝对路径在追问轮消失，模型只能凭上一轮
+      // 回答的记忆作答（数字类追问必错、也无法用 read-file 找回全文）。
+      // assistant 的 toolCalls 原样随行，结果展开为 tool 角色消息（OpenAI 配对形态）。
+      const history: {
+        role: string
+        content: string
+        toolCalls?: { id: string; name: string; arguments: string | Record<string, unknown> }[]
+        tool_call_id?: string
+        name?: string
+      }[] = []
+      for (const m of messagesRef.current) {
+        const withResult = (m.toolCalls ?? []).filter((tc) => typeof tc.result === 'string')
+        if (m.role === 'assistant' && withResult.length) {
+          history.push({
+            role: 'assistant',
+            content: m.content,
+            toolCalls: withResult.map((tc) => ({
+              id: tc.id ?? `tc_${history.length}`,
+              name: tc.name,
+              arguments: tc.arguments,
+            })),
+          })
+          for (const tc of withResult) {
+            history.push({
+              role: 'tool',
+              tool_call_id: tc.id ?? `tc_${history.length}`,
+              name: tc.name,
+              content: tc.result ?? '',
+            })
+          }
+        } else {
+          history.push({ role: m.role, content: m.content })
+        }
+      }
+      history.push({ role: 'user', content: text })
 
       const userMsg: UIMessage = { id: uid(), role: 'user', content: text }
       const assistantId = uid()

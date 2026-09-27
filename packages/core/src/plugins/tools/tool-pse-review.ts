@@ -1,5 +1,5 @@
-import { dirname, join, resolve, basename } from 'node:path'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
@@ -25,20 +25,21 @@ const RUN_MAX_OUTPUT = 4 << 20
 
 const REVIEW_SAVED_RE = /Review 已保存 →\s*(\S+)/
 
-// Copy a generated review to <studio>/sandbox/weekly-investment-review so the
-// web UI can preview it via a relative path (which is within fsRoots). Resolved
-// against the resolve-studio root (5 levels up from this file), overridable via
-// RESOLVE_STUDIO_DIR.
+// Copy a generated review to <studio>/sandbox/weekly-investment so the web UI
+// can preview it. Returns an ABSOLUTE path: web-server 的 /api/file 用
+// resolve(filePath) 按自身 cwd 解析，相对路径会被解析到错误位置 → ENOENT（2026-09
+// 容器内旧镜像正是因此把预览指向不存在的 outputs/reviews/）。Resolved against the
+// resolve-studio root (5 levels up from this file), overridable via RESOLVE_STUDIO_DIR.
 const STUDIO_ROOT = process.env.RESOLVE_STUDIO_DIR ?? resolve(HERE, '../../../../..')
 async function copyReviewToSandbox(srcPath: string, content: string): Promise<string> {
-  const destDir = join(STUDIO_ROOT, 'sandbox', 'weekly-investment-review')
+  const destDir = join(STUDIO_ROOT, 'sandbox', 'weekly-investment')
   await mkdir(destDir, { recursive: true })
   // 产物路径形如 output/<model>/weekly_review_<date>.md —— 把模型目录名嵌入副本
   // 文件名，避免不同模型目录（free / deepseek）同一天的报告互相覆盖。
   const modelDir = basename(dirname(srcPath))
   const destName = `${modelDir}__${basename(srcPath)}`
   await writeFile(join(destDir, destName), content, 'utf8')
-  return `sandbox/weekly-investment-review/${destName}`
+  return join(STUDIO_ROOT, 'sandbox', 'weekly-investment', destName)
 }
 
 /**
@@ -168,14 +169,68 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
       if (m?.[1]) {
         try {
           const review = await readFile(m[1], { encoding: 'utf8' })
-          const rel = await copyReviewToSandbox(m[1], review)
-          const note = `> PSE review 已保存（预览副本）：${rel}\n` + `> 原始路径：${m[1]}\n\n`
+          const rel = await copyReviewToSandbox(m[1], review) // 绝对路径（预览副本）
+          // 原始产物绝对路径：readFile 已从本进程 cwd 成功读到，resolve 即其真实位置。
+          const absOrig = isAbsolute(m[1]) ? m[1] : resolve(m[1])
+          const note =
+            `> PSE review 已保存（预览副本）：${rel}\n` +
+            `> 原始路径：${absOrig}\n` +
+            `> 后续追问：用户就本报告追问细节时，若上下文已无报告全文，` +
+            `先用 read-file 读取上面的路径取回全文再回答，禁止凭记忆编造数字。\n\n`
           return truncate(note + review, MAX_OUTPUT)
         } catch {
           // fall through to stdout
         }
       }
       return truncate(run.stdout || '(no output)', MAX_OUTPUT)
+    },
+  } satisfies Tool)
+
+  // 追问兜底工具：报告全文被上下文压缩丢弃后，模型仍可随时取回最新周报
+  // （工具清单每轮都在 system prompt 里，永不因 compaction 消失）。
+  ctx.tools.register({
+    name: 'pse-review-latest',
+    description:
+      'Read the most recent saved PSE portfolio review (full Markdown, with its absolute path). ' +
+      'Use when the report text is no longer visible in the conversation context, or when the user ' +
+      'asks about report details (numbers, positions, suggestions) in a later turn. ' +
+      'Answer from the fetched text; never invent numbers.',
+    parameters: { type: 'object', properties: {}, required: [] },
+    async execute(): Promise<string> {
+      let autogenPse: string
+      try {
+        autogenPse = resolvePseDir('autogen')
+      } catch (e) {
+        return `error: pse-review-latest — ${(e as Error).message}`
+      }
+      // Scan <autogen-pse>/tasks/portfolio-review/output/<model>/weekly_review_*.md
+      // and return the newest artifact (run.py writes reports per model dir).
+      const outRoot = join(autogenPse, 'tasks', 'portfolio-review', 'output')
+      let best: { path: string; mtimeMs: number } | null = null
+      try {
+        for (const model of await readdir(outRoot)) {
+          const dir = join(outRoot, model)
+          const dirStat = await stat(dir).catch(() => null)
+          if (!dirStat?.isDirectory()) continue
+          for (const f of await readdir(dir)) {
+            if (!/^weekly_review_.*\.md$/.test(f)) continue
+            const p = join(dir, f)
+            const fst = await stat(p).catch(() => null)
+            if (fst && (!best || fst.mtimeMs > best.mtimeMs))
+              best = { path: p, mtimeMs: fst.mtimeMs }
+          }
+        }
+      } catch {
+        // fallthrough — best stays null
+      }
+      if (!best) {
+        return (
+          'error: 尚无任何 pse-review 产物（tasks/portfolio-review/output/ 下没有 weekly_review_*.md）。' +
+          '请先运行 pse-review 生成周报。'
+        )
+      }
+      const content = await readFile(best.path, { encoding: 'utf8' })
+      return truncate(`> 最近周报：${best.path}\n\n${content}`, MAX_OUTPUT)
     },
   } satisfies Tool)
 }

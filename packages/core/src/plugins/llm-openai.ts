@@ -15,6 +15,7 @@ import type {
   ChatResponse,
   ChatStreamChunk,
   ModelInfo,
+  ToolCall,
   ToolSchema,
 } from '../types.js'
 import { LlmService } from '../services/llm.js'
@@ -83,12 +84,34 @@ function toOpenAiTools(options?: ChatOptions) {
 function toOpenAiMessages(
   messages: ChatMessage[],
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
-  return messages.map((m) => ({
-    role: m.role,
-    content: truncateContent(contentToString(m.content), m.role),
-    ...(m.role === 'tool' && m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
-    ...(m.role === 'assistant' && m.name ? { name: m.name } : {}),
-  })) as OpenAI.Chat.Completions.ChatCompletionMessageParam[]
+  return messages.map((m) => {
+    const base = {
+      role: m.role,
+      content: truncateContent(contentToString(m.content), m.role),
+      ...(m.role === 'tool' && m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+      ...(m.role === 'assistant' && m.name ? { name: m.name } : {}),
+    }
+    // assistant 携带的工具调用（agent 循环与前端回传历史都把 toolCalls 作为
+    // 附加字段挂在 assistant 消息上，ChatMessage 类型未声明、运行时 cast 容忍）
+    // 必须序列化为 OpenAI `tool_calls`：否则 assistant 与其后 `tool` 消息的
+    // 配对残缺，严格校验的 provider 会 400，宽容的只是碰巧容忍。
+    const toolCalls = (m as { toolCalls?: ToolCall[] }).toolCalls
+    if (m.role === 'assistant' && toolCalls?.length) {
+      return {
+        ...base,
+        tool_calls: toolCalls.map((tc, i) => ({
+          id: tc.id ?? `call_${i}`,
+          type: 'function' as const,
+          function: {
+            name: tc.name,
+            arguments:
+              typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments ?? {}),
+          },
+        })),
+      }
+    }
+    return base
+  }) as OpenAI.Chat.Completions.ChatCompletionMessageParam[]
 }
 
 class LlmOpenAI extends LlmService {
