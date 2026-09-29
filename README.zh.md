@@ -30,6 +30,18 @@
 | **MCP 接入**      | 连接任意 MCP Server（stdio/http），工具以 `<id>:<tool>` 注册，默认需审批                                     |
 | **专用工具集**    | 文章写作/发布、简历定制、面试题生成、CRM 任务、投资组合汇总、热点内容、项目发现等 60+ 工具                   |
 
+## 克隆
+
+本仓把 agent 技能作为 git submodule（`resolve-skills`）引入。请用 `--recursive`
+克隆以拉取 submodule，否则 `pnpm install` 与 Docker 构建（`COPY resolve-skills`）
+会因目录为空而失败：
+
+```bash
+git clone --recursive https://github.com/erishen/resolve-studio.git
+# 已不带 --recursive 克隆？用下面命令补拉：
+git submodule update --init --recursive
+```
+
 ## 快速开始
 
 ```bash

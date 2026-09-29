@@ -30,6 +30,18 @@ Core idea: the LLM backend, tools, agent loop, approvals, skills, and the fronte
 | **MCP integration**         | connect any MCP Server (stdio/http), tools registered as `<id>:<tool>`, approval on by default                                                                                             |
 | **Specialized toolset**     | 60+ tools for article writing/publishing, resume tailoring, interview questions, CRM tasks, portfolio summary, hot-news content, project discovery, and more                               |
 
+## Clone
+
+This repo vendors agent skills as a git submodule (`resolve-skills`). Clone with
+`--recursive` so the submodule is populated — otherwise `pnpm install` and the
+Docker build (`COPY resolve-skills`) will fail on an empty directory:
+
+```bash
+git clone --recursive https://github.com/erishen/resolve-studio.git
+# already cloned without --recursive? recover with:
+git submodule update --init --recursive
+```
+
 ## Quick start
 
 ```bash
