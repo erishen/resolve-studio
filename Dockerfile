@@ -62,13 +62,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 代理仅在该 RUN 内 export，不会写进最终镜像（运行时不受影响）。
 ARG HTTPS_PROXY=""
 ARG HTTP_PROXY=""
+# dl.google.com 在中国网络常被重置，代理下也偶有截断；下载做重试，并用 dpkg-deb -I
+# 校验 deb 完整性（截断的半成品会被拒），避免 apt-get install 因损坏包退出 100。
 RUN set -e; \
     if [ -n "$HTTPS_PROXY" ]; then export https_proxy="$HTTPS_PROXY" http_proxy="$HTTP_PROXY"; fi; \
     apt-get update && apt-get install -y --no-install-recommends \
       xvfb fonts-liberation x11vnc websockify novnc \
-    && curl -fsSL -o /tmp/google-chrome.deb \
-         https://dl.google.com/linux/direct/google-chrome-stable_current_arm64.deb \
-    && apt-get install -y --no-install-recommends /tmp/google-chrome.deb \
+    && for i in 1 2 3 4 5; do \
+         echo "downloading google-chrome (attempt $i)"; \
+         if curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o /tmp/google-chrome.deb \
+              https://dl.google.com/linux/direct/google-chrome-stable_current_arm64.deb \
+            && dpkg-deb -I /tmp/google-chrome.deb >/dev/null 2>&1; then \
+           echo "chrome deb verified OK"; break; \
+         fi; \
+         echo "attempt $i incomplete, retrying"; rm -f /tmp/google-chrome.deb; \
+       done && \
+    apt-get install -y --no-install-recommends /tmp/google-chrome.deb \
     && rm -rf /tmp/google-chrome.deb /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
