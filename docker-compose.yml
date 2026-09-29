@@ -3,6 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # 中国网络下构建需走代理下载 Chrome（dl.google.com 常被重置）；
+      # 构建时传 --build-arg HTTPS_PROXY=http://host.docker.internal:7897
+      args:
+        - HTTPS_PROXY
+        - HTTP_PROXY
     ports:
       - '18787:8787'
     environment:

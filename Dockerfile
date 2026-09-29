@@ -57,7 +57,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # browser-open/screenshot 与思否发布 sf-pw-publish 都用 playwright-core 驱动 channel:'chrome'，
 # 容器里没有宿主 Chrome，镜像内装真实 Google Chrome：官方 apt 源只发 amd64，arm64 需直接下 .deb。
 # Xvfb 提供虚拟显示：sf-pw-publish 脚本 headless:false，容器无真实显示器会导致 launch 直接失败。
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# dl.google.com 在中国网络常被重置（SSL_ERROR_SYSCALL）；构建时可用
+# --build-arg HTTPS_PROXY=http://host.docker.internal:<port> 走宿主代理下载 Chrome。
+# 代理仅在该 RUN 内 export，不会写进最终镜像（运行时不受影响）。
+ARG HTTPS_PROXY=""
+ARG HTTP_PROXY=""
+RUN set -e; \
+    if [ -n "$HTTPS_PROXY" ]; then export https_proxy="$HTTPS_PROXY" http_proxy="$HTTP_PROXY"; fi; \
+    apt-get update && apt-get install -y --no-install-recommends \
       xvfb fonts-liberation x11vnc websockify novnc \
     && curl -fsSL -o /tmp/google-chrome.deb \
          https://dl.google.com/linux/direct/google-chrome-stable_current_arm64.deb \
