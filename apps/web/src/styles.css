@@ -2697,3 +2697,59 @@ body {
   color: var(--text);
   word-break: break-word;
 }
+
+/* ---- desktop VNC view ---- */
+.desktop-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-tertiary, #f4f4f5);
+}
+.desktop-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border, #e5e5e5);
+  background: var(--bg, #fff);
+  flex-wrap: wrap;
+}
+.desktop-url {
+  flex: 1;
+  min-width: 220px;
+  padding: 7px 10px;
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text);
+}
+.desktop-hint {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+}
+.desktop-msg {
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-secondary, #fafafa);
+  border-bottom: 1px solid var(--border, #e5e5e5);
+}
+.desktop-saved {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  border-bottom: 1px solid var(--border, #e5e5e5);
+}
+.desktop-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  min-height: 0;
+  background: #1a1a1a;
+}

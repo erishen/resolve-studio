@@ -15,6 +15,7 @@ import { FilePreview } from './FilePreview'
 import { JobsPanel } from './JobsPanel'
 import { MessageList } from './MessageList'
 import { WorkspaceView } from './WorkspaceView'
+import { DesktopPanel } from './components/DesktopPanel'
 import {
   buildExamples,
   filterExamplesForTask,
@@ -54,7 +55,7 @@ export function App() {
   // ---- UI state ----
   const [draft, setDraft] = useState('')
   const [showFilePicker, setShowFilePicker] = useState(false)
-  const [view, setView] = useState<'chat' | 'tasks' | 'workspace'>('chat')
+  const [view, setView] = useState<'chat' | 'tasks' | 'workspace' | 'desktop'>('chat')
   const [openSkill, setOpenSkill] = useState<string | null>(null)
   const [openMcp, setOpenMcp] = useState<string | null>(null)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
@@ -464,6 +465,12 @@ export function App() {
                   >
                     工作区
                   </button>
+                  <button
+                    className={`app-nav-btn${view === 'desktop' ? ' active' : ''}`}
+                    onClick={() => setView('desktop')}
+                  >
+                    桌面
+                  </button>
                 </div>
               </div>
               <div className="app-header-center">
@@ -592,6 +599,8 @@ export function App() {
               </div>
             ) : view === 'workspace' ? (
               <WorkspaceView onRunTask={handleRunTask} />
+            ) : view === 'desktop' ? (
+              <DesktopPanel />
             ) : (
               <>
                 <MessageList

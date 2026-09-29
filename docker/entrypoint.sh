@@ -15,6 +15,15 @@ rm -f "/tmp/.X${DISPLAY#:}-lock"
 Xvfb "$DISPLAY" -screen 0 1600x1200x24 -nolisten tcp &
 sleep 1
 
+# ---- noVNC 展示层：把虚拟屏 :99 经 x11vnc + websockify 暴露为 WebSocket ----
+# 这样 Web UI 的「桌面」页就能用 iframe 嵌 noVNC，实时看到/操作容器里的有头 Chrome
+# （含 sf-pw-publish 发文章、一键登录等）。6080 不发布到宿主（仅容器网络），
+# 由 nginx 反代 /novnc 单一入口；x11vnc 无密码（-nopw）仅适合 localhost 个人工具，
+# 若 18080 暴露公网需补 -passwd 网关。
+pkill -f 'x11vnc' 2>/dev/null || true
+x11vnc -display "$DISPLAY" -forever -shared -nopw -rfbport 5900 -bg 2>/dev/null
+websockify --web=/usr/share/novnc 6080 localhost:5900 &
+
 # ---- 让 /workspace 挂载树对 agent 的 /app cwd 可见（可发现性修复）----
 # agent 的 shell 从 /app 启动，但所有项目源码 bind 挂载在 /workspace。它常试
 # `cd crewai-pse`（cwd 是 /app，该目录不存在 → "can't cd to crewai-pse"）或

@@ -593,3 +593,31 @@ export async function fetchFile(path: string): Promise<{ content: string; size: 
   }
   return (await res.json()) as { content: string; size: number }
 }
+
+// ---- desktop VNC: headed login ----
+
+export interface DesktopLoginResult {
+  ok: boolean
+  sites: string[]
+  message?: string
+  updatedAt?: string
+}
+
+/** Open a headed Chrome on the container's virtual display and wait `waitMs`
+ *  for the user to finish an interactive login. The UI shows the live desktop
+ *  via noVNC while this long-polls. */
+export async function startDesktopLogin(url: string, waitMs: number): Promise<DesktopLoginResult> {
+  const res = await fetch(`/api/desktop-login?url=${encodeURIComponent(url)}&wait_ms=${waitMs}`)
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as DesktopLoginResult
+    return { ok: false, sites: [], message: data.message ?? `登录启动失败 (${res.status})` }
+  }
+  return (await res.json()) as DesktopLoginResult
+}
+
+/** Read the cached login-state summary (domains with saved cookies). */
+export async function fetchDesktopLogins(): Promise<DesktopLoginResult> {
+  const res = await fetch('/api/desktop-login/sites')
+  if (!res.ok) return { ok: true, sites: [] }
+  return (await res.json()) as DesktopLoginResult
+}

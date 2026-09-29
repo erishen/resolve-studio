@@ -27,6 +27,7 @@ import { definePlugin } from './util.js'
 import { assertWithinRoots } from './fs-guard.js'
 import { SessionStore, type SessionRecord } from './session-store.js'
 import { WorkspaceManager } from './workspace-manager.js'
+import { runDesktopLogin, readCachedLogins } from './desktop-login.js'
 import type { ApprovalDecision } from '../services/approval.js'
 import type { JobEvent, JobsService } from '../services/jobs.js'
 import type { ChatMessage, ModelInfo, RunEventBus } from '../types.js'
@@ -723,6 +724,26 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
         'Cache-Control': 'no-store',
       })
       res.end(buf)
+      return
+    }
+
+    // ---- desktop VNC: headed login + saved login-state query ----
+    if (path === '/api/desktop-login' && req.method === 'GET') {
+      const urlParam = url.searchParams.get('url')
+      if (!urlParam || !/^https?:\/\//i.test(urlParam)) {
+        sendJson(res, 400, { error: 'missing or invalid ?url= (expected http(s)://…)' })
+        return
+      }
+      const waitMsRaw = Number(url.searchParams.get('wait_ms') ?? 180000)
+      const waitMs = Number.isFinite(waitMsRaw)
+        ? Math.min(Math.max(waitMsRaw, 10000), 600000)
+        : 180000
+      const result = await runDesktopLogin(urlParam, waitMs)
+      sendJson(res, result.ok ? 200 : 409, result)
+      return
+    }
+    if (path === '/api/desktop-login/sites' && req.method === 'GET') {
+      sendJson(res, 200, readCachedLogins())
       return
     }
 

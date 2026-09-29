@@ -58,7 +58,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 容器里没有宿主 Chrome，镜像内装真实 Google Chrome：官方 apt 源只发 amd64，arm64 需直接下 .deb。
 # Xvfb 提供虚拟显示：sf-pw-publish 脚本 headless:false，容器无真实显示器会导致 launch 直接失败。
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      xvfb fonts-liberation \
+      xvfb fonts-liberation x11vnc websockify novnc \
     && curl -fsSL -o /tmp/google-chrome.deb \
          https://dl.google.com/linux/direct/google-chrome-stable_current_arm64.deb \
     && apt-get install -y --no-install-recommends /tmp/google-chrome.deb \
