@@ -46,6 +46,7 @@ import { toolResumeTailor } from './tools/tool-resume-tailor.js'
 import { toolInterviewQuestions } from './tools/tool-interview-questions.js'
 import { toolCrmTask } from './tools/tool-crm-task.js'
 import { toolWpPublish } from './tools/tool-wp-publish.js'
+import { toolDesktopLogin } from './tools/tool-desktop-login.js'
 import { toolCrewAiPublish } from './tools/tool-crewai-publish.js'
 import { toolCrewAiDiscover } from './tools/tool-crewai-discover.js'
 import { toolHotNews } from './tools/tool-hot-news.js'
@@ -98,6 +99,7 @@ export const PLUGINS: Record<string, Plugin> = {
   'tool-interview-questions': toolInterviewQuestions as unknown as Plugin,
   'tool-crm-task': toolCrmTask as unknown as Plugin,
   'tool-wp-publish': toolWpPublish as unknown as Plugin,
+  'tool-desktop-login': toolDesktopLogin as unknown as Plugin,
   'tool-crewai-publish': toolCrewAiPublish as unknown as Plugin,
   'tool-crewai-discover': toolCrewAiDiscover as unknown as Plugin,
   'tool-hot-news': toolHotNews as unknown as Plugin,

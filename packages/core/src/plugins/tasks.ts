@@ -130,6 +130,7 @@ const DEFAULT_TASKS: TaskDef[] = [
       'juejin-draft',
       'wechat-draft',
       'sf-pw-publish',
+      'desktop-login',
       'pick-post',
     ],
   },

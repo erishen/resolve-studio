@@ -61,24 +61,26 @@ pnpm run chat -- --config cordis.openai.yml   # real model
 
 Copy `.env.example` to `.env` and fill in as needed:
 
-| Variable                        | Description                                            | Default                       |
-| ------------------------------- | ------------------------------------------------------ | ----------------------------- |
-| `OPENAI_BASE_URL`               | OpenAI-compatible API base URL                         | —                             |
-| `OPENAI_API_KEY`                | API Key                                                | —                             |
-| `OPENAI_MODEL`                  | Default model                                          | —                             |
-| `WORKSPACE_OUT`                 | Workspace scan report output directory                 | `<cwd>/workspace-analysis`    |
-| `SERENA_UV`                     | path to the `uv` binary (for serena code analysis)     | `uv` (PATH lookup)            |
-| `HARNESS_EXTRA_ROOTS`           | extra allowed filesystem roots (comma-separated)       | —                             |
-| `HARNESS_SHELL_ALLOW_TRAVERSAL` | set to `1` to allow shell tool directory traversal     | `0`                           |
-| `HARNESS_PRICES`                | custom model price table (JSON)                        | built-in price table          |
-| `SANDBOX_ENABLED`               | enable OS-level sandbox (macOS Seatbelt / Linux bwrap) | `false`                       |
-| `SANDBOX_ALLOW_NETWORK`         | allow network access inside the sandbox                | `true`                        |
-| `PSE_ENABLED`                   | enable PSE three-role mode                             | `false`                       |
-| `PSE_SOULS_DIR`                 | PSE role definition directory                          | `HARNESS_SKILLS_DIR/../souls` |
-| `CREWAI_PSE_DIR`                | crewai-pse project path                                | auto-derived relative path    |
-| `AUTOGEN_PSE_DIR`               | autogen-pse project path                               | auto-derived relative path    |
-| `LLAMAINDEX_PSE_DIR`            | llamaindex-pse project path                            | auto-derived relative path    |
-| `LANGGRAPH_PSE_DIR`             | langgraph-pse project path                             | auto-derived relative path    |
+| Variable                        | Description                                                                    | Default                       |
+| ------------------------------- | ------------------------------------------------------------------------------ | ----------------------------- |
+| `OPENAI_BASE_URL`               | OpenAI-compatible API base URL                                                 | —                             |
+| `OPENAI_API_KEY`                | API Key                                                                        | —                             |
+| `OPENAI_MODEL`                  | Default model                                                                  | —                             |
+| `WORKSPACE_OUT`                 | Workspace scan report output directory                                         | `<cwd>/workspace-analysis`    |
+| `SERENA_UV`                     | path to the `uv` binary (for serena code analysis)                             | `uv` (PATH lookup)            |
+| `HARNESS_EXTRA_ROOTS`           | extra allowed filesystem roots (comma-separated)                               | —                             |
+| `HARNESS_SHELL_ALLOW_TRAVERSAL` | set to `1` to allow shell tool directory traversal                             | `0`                           |
+| `HARNESS_PRICES`                | custom model price table (JSON)                                                | built-in price table          |
+| `SANDBOX_ENABLED`               | enable OS-level sandbox (macOS Seatbelt / Linux bwrap)                         | `false`                       |
+| `SANDBOX_ALLOW_NETWORK`         | allow network access inside the sandbox                                        | `true`                        |
+| `PSE_ENABLED`                   | enable PSE three-role mode                                                     | `false`                       |
+| `PSE_SOULS_DIR`                 | PSE role definition directory                                                  | `HARNESS_SKILLS_DIR/../souls` |
+| `CREWAI_PSE_DIR`                | crewai-pse project path                                                        | auto-derived relative path    |
+| `AUTOGEN_PSE_DIR`               | autogen-pse project path                                                       | auto-derived relative path    |
+| `LLAMAINDEX_PSE_DIR`            | llamaindex-pse project path                                                    | auto-derived relative path    |
+| `LANGGRAPH_PSE_DIR`             | langgraph-pse project path                                                     | auto-derived relative path    |
+| `SF_LOGIN_ENABLED`              | enable optional desktop-login tooling (off by default; involves account login) | `0`                           |
+| `SF_LOGIN_PHONE`                | phone auto-fill in the desktop-login form                                      | —                             |
 
 > All path-style configs support environment-variable overrides, so the project can be migrated across machines without touching code.
 
@@ -230,6 +232,9 @@ The backend `web-server` plugin (zero-dependency, Node built-in `http`) pushes `
 - `POST /api/approval` (`{callId, decision}`)
 - `GET/POST /api/sessions` · `GET/DELETE /api/sessions/:id` (persistence)
 - `GET /api/usage?sessionId=<id>` → global or per-session token/cost statistics
+- `GET /api/desktop-login?url=&wait_ms=` · `GET /api/desktop-login/sites` → headed desktop login (VNC) + saved login-state domains
+
+The **Desktop panel** embeds a noVNC view of the container's virtual display (`:99`, Xvfb) so you can watch and operate a headed Chrome in real time: type any URL and click「打开并登录」to launch it on the desktop and complete slider/2FA logins; cookies are persisted for reuse. Optional account-login features behind the panel are off by default (see `SF_LOGIN_ENABLED` above) — enable them in your gitignored `.env` only if you need them.
 
 Frontend structure: `api.ts` (SSE client) · `App.tsx` (layout + composition) · `hooks/useChat.ts` (message state machine + streaming + approval) · `hooks/useSessions.ts` (session CRUD + auto-save) · `hooks/useMcp.ts` (MCP server management) · `hooks/useJobs.ts` (job list + live detail) · `MessageList.tsx` (thinking → tool card → summary + in-chat task cards) · `ToolCallCard.tsx` (tool card + approval button) · `JobsPanel.tsx` (background-job manager) · `Composer.tsx` · `ErrorBoundary.tsx` (root-level error boundary).
 

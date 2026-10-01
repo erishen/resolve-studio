@@ -12,7 +12,9 @@ export DISPLAY="${DISPLAY:-:99}"
 # 改为无条件清理残留进程与 lock，再幂等拉起 Xvfb。
 pkill -f "Xvfb ${DISPLAY}" 2>/dev/null || true
 rm -f "/tmp/.X${DISPLAY#:}-lock"
-Xvfb "$DISPLAY" -screen 0 1600x1200x24 -nolisten tcp &
+# 1280x800（16:10）：noVNC 用 resize=scale 把整个虚拟屏缩进 Web 面板的 iframe，
+# 分辨率越高缩放越狠、文字越糊；1280x800 贴近常见窗口比例，缩放后仍可读。
+Xvfb "$DISPLAY" -screen 0 1280x800x24 -nolisten tcp &
 sleep 1
 
 # ---- noVNC 展示层：把虚拟屏 :99 经 x11vnc + websockify 暴露为 WebSocket ----

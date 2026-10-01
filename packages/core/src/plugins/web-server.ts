@@ -126,6 +126,13 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
   const log = ctx.logger('web')
   const port = config.port ?? PORT
   const host = config.host ?? HOST
+  // 桌面专用登录开关（默认关闭）：开启后桌面面板显示专用登录按钮、允许
+  // desktop-login 工具把登录态写回会话文件。涉及账号登录，默认不暴露。
+  const sfLoginEnabled = process.env['SF_LOGIN_ENABLED'] === '1'
+  // 按钮文案与目标登录链接均可配置（SF_LOGIN_BUTTON_LABEL / SF_LOGIN_URL），
+  // 不写死具体平台；未配置链接时按钮不显示。
+  const sfLoginLabel = process.env['SF_LOGIN_BUTTON_LABEL'] ?? '登录'
+  const sfLoginUrl = process.env['SF_LOGIN_URL'] ?? ''
   const workspaceOut = resolveWorkspaceOut(config)
   const serenaUv = resolveSerenaUv(config)
   const workspaceScript = join(process.cwd(), 'packages/core', 'workspace-scan.mjs')
@@ -738,12 +745,20 @@ const startWebServer = (ctx: Context, config: WebServerConfig = {}) => {
       const waitMs = Number.isFinite(waitMsRaw)
         ? Math.min(Math.max(waitMsRaw, 10000), 600000)
         : 180000
-      const result = await runDesktopLogin(urlParam, waitMs)
+      // 登录成功后把 storageState 导出到发布脚本读的会话文件（.sf-state.json），
+      // 让发布任务复用同一登录态（容器内纯 JSON 传递，绕开 macOS 钥匙串跨 OS 问题）。
+      // 受 SF_LOGIN_ENABLED 开关约束：未启用时即使带 export_sf_state=1 也不写回。
+      const exportSfState = sfLoginEnabled && url.searchParams.get('export_sf_state') === '1'
+      const wpTools = process.env.WORDPRESS_TOOLS_DIR
+      const exportStatePath = exportSfState && wpTools ? join(wpTools, '.sf-state.json') : undefined
+      const result = await runDesktopLogin(urlParam, waitMs, exportStatePath)
       sendJson(res, result.ok ? 200 : 409, result)
       return
     }
     if (path === '/api/desktop-login/sites' && req.method === 'GET') {
-      sendJson(res, 200, readCachedLogins())
+      // 附带桌面登录配置（开关/按钮文案/目标链接）：前端据此决定是否渲染专用
+      // 登录按钮及点击后打开哪个地址（默认不显示，配置后才出现）。
+      sendJson(res, 200, { ...readCachedLogins(), sfLoginEnabled, sfLoginLabel, sfLoginUrl })
       return
     }
 

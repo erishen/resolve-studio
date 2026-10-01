@@ -601,13 +601,27 @@ export interface DesktopLoginResult {
   sites: string[]
   message?: string
   updatedAt?: string
+  /** True when the session state was also exported to a storageState file. */
+  stateExported?: boolean
+  /** True when the dedicated desktop-login feature is enabled (SF_LOGIN_ENABLED=1). */
+  sfLoginEnabled?: boolean
+  /** Button label for the dedicated desktop login (SF_LOGIN_BUTTON_LABEL). */
+  sfLoginLabel?: string
+  /** Target URL the dedicated desktop login opens (SF_LOGIN_URL). */
+  sfLoginUrl?: string
 }
 
 /** Open a headed Chrome on the container's virtual display and wait `waitMs`
  *  for the user to finish an interactive login. The UI shows the live desktop
  *  via noVNC while this long-polls. */
-export async function startDesktopLogin(url: string, waitMs: number): Promise<DesktopLoginResult> {
-  const res = await fetch(`/api/desktop-login?url=${encodeURIComponent(url)}&wait_ms=${waitMs}`)
+export async function startDesktopLogin(
+  url: string,
+  waitMs: number,
+  opts?: { exportSfState?: boolean },
+): Promise<DesktopLoginResult> {
+  const qs = new URLSearchParams({ url, wait_ms: String(waitMs) })
+  if (opts?.exportSfState) qs.set('export_sf_state', '1')
+  const res = await fetch(`/api/desktop-login?${qs.toString()}`)
   if (!res.ok) {
     const data = (await res.json().catch(() => ({}))) as DesktopLoginResult
     return { ok: false, sites: [], message: data.message ?? `登录启动失败 (${res.status})` }

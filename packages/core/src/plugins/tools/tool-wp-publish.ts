@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { existsSync, statSync } from 'node:fs'
+import * as path from 'node:path'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
@@ -63,6 +65,31 @@ function registerWpTask(ctx: Context, task: WpTaskDef) {
       if (!WP_TOOLS) {
         return `error: ${task.name} 不可用 — WORDPRESS_TOOLS_DIR 未设置，请在 .env 中配置 wordpress-tools 的路径。`
       }
+      // 真浏览器发布任务：先校验登录态，避免在容器/无显示环境里傻等登录超时却看不出原因。
+      // 会话存于 .sf-state.json（storageState 纯文本、不绑钥匙串，容器与 Mac 共享同一 bind 挂载文件）。
+      if (task.name === 'sf-pw-publish') {
+        const statePath = path.join(WP_TOOLS, '.sf-state.json')
+        if (!existsSync(statePath)) {
+          return (
+            `error: 登录态未建立（${statePath} 不存在）。\n` +
+            `请先登录一次以写回新鲜登录态，二选一：\n` +
+            `   ① 宿主 Mac 终端：进入你本机的 wordpress-tools 目录（即挂载为容器内 ${WP_TOOLS} 的那个），运行 make sf-pw-publish（会弹 Chrome，登录后写回）。\n` +
+            `   ② 或开 resolve-studio 桌面面板点专用登录按钮，在 VNC 里登录后自动写回 .sf-state.json（全程在容器内，免切终端）。\n` +
+            `两种方式写回的是同一份 .sf-state.json，刷新后 resolve-studio 复用即可自动发布。`
+          )
+        }
+        const ageMs = Date.now() - statSync(statePath).mtimeMs
+        const MAX_AGE_MS = 7 * 24 * 3600 * 1000
+        if (ageMs > MAX_AGE_MS) {
+          const ageDays = (ageMs / 86400000).toFixed(1)
+          return (
+            `error: 登录态可能已过期（${statePath} 最后刷新 ${ageDays} 天前，超过 7 天阈值）。\n` +
+            `请刷新会话后重试，二选一：\n` +
+            `   ① 宿主 Mac 终端：进入你本机的 wordpress-tools 目录（即挂载为容器内 ${WP_TOOLS} 的那个），运行 make sf-pw-publish。\n` +
+            `   ② 或开 resolve-studio 桌面面板点专用登录按钮，在 VNC 里登录后自动写回 .sf-state.json（全程在容器内，免切终端）。`
+          )
+        }
+      }
       const onProgress = execCtx?.onProgress
 
       ctx.logger(task.name).info('running make %s (cwd=%s)', task.makeTarget, WP_TOOLS)
@@ -82,7 +109,11 @@ function registerWpTask(ctx: Context, task: WpTaskDef) {
           (e.stdout || '') + (e.stderr ? '\n--- stderr ---\n' + e.stderr : '') ||
           e.message ||
           String(err)
-        return `error: ${task.name} failed (exit ${e.code ?? 'unknown'}) — ${truncate(tail, 2000)}`
+        // 会话过期/未登录：脚本会打 SF_SESSION_EXPIRED 或「已保存登录态已失效」，识别后补一行刷新指引。
+        const hint = /SF_SESSION_EXPIRED|登录态已失效|未登录思否|PHPSESSID/.test(tail)
+          ? `\n💡 看起来是登录态失效：请刷新会话后重试——可在宿主 wordpress-tools 目录运行 make sf-pw-publish，或开 resolve-studio 桌面面板点专用登录按钮（VNC 内登录自动写回 .sf-state.json）。`
+          : ''
+        return `error: ${task.name} failed (exit ${e.code ?? 'unknown'}) — ${truncate(tail, 2000)}${hint}`
       }
     },
   } satisfies Tool)

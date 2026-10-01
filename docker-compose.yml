@@ -24,6 +24,13 @@ services:
       # 有头浏览器（sf-pw-publish Playwright 脚本 headless:false）需要 DISPLAY；
       # entrypoint 会在容器内起 Xvfb 兜底
       - DISPLAY=:99
+      # 桌面专用登录（可选，默认全关）：SF_LOGIN_ENABLED 开启后桌面面板才显示专用登录
+      # 按钮；SF_LOGIN_URL 是按钮打开的目标登录地址；SF_LOGIN_BUTTON_LABEL 为按钮文案；
+      # SF_LOGIN_PHONE 可选自动填入登录表单手机号。值放 gitignored .env，public 仓不写死。
+      - SF_LOGIN_PHONE=${SF_LOGIN_PHONE:-}
+      - SF_LOGIN_URL=${SF_LOGIN_URL:-}
+      - SF_LOGIN_BUTTON_LABEL=${SF_LOGIN_BUTTON_LABEL:-}
+      - SF_LOGIN_ENABLED=${SF_LOGIN_ENABLED:-}
       # ---- PSE 框架目录（hot-news / resume-tailor 等）----
       # 值必须与 volumes 里 /workspace 的挂载点对应（宿主仓库根 individular-invest/）
       - LLAMAINDEX_PSE_DIR=/workspace/frameworks/llamaindex-pse
