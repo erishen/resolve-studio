@@ -1,12 +1,64 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import * as path from 'node:path'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
 
 const execFileAsync = promisify(execFile)
+
+/**
+ * Probe whether the storageState in .sf-state.json is still accepted by the
+ * server.  A 307/302 redirect to /user/login means the session truly expired;
+ * a 200 (landing on /write or /howtowrite) means it's still valid even if the
+ * file mtime is old.  This avoids the false-positive "7-day" mtime gate that
+ * rejected perfectly-working sessions (observed 2026-10-12: 12.5-day-old
+ * .sf-state.json whose PHPSESSID was still server-side active).
+ *
+ * Returns:
+ *  - 'valid'    – server accepted the session (200, no redirect to login)
+ *  - 'expired'  – server 3xx-redirected to a login page
+ *  - 'unknown'  – probe itself failed (network error, file unreadable, …)
+ */
+async function probeSfSession(statePath: string): Promise<'valid' | 'expired' | 'unknown'> {
+  try {
+    const raw = readFileSync(statePath, 'utf8')
+    const parsed = JSON.parse(raw) as { cookies?: Array<{ name: string; value: string }> }
+    const cookieStr = (parsed.cookies ?? [])
+      .map((c) => `${c.name}=${c.value}`)
+      .join('; ')
+    if (!cookieStr) return 'unknown'
+    const res = await fetch('https://segmentfault.com/write', {
+      method: 'GET',
+      redirect: 'manual',
+      headers: {
+        cookie: cookieStr,
+        'user-agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+      signal: AbortSignal.timeout(15_000),
+    })
+    const status = res.status
+    if (status >= 300 && status < 400) {
+      // 307/302 → follow the Location header to see where we landed
+      const loc = res.headers.get('location') ?? ''
+      res.body?.cancel().catch(() => {})
+      if (/(user\/login|signin|oauth|passport)/i.test(loc)) return 'expired'
+      // Redirected somewhere else that's NOT a login page → session is valid
+      // but the server routed to a different URL (e.g. /howtowrite).
+      return 'valid'
+    }
+    if (status === 200) {
+      res.body?.cancel().catch(() => {})
+      return 'valid'
+    }
+    res.body?.cancel().catch(() => {})
+    return 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
 
 // WP tools live outside this repo (wordpress-tools). Require WORDPRESS_TOOLS_DIR
 // from .env so no personal filesystem path leaks into the source.
@@ -81,12 +133,24 @@ function registerWpTask(ctx: Context, task: WpTaskDef) {
         const ageMs = Date.now() - statSync(statePath).mtimeMs
         const MAX_AGE_MS = 7 * 24 * 3600 * 1000
         if (ageMs > MAX_AGE_MS) {
+          // mtime 只是粗筛：文件超过 7 天没刷新不代表 cookie 真的死了（思否 session
+          // 有效期可远超 7 天）。先实际探测服务端是否仍接受这份 storageState，
+          // 只有确认被 3xx 弹回登录页才要求刷新；有效（甚至探测失败）都放行，
+          // 让真正的发布脚本去判定并走人工登录兜底。
+          const probe = await probeSfSession(statePath)
           const ageDays = (ageMs / 86400000).toFixed(1)
-          return (
-            `error: 登录态可能已过期（${statePath} 最后刷新 ${ageDays} 天前，超过 7 天阈值）。\n` +
-            `请刷新会话后重试，二选一：\n` +
-            `   ① 宿主 Mac 终端：进入你本机的 wordpress-tools 目录（即挂载为容器内 ${WP_TOOLS} 的那个），运行 make sf-pw-publish。\n` +
-            `   ② 或开 resolve-studio 桌面面板点专用登录按钮，在 VNC 里登录后自动写回 .sf-state.json（全程在容器内，免切终端）。`
+          if (probe === 'expired') {
+            return (
+              `error: 登录态已过期（${statePath} 最后刷新 ${ageDays} 天前，且服务端已将其重定向到登录页）。\n` +
+              `请刷新会话后重试，二选一：\n` +
+              `   ① 宿主 Mac 终端：进入你本机的 wordpress-tools 目录（即挂载为容器内 ${WP_TOOLS} 的那个），运行 make sf-pw-publish。\n` +
+              `   ② 或开 resolve-studio 桌面面板点专用登录按钮，在 VNC 里登录后自动写回 .sf-state.json（全程在容器内，免切终端）。`
+            )
+          }
+          ctx.logger(task.name).warn(
+            'state file is %s days old; server probe = %s — proceeding anyway',
+            ageDays,
+            probe,
           )
         }
       }
