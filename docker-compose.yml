@@ -3,11 +3,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      # 中国网络下构建需走代理下载 Chrome（dl.google.com 常被重置）；
-      # 构建时传 --build-arg HTTPS_PROXY=http://host.docker.internal:7897
+      # 中国网络下构建需走代理下载 Chrome（dl.google.com 常被重置）。
+      # 代理地址固定从 .env 的 DOCKER_BUILD_PROXY 读（host.docker.internal:<port>），
+      # 不再吃宿主 shell 的 HTTPS_PROXY（容器内 127.0.0.1 是容器自身，宿主的
+      # 代理地址在 build 容器里无意义）。若 .env 未设 DOCKER_BUILD_PROXY，
+      # 构建时不传代理（走直连，apt/pnpm 在 CN 网络通常可达）。
       args:
-        - HTTPS_PROXY
-        - HTTP_PROXY
+        - HTTPS_PROXY=${DOCKER_BUILD_PROXY:-}
+        - HTTP_PROXY=${DOCKER_BUILD_PROXY:-}
     ports:
       - '18787:8787'
     environment:
