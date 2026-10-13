@@ -5,6 +5,7 @@ dist/
 .env
 .DS_Store
 .run/
+.docker-build.pid
 
 # session persistence
 .data/
