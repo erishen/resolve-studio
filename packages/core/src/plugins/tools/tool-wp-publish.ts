@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext } from '../../types.js'
+import { resyncPendingList } from './util-resync.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -62,43 +63,6 @@ async function probeSfSession(statePath: string): Promise<'valid' | 'expired' | 
 // from .env so no personal filesystem path leaks into the source.
 const WP_TOOLS = process.env.WORDPRESS_TOOLS_DIR
 
-// life-dash 根（publish-pending 卡片的数据源 articlePublish.json 所在仓库）：
-// LIFE_DASH_DIR 优先，否则从 WORDPRESS_TOOLS_DIR 推（…/personal-site/wordpress-tools
-// → 同级 personal/life-dash）。
-function lifeDashRoot(): string | null {
-  const l = process.env.LIFE_DASH_DIR
-  if (l) return l
-  if (WP_TOOLS) return path.join(WP_TOOLS, '..', '..', 'life-dash')
-  return null
-}
-
-/**
- * 发布卡片跑完（frontmatter 已回写 juejin_id / sf_id / wechat_draft_id）后，
- * 自动重跑 life-dash 的 gen-article-publish.mts 刷新 articlePublish.json，
- * 让 publish-pending 卡片读到最新未发清单（等价 life-dash `make rescan` 的数据刷新部分，
- * 不重建 life-dash 前端 dist）。best-effort：失败不影响发布本身（发布已成功、frontmatter
- * 已回写），只给一行提示。
- */
-async function resyncPendingList(taskLabel: string): Promise<string> {
-  const root = lifeDashRoot()
-  const gen = root ? path.join(root, 'scripts', 'gen-article-publish.mts') : ''
-  if (!root || !gen || !existsSync(gen)) return ''
-  // 容器 compose 会把 ARTICLES_DIR 注入成 …/articles/pse（PSE 子目录），而 life-dash
-  // 生成器默认要 …/articles 根 —— 删掉它，让生成器走正确的相对默认路径。
-  const env: Record<string, string | undefined> = { ...process.env }
-  delete env.ARTICLES_DIR
-  try {
-    const { stdout } = await execFileAsync(process.execPath, ['--experimental-strip-types', gen], {
-      timeout: 60_000,
-      maxBuffer: 1 << 20,
-      env,
-    })
-    const summary = (stdout ?? '').trim().split('\n').filter(Boolean).pop() ?? ''
-    return `\n\n📋 未发清单已自动同步（等价 life-dash make rescan 数据刷新）：${summary}`
-  } catch (e) {
-    return `\n\n⚠️ ${taskLabel} 已完成，但自动同步未发清单失败（${(e as Error).message}）。可手动 cd personal/life-dash && make rescan。`
-  }
-}
 const TASK_TIMEOUT_MS = 300_000
 const MAX_OUTPUT = 32 * 1024
 

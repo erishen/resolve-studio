@@ -6,6 +6,7 @@ import type { Context } from 'cordis'
 import { definePlugin } from '../util.js'
 import type { Tool, ToolExecutionContext, ToolParameter } from '../../types.js'
 import { uvEnvFor } from './util-pse.js'
+import { resyncPendingList } from './util-resync.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -296,9 +297,16 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef) {
         })
         const combined = (stdout || '') + (stderr ? '\n--- stderr ---\n' + stderr : '')
         onProgress?.(combined)
+        // 发布/归档会写 wp_id 或重建各平台副本（juejin/segmentfault/wechat），刷新
+        // life-dash 未发清单，让 publish-pending 卡片即时可见（article-validate 只读，跳过）。
+        const resync =
+          task.name === 'article-publish' || task.name === 'article-archive'
+            ? await resyncPendingList(task.label)
+            : ''
         return (
           `> ${task.label}完成 (make ${task.makeTarget} P=${project})\n\n` +
-          truncate(combined, MAX_OUTPUT)
+          truncate(combined, MAX_OUTPUT) +
+          resync
         )
       } catch (err) {
         const e = err as { message?: string; stdout?: string; stderr?: string; code?: number }
