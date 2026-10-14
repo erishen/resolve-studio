@@ -218,12 +218,14 @@ function toolExample(t: ToolSchema): ExampleItem | null {
     },
     'juejin-draft': {
       title: '建掘金草稿',
-      prompt: '帮我把下一篇未发布的文章建成掘金草稿。',
+      prompt:
+        '帮我把下一篇未建草稿的文章建成掘金草稿（草稿=已发，同公众号口径；建完未发清单会自动把它标为已发并缩短队列）。',
       category: 'article',
     },
     'juejin-publish': {
-      title: '发布掘金草稿',
-      prompt: '帮我把已建好的掘金草稿发布上线（点发布那一篇）。',
+      title: '掘金草稿上线（可选）',
+      prompt:
+        '草稿=已发后一般不必做；若要显式把已建草稿点上线（make juejin-publish），帮我对已建草稿的下一篇执行。',
       category: 'article',
     },
     'wechat-draft': {

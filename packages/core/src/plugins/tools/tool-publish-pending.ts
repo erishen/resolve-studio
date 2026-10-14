@@ -62,8 +62,8 @@ interface PendingData {
 const NEXT_STEP: Record<string, string> = {
   'wp:missing': 'WP 发布（writeArticle.js）',
   'en:missing': '写英文稿（articles/en/…-en.md）',
-  'juejin:draft': '草稿已建 → 点发布（make juejin-publish）',
-  'juejin:missing': '建草稿（make juejin-draft）或补掘金稿',
+  'juejin:draft': '有掘金稿未建草稿 → make juejin-draft 建草稿（草稿=已发）',
+  'juejin:missing': '无掘金稿 → 建稿后 make juejin-draft（草稿=已发）',
   'segmentfault:draft': '已写未发 → 发布（make sf-pw-publish）',
   'segmentfault:missing': '补思否稿并发布（make sf-pw-publish）',
   'wechat:missing': '建公众号草稿（make wechat-draft）——建进草稿箱即视为已群发',
@@ -112,8 +112,10 @@ function run(_args: Record<string, never>, execCtx?: ToolExecutionContext): stri
   emit(
     '掘金',
     rows.filter((r) => r.missing.includes('juejin')),
-    (r) => NEXT_STEP[`juejin:${r.juejin.s}`] ?? '发布',
-    (s.jjNotPub ?? 0) > 0 ? '草稿已建的直接 make juejin-publish 点发布' : undefined,
+    (r) => NEXT_STEP[`juejin:${r.juejin.s}`] ?? '建草稿',
+    (s.jjNotPub ?? 0) > 0
+      ? 'make juejin-draft 建草稿（草稿=已发，建完自动升 pub、队列缩短）'
+      : undefined,
   )
   emit(
     '思否',

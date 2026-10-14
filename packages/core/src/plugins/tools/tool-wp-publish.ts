@@ -83,10 +83,10 @@ const TASKS: WpTaskDef[] = [
   },
   {
     name: 'juejin-publish',
-    label: '掘金发布',
+    label: '掘金草稿上线（可选）',
     makeTarget: 'juejin-publish',
     description:
-      '掘金发布（草稿→点上线）：调用 wordpress-tools 的 `make juejin-publish`，把已建草稿（juejin_draft_id）的下一篇点发布并写回 juejin_id。用于「草稿建好了还没点发布」的文章。每次只发一篇。若提示无草稿可发，说明草稿已全部建成，需先 make juejin-draft 建新草稿。需要掘金 cookie。⚠️ 每次调用自动发队列中下一篇；连续发多篇就重复调用。',
+      '掘金草稿上线（可选步骤）：调用 wordpress-tools 的 `make juejin-publish`，把已建草稿（juejin_draft_id）的下一篇点发布并写回 juejin_id。⚠️ 当前口径「草稿=已发」（同公众号）：make juejin-draft 建完草稿即视为已发，本步骤仅在你希望显式点上线时才需要；未发清单不依赖它。需要掘金 cookie。⚠️ 每次调用自动发队列中下一篇；连续发多篇就重复调用。',
   },
   {
     name: 'wechat-draft',
