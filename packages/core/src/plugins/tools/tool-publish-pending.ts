@@ -3,7 +3,9 @@
  *
  * 数据源是 life-dash 生成的 src/data/articlePublish.json（make export-pending /
  * rescan 同源刷新）。它把「各平台未发清单」变成卡片任务里可直接看到的内容：
- * 每条 = 标题 + 缺哪个平台 + 该平台的下一步动作（建草稿 / 点发布 / 群发 / 写英文稿）。
+ * 每条 = 标题 + 缺哪个平台 + 该平台的下一步动作（建草稿 / 点发布 / 补英文稿）。
+ * 公众号走「建进草稿箱即视为已群发」的工作流语义：make wechat-draft 建草稿自动升 pub，
+ * 不再有「待群发」中间态；未建草稿但确认发过的 base 进 wechat-sent.json 白名单。
  *
  * 与 wechat-draft / juejin-draft 的区别：那些工具是「执行一次发布动作」（会写
  * frontmatter）；本工具是「先把全貌摊开」——回答"到底还有哪些没发、下一步各该做
@@ -50,7 +52,6 @@ interface PendingData {
     jjNotPub?: number
     sfNotPub?: number
     wcNoConv?: number
-    wcDraft?: number
   }
   queue?: Array<{ plat: string; label: string; pending: number; nextCmd: string; note: string }>
   rows?: PRow[]
@@ -65,9 +66,8 @@ const NEXT_STEP: Record<string, string> = {
   'juejin:missing': '建草稿（make juejin-draft）或补掘金稿',
   'segmentfault:draft': '已写未发 → 发布（make sf-pw-publish）',
   'segmentfault:missing': '补思否稿并发布（make sf-pw-publish）',
-  'wechat:missing': '建公众号草稿（make wechat-draft）',
-  'wechat:conv': '已转换未建草稿 → 建草稿（make wechat-draft）',
-  'wechat:masssend': '草稿已建 → 后台群发 → 加 wechat-sent.json → make rescan',
+  'wechat:missing': '建公众号草稿（make wechat-draft）——建进草稿箱即视为已群发',
+  'wechat:conv': '已转换未建草稿 → 建草稿（make wechat-draft）——建草稿即视为已群发',
 }
 
 function run(_args: Record<string, never>, execCtx?: ToolExecutionContext): string {
@@ -122,16 +122,10 @@ function run(_args: Record<string, never>, execCtx?: ToolExecutionContext): stri
     '有稿未发的走 make sf-pw-publish（Playwright）',
   )
   emit(
-    '公众号·待群发',
-    rows.filter((r) => r.wechat.s === 'draft' && r.missing.includes('wechat-masssend')),
-    () => NEXT_STEP['wechat:masssend'],
-    `已建草稿待群发 ${s.wcDraft ?? 0} 篇（后台群发后把 base 加进 wechat-sent.json 白名单，再 make rescan）`,
-  )
-  emit(
     '公众号·未建草稿',
     rows.filter((r) => r.wechat.s === 'conv' || r.wechat.s === 'missing'),
     (r) => NEXT_STEP[`wechat:${r.wechat.s}`] ?? '建草稿',
-    '建草稿用 make wechat-draft（逐篇）；建完仍要后台手动群发',
+    `make wechat-draft 建草稿（逐篇）即视为已群发（工作流语义）；没建草稿但确认发过的，把 base 加进 wechat-sent.json 白名单`,
   )
   emit(
     '英文稿',

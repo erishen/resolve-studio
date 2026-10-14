@@ -94,7 +94,8 @@ const TASKS: WpTaskDef[] = [
     makeTarget: 'wechat-draft',
     description:
       '建微信公众号草稿：调用 wordpress-tools 的 `make wechat-draft`，为下一篇未建草稿的文章创建公众号草稿箱草稿并写回 wechat_draft_id。每次只处理一篇。必须在本机 Mac 运行（微信校验 IP），需要 .env 中的 appid/appsecret。' +
-      '⚠️ 若提示「没有待发布（全部已有 wechat_draft_id）」，说明草稿已全部建好——此时正确动作不是重复建草稿，而是：① 去公众号后台手动群发这些草稿；② 群发后把对应 base 加进 life-dash 的 src/data/wechat-sent.json 白名单并 make rescan，未发清单才会把它标记为「已群发」。',
+      '工作流语义：建进草稿箱即视为已群发，建完 life-dash 未发清单会自动把它标为「已群发 ✓」、队列缩短（自动同步）；若某篇没建草稿但确认已群发，把 base 加进 wechat-sent.json 白名单再 make rescan。' +
+      '若提示「没有待发布（全部已有 wechat_draft_id）」，说明主清单里所有需要建草稿的文章都已建好，无需重复调用。',
   },
   {
     name: 'sf-pw-publish',

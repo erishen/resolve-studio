@@ -228,7 +228,8 @@ function toolExample(t: ToolSchema): ExampleItem | null {
     },
     'wechat-draft': {
       title: '建公众号草稿',
-      prompt: '帮我把下一篇未发布的文章建成微信公众号草稿箱草稿。',
+      prompt:
+        '帮我把下一篇未建草稿的文章建成微信公众号草稿箱草稿（建进草稿箱即视为已群发；建完未发清单会自动把它标为已群发并缩短队列）。',
       category: 'article',
     },
     'sf-pw-publish': {
