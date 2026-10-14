@@ -88,8 +88,10 @@ const ZH_TITLES: Record<string, string> = {
   'article-archive': '归档文章',
   'article-discover': '发现可写项目',
   'juejin-draft': '建掘金草稿',
+  'juejin-publish': '掘金草稿发布',
   'wechat-draft': '建公众号草稿',
   'sf-pw-publish': '发布到思否',
+  'publish-pending': '各平台未发清单',
   'pick-post': '随机选文章',
   // 投资
   'pse-review': '深度投资复盘',
@@ -208,9 +210,20 @@ function toolExample(t: ToolSchema): ExampleItem | null {
       prompt: '帮我扫描一下有哪些 github 项目可以写技术文章。',
       category: 'article',
     },
+    'publish-pending': {
+      title: '各平台未发清单',
+      prompt:
+        '帮我列出掘金、思否、公众号、英文稿各平台还有哪些文章没发出去，以及每个下一步该做什么。',
+      category: 'article',
+    },
     'juejin-draft': {
       title: '建掘金草稿',
       prompt: '帮我把下一篇未发布的文章建成掘金草稿。',
+      category: 'article',
+    },
+    'juejin-publish': {
+      title: '发布掘金草稿',
+      prompt: '帮我把已建好的掘金草稿发布上线（点发布那一篇）。',
       category: 'article',
     },
     'wechat-draft': {
@@ -457,8 +470,10 @@ export function buildExamples(
     'article-validate',
     'article-publish',
     'juejin-draft',
+    'juejin-publish',
     'wechat-draft',
     'sf-pw-publish',
+    'publish-pending',
     'article-archive',
     'pick-post',
     // interview: 定制简历 → 面试题库
@@ -673,8 +688,10 @@ export function buildExamples(
     'tool:article-publish',
     'tool:article-archive',
     'tool:juejin-draft',
+    'tool:juejin-publish',
     'tool:wechat-draft',
     'tool:sf-pw-publish',
+    'tool:publish-pending',
     'tool:pick-post',
   ]
   grouped.article.sort((a, b) => {

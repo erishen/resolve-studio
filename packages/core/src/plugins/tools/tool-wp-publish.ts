@@ -25,9 +25,7 @@ async function probeSfSession(statePath: string): Promise<'valid' | 'expired' | 
   try {
     const raw = readFileSync(statePath, 'utf8')
     const parsed = JSON.parse(raw) as { cookies?: Array<{ name: string; value: string }> }
-    const cookieStr = (parsed.cookies ?? [])
-      .map((c) => `${c.name}=${c.value}`)
-      .join('; ')
+    const cookieStr = (parsed.cookies ?? []).map((c) => `${c.name}=${c.value}`).join('; ')
     if (!cookieStr) return 'unknown'
     const res = await fetch('https://segmentfault.com/write', {
       method: 'GET',
@@ -85,11 +83,19 @@ const TASKS: WpTaskDef[] = [
       '建掘金草稿：调用 wordpress-tools 的 `make juejin-draft`，为下一篇未发布文章创建掘金草稿并写回 juejin_draft_id。每次只处理一篇。需要 wordpress-tools/.env 中的掘金 cookie。⚠️ 每次调用本工具自动建队列中的下一篇；要连续建多篇就重复调用本工具，不要自己用 shell 跑 node 命令。',
   },
   {
+    name: 'juejin-publish',
+    label: '掘金发布',
+    makeTarget: 'juejin-publish',
+    description:
+      '掘金发布（草稿→点上线）：调用 wordpress-tools 的 `make juejin-publish`，把已建草稿（juejin_draft_id）的下一篇点发布并写回 juejin_id。用于「草稿建好了还没点发布」的文章。每次只发一篇。若提示无草稿可发，说明草稿已全部建成，需先 make juejin-draft 建新草稿。需要掘金 cookie。⚠️ 每次调用自动发队列中下一篇；连续发多篇就重复调用。',
+  },
+  {
     name: 'wechat-draft',
     label: '微信草稿',
     makeTarget: 'wechat-draft',
     description:
-      '建微信公众号草稿：调用 wordpress-tools 的 `make wechat-draft`，为下一篇未发布文章创建公众号草稿箱草稿并写回 wechat_draft_id。每次只处理一篇。必须在本机 Mac 运行（微信校验 IP），需要 .env 中的 appid/appsecret。⚠️ 每次调用本工具自动建队列中的下一篇；要连续建多篇就重复调用本工具，不要自己用 shell 跑 node 命令。',
+      '建微信公众号草稿：调用 wordpress-tools 的 `make wechat-draft`，为下一篇未建草稿的文章创建公众号草稿箱草稿并写回 wechat_draft_id。每次只处理一篇。必须在本机 Mac 运行（微信校验 IP），需要 .env 中的 appid/appsecret。' +
+      '⚠️ 若提示「没有待发布（全部已有 wechat_draft_id）」，说明草稿已全部建好——此时正确动作不是重复建草稿，而是：① 去公众号后台手动群发这些草稿；② 群发后把对应 base 加进 life-dash 的 src/data/wechat-sent.json 白名单并 make rescan，未发清单才会把它标记为「已群发」。',
   },
   {
     name: 'sf-pw-publish',
@@ -147,11 +153,13 @@ function registerWpTask(ctx: Context, task: WpTaskDef) {
               `   ② 或开 resolve-studio 桌面面板点专用登录按钮，在 VNC 里登录后自动写回 .sf-state.json（全程在容器内，免切终端）。`
             )
           }
-          ctx.logger(task.name).warn(
-            'state file is %s days old; server probe = %s — proceeding anyway',
-            ageDays,
-            probe,
-          )
+          ctx
+            .logger(task.name)
+            .warn(
+              'state file is %s days old; server probe = %s — proceeding anyway',
+              ageDays,
+              probe,
+            )
         }
       }
       const onProgress = execCtx?.onProgress
