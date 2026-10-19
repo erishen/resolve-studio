@@ -37,7 +37,7 @@ test('read-file reads text and rejects binary / missing files', async () => {
     JSON.stringify({ path: 'src/plugins/tools/tool-read-file.ts' }),
   )
   assert.match(self, /`read-file` tool/, 'expected source text in the reply')
-  assert.match(self, /bytes 0\.\./, 'expected the slice-range header')
+  assert.match(self, /lines 1\.\./, 'expected the slice-range header')
 
   const missing = await root.tools.call('read-file', JSON.stringify({ path: 'no-such-file.ts' }))
   assert.match(missing, /^error:/)
@@ -63,17 +63,21 @@ test('write-file writes content and creates parent directories', async () => {
   const readBack = await root.tools.call('read-file', JSON.stringify({ path: absPath }))
   assert.match(readBack, /hello write/)
 
-  // Large-file slicing: page through a file bigger than one slice, then past
-  // the end.
+  // Large-file slicing: page through a file bigger than one 64 KiB slice,
+  // then past the end. 4000 lines × 101 bytes ≈ 400 KiB, so one call can't
+  // hold it all and the header must hand back the next offset.
   const big = resolve(tmpDir, 'big.txt')
-  await writeFile(big, 'a'.repeat(200_000))
-  const first = await root.tools.call('read-file', JSON.stringify({ path: big, limit: 64 * 1024 }))
-  assert.match(first, /bytes 0..65536/, 'first slice range reported')
+  await writeFile(big, Array.from({ length: 4000 }, () => 'a'.repeat(100) + '\n').join(''))
+  const first = await root.tools.call('read-file', JSON.stringify({ path: big }))
+  assert.match(first, /lines 1\.\./, 'first slice range reported')
+  const nextOffset = first.match(/offset=(\d+)/)?.[1]
+  assert.ok(nextOffset, 'header reports the next offset')
+  assert.notEqual(nextOffset, '1', 'next offset must advance past the first slice')
   const second = await root.tools.call(
     'read-file',
-    JSON.stringify({ path: big, offset: 65536, limit: 65536 }),
+    JSON.stringify({ path: big, offset: Number(nextOffset) }),
   )
-  assert.match(second, /bytes 65536\.\.131072/, 'second slice range reported')
+  assert.match(second, new RegExp(`lines ${nextOffset}\\.\\.`), 'second slice range reported')
   const pastEnd = await root.tools.call(
     'read-file',
     JSON.stringify({ path: big, offset: 1_000_000 }),
