@@ -158,6 +158,12 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+    healthcheck:
+      # nginx 镜像自带 wget; 探 80 静态站服务是否存活(静态站正常即返回 200)。
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:80/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
 volumes:
   pse-venvs:

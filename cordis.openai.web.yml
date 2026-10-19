@@ -104,8 +104,6 @@ plugins:
     name: tool-crm-task
   - id: tool-wp-publish
     name: tool-wp-publish
-  - id: tool-publish-pending
-    name: tool-publish-pending
   - id: tool-crewai-publish
     name: tool-crewai-publish
   - id: tool-crewai-discover
