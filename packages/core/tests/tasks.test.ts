@@ -98,6 +98,8 @@ test('agentOptions produces an include whitelist and guards system prompt', asyn
   const opts = svc.agentOptions(task!)
   assert.ok(opts.includeTools.includes('article-write'))
   assert.ok(opts.includeTools.includes('article-publish'))
+  assert.ok(opts.includeTools.includes('build-juejin'), 'build-juejin belongs to articles')
+  assert.ok(opts.includeTools.includes('juejin-draft'), 'juejin-draft belongs to articles')
   // Task whitelist must NOT leak unrelated professional tools.
   assert.ok(!opts.includeTools.includes('privacy-audit'))
   assert.match(opts.systemPrompt ?? '', /任务说明/)

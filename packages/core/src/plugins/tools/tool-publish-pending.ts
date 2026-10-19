@@ -63,7 +63,10 @@ const NEXT_STEP: Record<string, string> = {
   'wp:missing': 'WP 发布（writeArticle.js）',
   'en:missing': '写英文稿（articles/en/…-en.md）',
   'juejin:draft': '有掘金稿未建草稿 → make juejin-draft 建草稿（草稿=已发）',
-  'juejin:missing': '无掘金稿 → 建稿后 make juejin-draft（草稿=已发）',
+  'juejin:seed':
+    '无掘金稿但 articles/zh 有源 → 先 make build-juejin 建稿，再 make juejin-draft 建草稿（草稿=已发）',
+  'juejin:missing':
+    'pse 稿未归并、无掘金稿 → 先发布+归档（make archive），再 make build-juejin / make juejin-draft',
   'segmentfault:draft': '已写未发 → 发布（make sf-pw-publish）',
   'segmentfault:missing': '补思否稿并发布（make sf-pw-publish）',
   'wechat:missing': '建公众号草稿（make wechat-draft）——建进草稿箱即视为已群发',
@@ -114,7 +117,7 @@ function run(_args: Record<string, never>, execCtx?: ToolExecutionContext): stri
     rows.filter((r) => r.missing.includes('juejin')),
     (r) => NEXT_STEP[`juejin:${r.juejin.s}`] ?? '建草稿',
     (s.jjNotPub ?? 0) > 0
-      ? 'make juejin-draft 建草稿（草稿=已发，建完自动升 pub、队列缩短）'
+      ? '无源稿先 make build-juejin 建稿，再 make juejin-draft 建草稿（草稿=已发）'
       : undefined,
   )
   emit(

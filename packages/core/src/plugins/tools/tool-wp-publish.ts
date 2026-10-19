@@ -75,6 +75,13 @@ interface WpTaskDef {
 
 const TASKS: WpTaskDef[] = [
   {
+    name: 'build-juejin',
+    label: '掘金建稿',
+    makeTarget: 'build-juejin',
+    description:
+      '构建掘金副本：调用 wordpress-tools 的 `make build-juejin`，遍历 articles/zh 为「还没有 articles/juejin 副本」的文章生成掘金版 md（正文取自 zh 干净源，保留 juejin frontmatter/footer/FAQ），不调掘金接口、不需要 cookie。建完再调用 juejin-draft 建草稿。⚠️ 只对 articles/zh 里的文章有效；仍留在 pse/zh 的稿需先发布+归档（make archive）才会被覆盖。',
+  },
+  {
     name: 'juejin-draft',
     label: '掘金草稿',
     makeTarget: 'juejin-draft',

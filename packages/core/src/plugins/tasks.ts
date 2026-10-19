@@ -127,6 +127,7 @@ const DEFAULT_TASKS: TaskDef[] = [
       'article-validate',
       'article-publish',
       'article-archive',
+      'build-juejin',
       'juejin-draft',
       'juejin-publish',
       'wechat-draft',
