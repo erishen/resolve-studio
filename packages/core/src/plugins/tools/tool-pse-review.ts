@@ -16,9 +16,13 @@ const RUN = join('tasks', 'portfolio-review', 'run.py')
 
 // prepare re-runs analysis-lens `make calculate` (≤120s); run.py runs the full
 // PSE team (planner/specialist/evaluator + knowledge retrieval, streaming) —
-// give each step generous timeouts.
+// give each step generous timeouts. Observed run.py durations on the free
+// gateway (agnes reasoning model, ~130k prompt tokens): 2.5–7 min typical,
+// but one 2026-10-18 run exceeded 8 min and was killed mid-PSE-run at 480s
+// (no trace, tool error, agent retried from scratch → looked like eternal
+// "Pending"). 900s gives headroom; progress now streams to the UI anyway.
 const PREPARE_TIMEOUT_MS = 180_000
-const RUN_TIMEOUT_MS = 480_000
+const RUN_TIMEOUT_MS = 900_000
 // Match the original `execFile` maxBuffer (4 MiB) so the "Review 已保存 →"
 // marker line is never truncated away before we can parse it.
 const RUN_MAX_OUTPUT = 4 << 20
@@ -123,7 +127,11 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
     // Provider is fixed at registration (config/env), not a per-call argument —
     // gate the whole tool when it is the paid deepseek provider.
     needsApproval: provider === 'deepseek',
-    async execute(): Promise<string> {
+    async execute(_args, execCtx): Promise<string> {
+      // Stream child stdout/stderr into the tool card's running panel — without
+      // this the multi-minute PSE run shows zero progress and reads as a hang
+      // ("一直 Pending"). PYTHONUNBUFFERED=1 is already set by uvEnvFor.
+      const onProgress = execCtx?.onProgress
       let autogenPse: string
       try {
         autogenPse = resolvePseDir('autogen')
@@ -140,6 +148,7 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
         args: [],
         env: runEnv,
         timeoutMs: PREPARE_TIMEOUT_MS,
+        onProgress,
         logger: (msg, ...a) => ctx.logger('pse-review').info(msg, ...a),
       })
       if (!prep.ok) {
@@ -158,6 +167,7 @@ const registerPseReview = (ctx: Context, config: PseReviewConfig = {}) => {
         env: runEnv,
         timeoutMs: RUN_TIMEOUT_MS,
         maxOutput: RUN_MAX_OUTPUT,
+        onProgress,
         logger: (msg, ...a) => ctx.logger('pse-review').info(msg, ...a),
       })
       if (!run.ok) {
