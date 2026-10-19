@@ -131,3 +131,29 @@ test('tools.call honors { internal: true } and surfaces it on the event', async 
   assert.equal(seen?.internal, true, 'internal flag should be forwarded to the event')
   await root.fiber.dispose()
 })
+
+test('tools.call redacts secrets forwarded through onProgress', async () => {
+  const root = await buildContext()
+  root.tools.register({
+    name: 'leaky-progress',
+    description: 'test-only tool that streams a credential chunk',
+    parameters: { type: 'object', properties: {}, required: [] },
+    async execute(_args, execCtx) {
+      execCtx?.onProgress?.(
+        'Authorization: Bearer demo-bearer-value\napi_key=demo-api-key normal line',
+      )
+      return 'done'
+    },
+  })
+  const chunks: string[] = []
+  const res = await root.tools.call('leaky-progress', '{}', {
+    onProgress: (c) => chunks.push(c),
+  })
+  assert.equal(res, 'done')
+  const joined = chunks.join('\n')
+  assert.match(joined, /\[REDACTED\]/)
+  assert.doesNotMatch(joined, /demo-bearer-value|demo-api-key/)
+  // innocent text survives
+  assert.match(joined, /normal line/)
+  await root.fiber.dispose()
+})

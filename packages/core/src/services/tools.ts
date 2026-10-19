@@ -10,6 +10,7 @@
 import type { Context } from 'cordis'
 import { Service } from 'cordis'
 import type { Tool, ToolSchema, ToolExecutionContext } from '../types.js'
+import { redactSecrets } from '../util/redact.js'
 
 /** Best-effort parse of tool args that arrive as a JSON string. */
 function safeParseArgs(raw: string): Record<string, unknown> {
@@ -146,8 +147,13 @@ export class ToolRegistry extends Service {
       return result
     }
     try {
+      // Sanitize every progress chunk at this single boundary so a child
+      // script that debug-prints a Bearer/key/cookie never reaches the panel.
+      const onProgress = opts.onProgress
+        ? (chunk: string) => opts.onProgress!(redactSecrets(chunk))
+        : undefined
       const execCtx: ToolExecutionContext = {
-        ...(opts.onProgress ? { onProgress: opts.onProgress } : {}),
+        ...(onProgress ? { onProgress } : {}),
         ...(opts.workspace ? { workspace: opts.workspace } : {}),
       }
       const out = await tool.execute(parsed, execCtx)
