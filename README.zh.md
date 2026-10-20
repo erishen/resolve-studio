@@ -57,6 +57,24 @@ pnpm run chat                # mock LLM，离线
 pnpm run chat -- --config cordis.openai.yml   # 真实模型
 ```
 
+### 核实这些主张
+
+简历里 Resolve 那几条，对应到本仓可复现的检查:
+
+| 简历主张 | 怎么查 | 边界 |
+|---|---|---|
+| **Fast-path 确定性任务零模型调用** | `make check` 跑 `packages/core/tests/fastpath.test.ts`——`3+4` 直接答 `7`，且 `steps.length === 0` | 本仓实现的是**算术短接 + 非算术回落正常循环**。完整「LLM 生成检测器 → AST 白名单沙箱验证 → 持久化」闭环实现在**隔壁 [resolve-harness](https://github.com/erishen/resolve-harness)**（`src/resolve_harness/codegen.py` + `generated_detectors.py`，`tests/test_fastpath.py` 已验证）——检测器生成与持久化机制在那个仓；本仓是同套设计的 TypeScript 产品面 |
+| **PSE 三角色独立验证** | `make check` 跑 `packages/core/tests/pse-orchestrator.test.ts`——Planner / Specialist / Evaluator 各自独立 system prompt，测试断言三者分开出现 | 测试验证的是**角色分离**(独立 prompt、不共享上下文);「独立验收」是方法论层的约束,不是单个可断言的输出 |
+| **Sandbox / 工具白名单** | `make check` 跑 `packages/core/tests/sandbox.test.ts` | 路径白名单 + OS 级沙箱(macOS Seatbelt / Linux bwrap),越界读写被拒 |
+| **Agent 工具链(Harness / Skills / MCP / Memory / Multi-Agent)** | `make dev-mock`(离线、无需密钥)+ `make check` 下 94 个测试 | 60+ 内置工具,测试覆盖核心路径 |
+
+跑起来:
+
+```bash
+make check      # typecheck(core) + 94 个测试
+make dev-mock   # 离线演示,无需密钥
+```
+
 ## 安全与沙箱
 
 resolve-studio 提供多层安全机制，防止 LLM 误操作破坏系统：
