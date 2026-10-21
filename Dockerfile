@@ -1,5 +1,5 @@
 # ---- build stage ----
-FROM node:22-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 
 # npm/pnpm 一律直连 registry.npmjs.org（容器内实测直连可达）。
@@ -40,7 +40,7 @@ RUN pnpm -C packages/core run build
 # 整条 crewai 工具链失效。换 glibc 后同一份 uv.lock 全部命中 wheel
 # （142 个依赖，0 个需要现场编译），无需任何 --no-sync 变通。
 # 构建阶段仍留在 Alpine：那里只跑 pnpm（纯 JS），不碰 Python。
-FROM node:22-bookworm-slim AS runtime
+FROM node:24-bookworm-slim AS runtime
 WORKDIR /app
 
 # git 供 MCP git server（@cyanheads/git-mcp-server）调用，也是各 PSE 框架
