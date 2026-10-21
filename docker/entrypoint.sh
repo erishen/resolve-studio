@@ -1,30 +1,9 @@
 #!/bin/sh
 # resolve-studio backend 容器入口
-# 容器内没有真实显示器，但 sf-pw-publish（思否发布）的 Playwright 脚本是 headless:false
-# 有头模式，必须先起一个虚拟 X server 再跑主进程（Xvfb 在 Debian 的 xvfb 包里）。
+# 浏览器与桌面已迁至共享容器 browser-desk（仓库根 browser-desk/）：本容器不再起
+# Xvfb / VNC。browser-open / desktop-login / sf-pw-publish 均经 playwright-core
+# connectOverCDP 连接 browser-desk:9222（compose 注入 CDP_URL env）。
 set -eu
-
-export DISPLAY="${DISPLAY:-:99}"
-
-# 旧实现用 lock 文件判断「Xvfb 是否在跑」，但 Xvfb 崩溃 / 容器重启后
-# /tmp/.X99-lock 会残留 → 误判 Xvfb 还活着 → 不再拉起 → Playwright 有头启动
-# 报 "launched a headed browser without having a XServer running"。
-# 改为无条件清理残留进程与 lock，再幂等拉起 Xvfb。
-pkill -f "Xvfb ${DISPLAY}" 2>/dev/null || true
-rm -f "/tmp/.X${DISPLAY#:}-lock"
-# 1280x800（16:10）：noVNC 用 resize=scale 把整个虚拟屏缩进 Web 面板的 iframe，
-# 分辨率越高缩放越狠、文字越糊；1280x800 贴近常见窗口比例，缩放后仍可读。
-Xvfb "$DISPLAY" -screen 0 1280x800x24 -nolisten tcp &
-sleep 1
-
-# ---- noVNC 展示层：把虚拟屏 :99 经 x11vnc + websockify 暴露为 WebSocket ----
-# 这样 Web UI 的「桌面」页就能用 iframe 嵌 noVNC，实时看到/操作容器里的有头 Chrome
-# （含 sf-pw-publish 发文章、一键登录等）。6080 不发布到宿主（仅容器网络），
-# 由 nginx 反代 /novnc 单一入口；x11vnc 无密码（-nopw）仅适合 localhost 个人工具，
-# 若 18080 暴露公网需补 -passwd 网关。
-pkill -f 'x11vnc' 2>/dev/null || true
-x11vnc -display "$DISPLAY" -forever -shared -nopw -rfbport 5900 -bg 2>/dev/null
-websockify --web=/usr/share/novnc 6080 localhost:5900 &
 
 # ---- 让 /workspace 挂载树对 agent 的 /app cwd 可见（可发现性修复）----
 # agent 的 shell 从 /app 启动，但所有项目源码 bind 挂载在 /workspace。它常试

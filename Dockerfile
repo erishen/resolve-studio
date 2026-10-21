@@ -62,40 +62,13 @@ RUN set -e; unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_pr
       libgomp1 libmagic1 \
     && rm -rf /var/lib/apt/lists/*
 
-# ---- 浏览器（system Chrome + Xvfb 虚拟显示）----
-# browser-open/screenshot 与思否发布 sf-pw-publish 都用 playwright-core 驱动 channel:'chrome'，
-# 容器里没有宿主 Chrome，镜像内装真实 Google Chrome：官方 apt 源只发 amd64，arm64 需直接下 .deb。
-# Xvfb 提供虚拟显示：sf-pw-publish 脚本 headless:false，容器无真实显示器会导致 launch 直接失败。
-# dl.google.com 在中国网络常被重置（SSL_ERROR_SYSCALL）；构建时可用
-# --build-arg HTTPS_PROXY=http://host.docker.internal:<port> 走宿主代理下载 Chrome。
-# 关键坑：apt 会读取构建环境里的 `HTTPS_PROXY`（大写，来自 build arg）作为代理，
-# 只把小写 `https_proxy` 关进子 shell 不够——代理仍作用到 apt-get，而本地代理对
-# http apt 仓库偶发 502（实测 xvfb / Chrome 依赖下载整批 502）。
-# 因此该 RUN 一开头就 unset 所有代理环境变量（apt/curl 默认直连 deb.debian.org，
-# 上方基础 apt 块已证明容器直连可达），Chrome 下载改用 `curl --proxy "$PROXY"`
-# 显式带代理（作用域仅限 curl，绝不污染 apt）。
+# ---- 浏览器（已移出镜像）----
+# Chrome / Xvfb / VNC 全部迁至共享容器 browser-desk（仓库根 browser-desk/）。
+# 本镜像不再携带浏览器：browser-open / desktop-login / sf-pw-publish 均经
+# playwright-core connectOverCDP 连接 browser-desk:9222（compose 注入 CDP_URL env）。
+# 构建代理 ARG 保留：下方 uv 从 PyPI 安装仍需走代理（见 uv 安装块注释）。
 ARG HTTPS_PROXY=""
 ARG HTTP_PROXY=""
-# Chrome 下载：代理下也偶有截断，故做重试，并用 dpkg-deb -I 校验 deb 完整性
-# （截断的半成品会被拒），避免 apt-get install 因损坏包退出 100。
-RUN set -e; \
-    PROXY="$HTTPS_PROXY"; \
-    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy; \
-    for n in 1 2 3; do apt-get update && break || echo "apt-get update retry $n"; done; \
-    apt-get install -y --no-install-recommends \
-      xvfb fonts-liberation fonts-noto-cjk x11vnc websockify novnc \
-    && for i in 1 2 3 4 5; do \
-         echo "downloading google-chrome (attempt $i)"; \
-         if [ -n "$PROXY" ] && curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
-              --proxy "$PROXY" -o /tmp/google-chrome.deb \
-              https://dl.google.com/linux/direct/google-chrome-stable_current_arm64.deb \
-           && dpkg-deb -I /tmp/google-chrome.deb >/dev/null 2>&1; then \
-           echo "chrome deb verified OK"; break; \
-         fi; \
-         echo "attempt $i incomplete, retrying"; rm -f /tmp/google-chrome.deb; \
-       done && \
-    apt-get install -y --no-install-recommends /tmp/google-chrome.deb \
-    && rm -rf /tmp/google-chrome.deb /var/lib/apt/lists/*
 
 ENV NODE_ENV=production
 ENV PORT=8787
@@ -127,8 +100,6 @@ COPY cordis*.yml ./
 COPY resolve-skills ./resolve-skills
 COPY docker/entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-# 有头浏览器（sf-pw-publish）需要 DISPLAY；entrypoint 里会起 Xvfb 兜底
-ENV DISPLAY=:99
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENTRYPOINT ["docker-entrypoint.sh"]

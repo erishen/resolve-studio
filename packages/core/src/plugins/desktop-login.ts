@@ -1,24 +1,34 @@
 /**
- * Desktop VNC "headed login" helper.
+ * Desktop noVNC "headed login" helper.
  *
- * Opens a *headed* Chrome (playwright-core, channel: 'chrome') on the container's
- * virtual display (DISPLAY :99, provided by Xvfb in the entrypoint) inside a
- * persistent user-data dir, navigates to the target site, and waits `waitMs`
- * while the user completes an interactive login (captcha / slider / 2FA) in the
- * noVNC desktop view. When the window closes, cookies persist to the profile dir
- * and the list of covered domains is returned + cached so the UI can show the
- * saved login state on reload.
+ * Connects to the shared browser-desk container via CDP (playwright-core
+ * `connectOverCDP`). browser-desk owns the Chrome process, the Xvfb virtual
+ * display and the persistent profile — this plugin only opens a tab in that
+ * shared Chrome, navigates to the target site, and waits `waitMs` while the
+ * user completes an interactive login (captcha / slider / 2FA) in the noVNC
+ * desktop view. When the tab closes, cookies persist to browser-desk's shared
+ * profile and the list of covered domains is returned + cached so the UI can
+ * show the saved login state on reload.
  *
- * Only one headed session runs at a time (the virtual display is shared), so a
- * module-level lock serializes calls — a second concurrent request gets 409.
+ * Only one headed session runs at a time (the shared desktop is a single
+ * Chrome window), so a module-level lock serializes calls — a second
+ * concurrent request gets 409.
  */
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { chromium, type BrowserContext, type Page } from 'playwright-core'
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
 
+// PROFILE_DIR 只作登录态缓存（logins.json 汇总）落盘位置；浏览器实际 profile 由
+// browser-desk 容器统一管理（其挂载卷 /profile），此处不再 launch 浏览器。
 const PROFILE_DIR = join(process.cwd(), '.data', 'browser_profile')
 const LOGINS_CACHE = join(PROFILE_DIR, 'logins.json')
+
+// 共享浏览器（browser-desk 容器）的 CDP 端点；compose 注入 http://browser-desk:9222。
+// 容器内默认回环，便于宿主 make dev 直连本机 Chrome 调试。
+const CDP_URL = process.env['CDP_URL'] ?? 'http://127.0.0.1:9222'
+const CDP_CONNECT_RETRIES = 5
+const CDP_CONNECT_RETRY_DELAY_MS = 1000
 
 let active: Promise<DesktopLoginResult> | null = null
 let activeStartedAt = 0
@@ -84,52 +94,34 @@ export async function runDesktopLogin(
 
   mkdirSync(PROFILE_DIR, { recursive: true })
 
-  // Wipe Chrome's session-restore data BEFORE launch. The persistent profile
-  // otherwise resurrects the previous session's tabs over our target page
-  // (e.g. a stale localhost:18080 page filling the whole VNC screen) — and the
-  // restore happens asynchronously AFTER launch, so closing stray pages post
-  // launch races Chrome and loses. Deleting the session files is safe: only
-  // "reopen last tabs" is lost, cookies / logins / localStorage stay.
-  try {
-    rmSync(join(PROFILE_DIR, 'Default', 'Sessions'), { recursive: true, force: true })
-    const prefsPath = join(PROFILE_DIR, 'Default', 'Preferences')
-    const prefs = JSON.parse(readFileSync(prefsPath, 'utf8')) as {
-      profile?: Record<string, unknown>
-      session?: Record<string, unknown>
-    }
-    prefs.profile = { ...prefs.profile, exit_type: 'Normal', exited_cleanly: true }
-    // restore_on_startup: 5 = open the New Tab page (never restore last session)
-    prefs.session = { ...prefs.session, restore_on_startup: 5 }
-    writeFileSync(prefsPath, JSON.stringify(prefs), 'utf8')
-  } catch {
-    /* first launch (no profile yet) or best-effort cleanup — both fine */
-  }
+  // 注：不再在此处清理 browser profile 的 session-restore 数据 —— profile 现在由
+  // browser-desk 容器管理（其 entrypoint 启动 Chrome 前会清 Sessions、加
+  // --hide-crash-restore-bubble），本容器没有权限也不需要碰共享 profile。
 
   const gen = ++activeGen
   activeStartedAt = Date.now()
   const run = (async (): Promise<DesktopLoginResult> => {
-    const context: BrowserContext = await chromium.launchPersistentContext(PROFILE_DIR, {
-      headless: false,
-      channel: 'chrome',
-      // hide-crash-restore-bubble: the container may kill Chrome mid-session
-      // (restart/stop), so the profile's exit_type can be "Crashed" — without
-      // this flag Chrome pops a "Restore pages?" bubble on the next launch.
-      // disable-blink-features=AutomationControlled + dropping the default
-      // --enable-automation keep navigator.webdriver falsy — Geetest-style
-      // sliders (site login) reject the drag otherwise even when dragged right.
-      args: [
-        '--no-sandbox',
-        '--disable-gpu',
-        '--disable-dev-shm-usage',
-        '--hide-crash-restore-bubble',
-        '--disable-blink-features=AutomationControlled',
-      ],
-      ignoreDefaultArgs: ['--enable-automation'],
-      // Inherit the backend's env so DISPLAY (:99) reaches the browser process;
-      // fall back to :99 if somehow unset.
-      env: { ...process.env, DISPLAY: process.env['DISPLAY'] ?? ':99' },
-      viewport: { width: 1280, height: 800 },
-    })
+    // 共享浏览器在 browser-desk 容器里常驻（Xvfb 桌面 + CDP 9222）。playwright
+    // 只做远程连接：浏览器进程、profile、启动参数都由 browser-desk 管理
+    // （normal user mode，navigator.webdriver 天然 undefined，无需 automation 参数）。
+    // browser-desk 刚启动时 CDP 未就绪，连接失败重试。
+    let browser: Browser | null = null
+    for (let i = 0; i < CDP_CONNECT_RETRIES; i++) {
+      try {
+        browser = await chromium.connectOverCDP(CDP_URL)
+        break
+      } catch {
+        await new Promise((r) => setTimeout(r, CDP_CONNECT_RETRY_DELAY_MS))
+      }
+    }
+    if (!browser) {
+      throw new Error(
+        `无法连接共享浏览器 browser-desk（${CDP_URL}）：请确认 browser-desk 容器已启动`,
+      )
+    }
+    // connectOverCDP 的默认 context 就是共享 Chrome 的当前上下文；在其上开新标签
+    // 会显示在 browser-desk 的 noVNC 桌面上，用户可见可操作。
+    const context: BrowserContext = browser.contexts()[0] ?? (await browser.newContext())
     try {
       // Belt & braces for risk-control checks: make navigator.webdriver report
       // "not automated" in every page (probe tabs included) from the start.
@@ -137,11 +129,8 @@ export async function runDesktopLogin(
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
       })
       const page = await context.newPage()
-      // The persistent profile restores the previous session's tabs on launch
-      // (e.g. whatever URL was last opened via the login box) — the desktop
-      // would otherwise "default" to showing stale pages. Close anything that
-      // is not our target page, and keep closing stragglers Chrome restores
-      // asynchronously right after launch.
+      // browser-desk 的 Chrome 常驻，但崩溃/重启后可能恢复上一次会话的标签页
+      // （占据桌面）。关闭一切非目标页，并持续处理 Chrome 异步恢复的散落标签。
       // Probe pages registered in `aux` are part of the login verification
       // (opened/closed by sfLoginVerified below) and must be exempt from the
       // stray-tab reaper. Declared before any await so the 'page' handler
@@ -296,8 +285,10 @@ export async function runDesktopLogin(
       if (exportStatePath) {
         try {
           // 把当前上下文的 storageState（cookies + localStorage）导出成纯 JSON，
-          // 供发布脚本的 getContext 复用登录态。
-          // 容器内 Linux Chrome 持久化档案 → 纯 JSON 传递，绕开 macOS 钥匙串跨 OS 加密问题。
+          // 供发布脚本（sf-pw-publish）复用登录态。
+          // CDP 连接的 context 也支持 storageState()（读 cookies + localStorage）；
+          // 若某版本 playwright 在此路径抛错，导出被跳过（best-effort），发布脚本
+          // 会改用 browser-desk 共享 profile 的登录态，不影响主流程。
           await context.storageState({ path: exportStatePath })
           stateExported = true
         } catch {
@@ -306,7 +297,10 @@ export async function runDesktopLogin(
       }
       return { ok: true, sites, updatedAt: new Date().toISOString(), stateExported }
     } finally {
-      await context.close().catch(() => {})
+      // 绝不能 context.close()：CDP 连接的 context 属于共享 Chrome，close 会断开
+      // browser-desk 桌面。只关闭本会话打开的标签页，登录态（cookies）留在
+      // browser-desk 的共享 profile 里。
+      await Promise.all(context.pages().map((p) => p.close().catch(() => {})))
     }
   })()
 

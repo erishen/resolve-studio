@@ -20,11 +20,11 @@ const MAX_WAIT_MS = 600_000
 const MIN_WAIT_MS = 10_000
 
 /**
- * Agent-callable "桌面登录"工具：在容器虚拟桌面（VNC, DISPLAY :99）打开可见
- * Chrome 并导航到目标站点，等待用户在 noVNC 视图里完成交互式登录（滑块/2FA），
- * 超时后关闭窗口、保存登录态。默认打开 SF_LOGIN_URL 配置的登录页并导出会话文件
- * （.sf-state.json）供发布任务复用——这样 agent 在发布任务会话过期时可自动回退
- * 到本工具开窗口、用户过滑块、再继续发布。
+ * Agent-callable "桌面登录"工具：在共享浏览器 browser-desk 的虚拟桌面（Xvfb + noVNC）
+ * 打开一个可见 Chrome 标签并导航到目标站点，等待用户在 noVNC 视图里完成交互式登录
+ * （滑块/2FA），超时后关闭标签、保存登录态（落在 browser-desk 共享 profile）。
+ * 默认打开 SF_LOGIN_URL 配置的登录页并导出会话文件（.sf-state.json）供发布任务复用
+ * ——这样 agent 在发布任务会话过期时可自动回退到本工具开窗口、用户过滑块、再继续发布。
  * 受 SF_LOGIN_ENABLED 开关约束（涉及账号登录，默认不暴露）。
  */
 export const toolDesktopLogin = definePlugin(
@@ -32,7 +32,7 @@ export const toolDesktopLogin = definePlugin(
     ctx.tools.register({
       name: 'desktop-login',
       description:
-        '在容器的虚拟桌面（VNC, DISPLAY :99）打开一个可见 Chrome 并导航到指定 URL，等待用户在 noVNC 桌面视图里完成交互式登录（滑块/2FA），超时后关闭窗口并保存登录态到持久化档案。' +
+        '在共享浏览器 browser-desk 的虚拟桌面（noVNC）打开一个可见 Chrome 标签并导航到指定 URL，等待用户在 noVNC 桌面视图里完成交互式登录（滑块/2FA），超时后关闭标签并保存登录态到共享 profile。' +
         '默认打开 SF_LOGIN_URL 配置的登录页并把登录态导出到 WORDPRESS_TOOLS_DIR/.sf-state.json，供对应发布任务复用。' +
         '调用后请明确告诉用户：切到桌面面板，在 noVNC 视图里完成登录（窗口打开期间约 60s 内），登录态会自动保存；保存后即可再触发对应的发布任务。' +
         '本工具会阻塞到 wait_ms（默认 180000ms），期间用户须在 VNC 内完成登录。' +

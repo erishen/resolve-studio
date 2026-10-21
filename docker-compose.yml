@@ -24,9 +24,10 @@ services:
       - OPENAI_BASE_URL=${DOCKER_OPENAI_BASE_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-}
-      # 有头浏览器（sf-pw-publish Playwright 脚本 headless:false）需要 DISPLAY；
-      # entrypoint 会在容器内起 Xvfb 兜底
-      - DISPLAY=:99
+      # 浏览器已迁至共享容器 browser-desk（仓库根 browser-desk/）：本容器不再需要 DISPLAY。
+      # CDP_URL 指向 browser-desk 的 Chrome，browser-open / desktop-login / sf-pw-publish
+      # 均经 playwright-core connectOverCDP 连接；宿主 make dev 直连本机 Chrome 时可覆盖。
+      - CDP_URL=${CDP_URL:-http://browser-desk:9223}
       # 桌面专用登录（可选，默认全关）：SF_LOGIN_ENABLED 开启后桌面面板才显示专用登录
       # 按钮；SF_LOGIN_URL 是按钮打开的目标登录地址；SF_LOGIN_BUTTON_LABEL 为按钮文案；
       # SF_LOGIN_PHONE 可选自动填入登录表单手机号。值放 gitignored .env，public 仓不写死。
@@ -147,6 +148,10 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    # 加入 browser-desk 共享网络：经 browser-desk:9222 访问共享 Chrome（CDP）
+    networks:
+      - default
+      - browser-desk-net
 
   frontend:
     image: nginx:alpine
@@ -164,7 +169,17 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    # nginx 反代 /novnc 到 browser-desk 的 noVNC（共享桌面），必须同在共享网络
+    networks:
+      - default
+      - browser-desk-net
 
 volumes:
   pse-venvs:
   uv-cache:
+
+# 共享网络由 browser-desk 的 compose 创建（browser-desk/docker-compose.yml），
+# 本项目只加入不创建：先 up browser-desk，再 up resolve-studio。
+networks:
+  browser-desk-net:
+    external: true
