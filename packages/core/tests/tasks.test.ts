@@ -129,6 +129,29 @@ test('explicit hyphenated tool mentions route to the owning task', async () => {
   await ctx.fiber.dispose()
 })
 
+test('deep-review task routes paid-deepseek review intents', async () => {
+  const ctx = new Context()
+  await ctx.plugin(tasksPlugin)
+  const svc = ctx.get('tasks') as unknown as TasksService
+
+  // 深度复盘类意图 → deep-review（付费 DeepSeek 路径）。
+  assert.equal(svc.match('帮我做一次深度投资复盘')?.id, 'deep-review')
+  assert.equal(svc.match('用 deepseek 跑一下深度复盘')?.id, 'deep-review')
+  assert.equal(svc.match('做一份深度周报，用付费模型')?.id, 'deep-review')
+  assert.equal(svc.match('投资复盘，多智能体那种')?.id, 'deep-review')
+
+  // 普通投资分析仍归 investment，不被深度关键词偷走。
+  assert.equal(svc.match('看看今天全市场技术信号，做投资分析')?.id, 'investment')
+  assert.equal(svc.match('帮我对这个 csv 做分析')?.id, 'investment')
+
+  // 任务自带付费指引：systemPrompt 必须要求 provider='deepseek'。
+  const dr = svc.get('deep-review')!
+  assert.ok(dr.includeTools.includes('pse-review'), 'pse-review belongs to deep-review')
+  assert.match(dr.systemPrompt ?? '', /provider='deepseek'/)
+
+  await ctx.fiber.dispose()
+})
+
 test('devstats task routes content-stats queries but not publishing', async () => {
   const ctx = new Context()
   await ctx.plugin(tasksPlugin)

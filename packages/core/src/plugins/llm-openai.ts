@@ -20,6 +20,7 @@ import type {
 } from '../types.js'
 import { LlmService } from '../services/llm.js'
 import { estimateChars } from '../context.js'
+import { ToolNameMap } from '../util/llm-tool-name.js'
 import { definePlugin } from './util.js'
 
 export interface OpenAiLlmConfig {
@@ -68,12 +69,19 @@ function truncateContent(content: string, role: ChatMessage['role']): string {
   return content.slice(0, keep) + note
 }
 
-function toOpenAiTools(options?: ChatOptions) {
+/**
+ * Build the OpenAI `tools` array. Tool names are re-spelled through
+ * {@link ToolNameMap} because providers reject internal MCP names like
+ * `fs:read_file` (colon not in `^[a-zA-Z0-9_-]+$`). The same map instance must
+ * be reused when mapping the model's tool-call names back — hence the optional
+ * `nameMap` parameter (callers in `chat` / `chatStream` build it once).
+ */
+function toOpenAiTools(options?: ChatOptions, nameMap?: ToolNameMap) {
   if (!options?.tools?.length) return undefined
   return options.tools.map((t: ToolSchema) => ({
     type: 'function' as const,
     function: {
-      name: t.name,
+      name: nameMap ? nameMap.toLlm(t.name) : t.name,
       description: t.description,
       parameters: t.parameters,
     },
@@ -83,6 +91,7 @@ function toOpenAiTools(options?: ChatOptions) {
 /** Map our ChatMessage shape to OpenAI's message params. */
 function toOpenAiMessages(
   messages: ChatMessage[],
+  nameMap?: ToolNameMap,
 ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
   return messages.map((m) => {
     const base = {
@@ -103,7 +112,9 @@ function toOpenAiMessages(
           id: tc.id ?? `call_${i}`,
           type: 'function' as const,
           function: {
-            name: tc.name,
+            // History carries internal names (`fs:read_file`); re-spell them so
+            // the re-sent assistant/tool_calls pair validates on every turn.
+            name: nameMap ? nameMap.toLlm(tc.name) : tc.name,
             arguments:
               typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments ?? {}),
           },
@@ -148,19 +159,29 @@ class LlmOpenAI extends LlmService {
 
   async chat(messages: ChatMessage[], options?: ChatOptions): Promise<ChatResponse> {
     const model = options?.model ?? this.defaultModel
+    // One shared map per request: internal → provider-safe on the way out,
+    // provider-safe → internal for the model's tool-call names on the way back.
+    const nameMap = options?.tools?.length
+      ? new ToolNameMap(options.tools.map((t) => t.name))
+      : undefined
     const completion = await this.client.chat.completions.create(
       {
         model,
         temperature: options?.temperature ?? this.temperature,
         max_tokens: options?.maxTokens ?? this.maxTokens,
-        messages: toOpenAiMessages(messages),
-        tools: toOpenAiTools(options),
+        messages: toOpenAiMessages(messages, nameMap),
+        tools: toOpenAiTools(options, nameMap),
         tool_choice:
           options?.toolChoice === undefined
             ? undefined
             : options.toolChoice === 'auto' || options.toolChoice === 'none'
               ? options.toolChoice
-              : { type: 'function', function: { name: options.toolChoice.name } },
+              : {
+                  type: 'function',
+                  function: {
+                    name: nameMap ? nameMap.toLlm(options.toolChoice.name) : options.toolChoice.name,
+                  },
+                },
       },
       { signal: options?.signal },
     )
@@ -176,7 +197,9 @@ class LlmOpenAI extends LlmService {
       )
       .map((tc) => ({
         id: tc.id,
-        name: tc.function.name,
+        // The model echoes the provider-safe spelling; restore the internal
+        // name so ctx.tools.call / approval gates see the canonical tool.
+        name: nameMap ? nameMap.toInternal(tc.function.name) : tc.function.name,
         arguments: tc.function.arguments,
       }))
 
@@ -206,19 +229,27 @@ class LlmOpenAI extends LlmService {
     options?: ChatOptions,
   ): AsyncIterable<ChatStreamChunk> {
     const model = options?.model ?? this.defaultModel
+    const nameMap = options?.tools?.length
+      ? new ToolNameMap(options.tools.map((t) => t.name))
+      : undefined
     const stream = await this.client.chat.completions.create(
       {
         model,
         temperature: options?.temperature ?? this.temperature,
         max_tokens: options?.maxTokens ?? this.maxTokens,
-        messages: toOpenAiMessages(messages),
-        tools: toOpenAiTools(options),
+        messages: toOpenAiMessages(messages, nameMap),
+        tools: toOpenAiTools(options, nameMap),
         tool_choice:
           options?.toolChoice === undefined
             ? undefined
             : options.toolChoice === 'auto' || options.toolChoice === 'none'
               ? options.toolChoice
-              : { type: 'function', function: { name: options.toolChoice.name } },
+              : {
+                  type: 'function',
+                  function: {
+                    name: nameMap ? nameMap.toLlm(options.toolChoice.name) : options.toolChoice.name,
+                  },
+                },
         stream: true,
         stream_options: { include_usage: true },
       },
@@ -226,6 +257,11 @@ class LlmOpenAI extends LlmService {
     )
 
     let lastUsage: { prompt_tokens?: number; completion_tokens?: number } | undefined
+    // Accumulate streamed tool-call fragments per index: a function name may
+    // arrive split across chunks, so map the ACCUMULATED name (the agent loop
+    // merges deltas by overwrite — the last, complete name wins). Arguments
+    // stay per-delta fragments; the agent appends them.
+    const pendingToolNames = new Map<number, { id?: string; name: string }>()
     for await (const chunk of stream) {
       if ((chunk as { usage?: { prompt_tokens?: number; completion_tokens?: number } }).usage) {
         lastUsage = (chunk as { usage?: { prompt_tokens?: number; completion_tokens?: number } })
@@ -241,12 +277,25 @@ class LlmOpenAI extends LlmService {
       if (reasoning) yield { reasoning }
       if (delta.tool_calls?.length) {
         yield {
-          toolCalls: delta.tool_calls.map((tc) => ({
-            index: tc.index,
-            id: tc.id ?? undefined,
-            name: tc.function?.name ?? undefined,
-            arguments: tc.function?.arguments ?? undefined,
-          })),
+          toolCalls: delta.tool_calls.map((tc) => {
+            let acc = pendingToolNames.get(tc.index)
+            if (!acc) {
+              acc = { name: '' }
+              pendingToolNames.set(tc.index, acc)
+            }
+            if (tc.id) acc.id = tc.id
+            if (tc.function?.name) acc.name += tc.function.name
+            return {
+              index: tc.index,
+              id: acc.id,
+              name: acc.name
+                ? nameMap
+                  ? nameMap.toInternal(acc.name)
+                  : acc.name
+                : undefined,
+              arguments: tc.function?.arguments ?? undefined,
+            }
+          }),
         }
       }
     }

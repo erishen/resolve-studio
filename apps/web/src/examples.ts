@@ -68,6 +68,7 @@ export const TASK_CATEGORIES: Record<string, ExampleCategory[]> = {
   hotnews: ['hot-news'],
   devstats: ['devstats'],
   investment: ['invest'],
+  'deep-review': ['invest'],
   foundation: ['code', 'other'],
   privacy: ['privacy'],
   documents: ['library'],
@@ -642,6 +643,22 @@ export function buildExamples(
   ]
   all.push(...ARTICLE_OPS_EXAMPLES)
 
+  // 付费 DeepSeek 版深度复盘卡：与 pse-review 免费卡（provider 缺省 free）并存，
+  // 显式传 provider='deepseek' —— 经 tsm-hub 网关 deepseek-v4-flash 精确路由
+  // （DeepSeek 主路 + sensenova 同模型兜底），付费、触发审批、质量更高。
+  // tool='pse-review' 让 investment / deep-review 两个任务固定时都能看到它。
+  const PSE_REVIEW_PAID_EXAMPLES: ExampleItem[] = [
+    {
+      id: 'pse-review-deepseek',
+      title: '深度投资复盘（付费 DeepSeek）',
+      prompt:
+        "帮我做一份深度投资复盘：调用 pse-review 工具并显式传 provider='deepseek'（付费 DeepSeek 模型，会触发审批，跑经 tsm-hub 网关、质量更高），用 PSE 多智能体流水线生成深度周报。可先用 portfolio-check 刷新持仓快照，完成后汇报报告路径与核心结论。",
+      category: 'invest',
+      tool: 'pse-review',
+    },
+  ]
+  all.push(...PSE_REVIEW_PAID_EXAMPLES)
+
   // Deduplicate by prompt.
   const seen = new Set<string>()
   const uniq = all.filter((e) => {
@@ -861,12 +878,29 @@ export const NEXT_STEP_EXAMPLES: Record<string, ExampleItem[]> = {
       category: 'article',
     },
   ],
-  // invest：数据体检 → 深度复盘
+  // invest：数据体检 → 深度复盘（免费 / 付费 DeepSeek 两版）
   'portfolio-check': [
     {
       id: 'next-pse-review',
       title: '深度投资复盘',
       prompt: '帮我做一份深度投资组合分析，用 autogen-pse 的 PSE 三角色流水线生成。',
+      category: 'invest',
+    },
+    {
+      id: 'next-pse-review-deepseek',
+      title: '深度投资复盘（付费 DeepSeek）',
+      prompt:
+        "帮我做一份深度投资复盘：调用 pse-review 工具并显式传 provider='deepseek'（付费 DeepSeek，会触发审批），用 PSE 多智能体流水线生成深度周报，完成后汇报报告路径与核心结论。",
+      category: 'invest',
+    },
+  ],
+  // 免费版复盘完成后，提供付费 DeepSeek 重跑的升级入口。
+  'pse-review': [
+    {
+      id: 'next-pse-review-paid-rerun',
+      title: '用付费 DeepSeek 重跑复盘',
+      prompt:
+        "这份免费版复盘我想再用付费 DeepSeek 重跑一版对比：调用 pse-review 工具并显式传 provider='deepseek'（会触发审批），完成后汇报两份报告的核心差异。",
       category: 'invest',
     },
   ],
