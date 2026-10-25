@@ -21,8 +21,13 @@ const RUN = join('tasks', 'portfolio-review', 'run.py')
 // but one 2026-10-18 run exceeded 8 min and was killed mid-PSE-run at 480s
 // (no trace, tool error, agent retried from scratch → looked like eternal
 // "Pending"). 900s gives headroom; progress now streams to the UI anyway.
+// 2026-10-24: 900s killed two consecutive runs — llm-router's free pool was
+// 429-rate-limited and failed over to a slower model (kimi-k2.6), pushing the
+// full 9-round PSE run past 15 min. Bumped to 1800s: a slow run just costs
+// waiting time, while a kill mid-run wastes the whole round AND the agent's
+// automatic retry burns another 15 min on top.
 const PREPARE_TIMEOUT_MS = 180_000
-const RUN_TIMEOUT_MS = 900_000
+const RUN_TIMEOUT_MS = 1_800_000
 // Match the original `execFile` maxBuffer (4 MiB) so the "Review 已保存 →"
 // marker line is never truncated away before we can parse it.
 const RUN_MAX_OUTPUT = 4 << 20
@@ -72,30 +77,53 @@ async function copyReviewToSandbox(srcPath: string, content: string): Promise<st
  * - 'free'      → FREE, non-streaming. Uses the harness `.env` OpenAI-compatible
  *                 creds that are already in process.env; sets PSE_MODEL_STREAM=false
  *                 (matches autogen-pse's `make review-free`).
- * - 'deepseek'  → PAID (DeepSeek V4 Pro). Overrides model/base_url to deepseek and
- *                 DROPS OPENAI_API_KEY so run.py falls back to autogen-pse/.env's
- *                 deepseek key (cwd=AUTOGEN_PSE → pydantic env_file); sets
- *                 PSE_MODEL_STREAM=true (matches `make review-deepseek`).
+ * - 'deepseek'  → PAID (DeepSeek V4 Pro) via the llm-router gateway. Forces
+ *                 OPENAI_MODEL=deepseek-v4-flash (gateway exact route: deepseek
+ *                 primary + sensenova same-model fallback) and keeps the gateway
+ *                 base_url/key inherited from process.env (same as the free
+ *                 branch, so all traffic is centrally governed by tsm-hub).
+ *                 PSE_MODEL_STREAM=false（非流式，规避 tsm-hub zstd 流式损坏；
+ *                 非流式 deepseek 已验证可跑通）。
  */
 
 export interface PseReviewConfig {
-  /** 'free' (default) or 'deepseek' (paid). Defaults to 'free'. */
+  /**
+   * Model provider. 'free' (default) routes through the llm-router gateway
+   * inheriting the container-injected OPENAI_* creds; 'deepseek' (PAID) also
+   * routes through the gateway but forces the deepseek-v4-flash exact route.
+   * Defaults to 'free'.
+   */
   provider?: 'free' | 'deepseek'
 }
 
 function buildRunEnv(provider: 'free' | 'deepseek'): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env }
   if (provider === 'deepseek') {
-    // Override to DeepSeek; drop the inherited key so run.py reads the
-    // deepseek key from its own .env (env_file, since cwd=AUTOGEN_PSE).
+    // Route through the llm-router gateway (same base_url/key as the free
+    // branch, inherited from process.env = DOCKER_OPENAI_BASE_URL + gateway key
+    // injected by docker-compose). Force the deepseek-v4-flash exact route,
+    // which gives deepseek primary + sensenova same-model fallback — central
+    // governance + resilience, instead of the old hardcoded api.deepseek.com
+    // direct call that bypassed tsm-hub.
+    //
+    // ⚠️ PSE_MODEL_STREAM 必须为 false（非流式）：tsm-hub 当前不透传客户端
+    // Accept-Encoding，deepseek 返 zstd 时流式按行读 SSE 会损坏（PSE 首轮即崩，
+    // 见 MEMORY tsm-hub 条）；非流式响应不走逐行 SSE，规避该损坏。已验证非流式
+    // deepseek 在 2026-10-25 11:12 完整跑通。待 tsm-hub 修好 Accept-Encoding
+    // 护栏并重建镜像后，可重新开启流式。
     env.OPENAI_MODEL = 'deepseek-v4-flash'
-    env.OPENAI_BASE_URL = 'https://api.deepseek.com/v1'
-    delete env.OPENAI_API_KEY
-    env.PSE_MODEL_STREAM = 'true'
-  } else {
-    // free: harness .env already carries the correct OPENAI_* creds;
-    // just pin non-streaming for stability (free tier streaming is flaky).
     env.PSE_MODEL_STREAM = 'false'
+    // OPENAI_BASE_URL / OPENAI_API_KEY intentionally NOT overridden — keep the
+    // gateway creds so run.py (cwd=AUTOGEN_PSE; load_dotenv won't clobber
+    // already-set env) hits tsm-hub, not DeepSeek directly.
+  } else {
+    // free: harness .env already carries the correct OPENAI_* creds (gateway);
+    // just pin non-streaming for stability (free tier streaming is flaky).
+    // 免费网关（Groq qwen，ITPM=7000）上下文容量小：关闭知识库注入，把开场请求
+    // 从 task+KB≈7109 token 压到 task≈5000 < 7000，避免首轮就 413；Evaluator 阶段的
+    // 超限由 autogen-pse 的 413 自愈压缩（保留系统提示+任务+最近报告）兜底。
+    env.PSE_MODEL_STREAM = 'false'
+    env.PSE_INJECT_KB = '0'
   }
   return env
 }
