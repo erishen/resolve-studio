@@ -16,8 +16,10 @@ const RUN = join('tasks', 'project-articles', 'run.py')
 // Article writing is a long multi-agent pipeline (Planner + Specialist +
 // Evaluator + translation + grounding checks) — give it generous headroom.
 // tax-agent-platform 等大项目 Planner 要读 10+ 文件，加上写作和翻译，
-// 10 分钟容易超时；放宽到 20 分钟。
-const RUN_TIMEOUT_MS = 1_200_000
+// 10 分钟容易超时；先放宽到 20 分钟。但 alva-e2e 这类 13-spec 大项目在
+// free provider 下实测仍会逼近 20 分钟墙被 SIGTERM(exit 143) 杀掉、文章
+// 写一半不落盘——再放宽到 30 分钟留足余量（free 路线慢、deepseek 快）。
+const RUN_TIMEOUT_MS = 1_800_000
 
 const ZH_SAVED_RE = /中文已保存 →\s*(\S+)/
 const EN_SAVED_RE = /英文已保存 →\s*(\S+)/

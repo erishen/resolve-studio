@@ -152,7 +152,11 @@ class LlmOpenAI extends LlmService {
     this.client = new OpenAI({
       apiKey: config.apiKey ?? process.env['OPENAI_API_KEY'] ?? 'sk-missing',
       baseURL: config.baseURL ?? process.env['OPENAI_BASE_URL'] ?? 'https://api.openai.com/v1',
-      timeout: config.timeout ?? 60_000,
+      // 60s 默认对非流式补全太紧：agent 首轮请求带大系统提示词 + 全量工具
+      // JSON schema，走免费 provider（llm-router→agnes）常超 60s，被 SDK 以
+      // "Request timed out." 掐断（UI 里表现为聊天泡 "⚠️ Request timed out."）。
+      // 默认放宽到 5 分钟；LLM_TIMEOUT_MS 可覆盖（与 MCP_TOOL_TIMEOUT_MS 同款模式）。
+      timeout: config.timeout ?? Number(process.env['LLM_TIMEOUT_MS'] ?? 300_000),
     })
     ctx.logger('llm-openai').info('endpoint=%s model=%s', this.client.baseURL, this.defaultModel)
   }

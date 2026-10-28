@@ -20,3 +20,7 @@ sandbox/*
 
 # sandbox test temp files
 packages/core/sandbox/
+
+# resolve-skills 是独立 git 仓（remote 指本地 canonical 仓），经 compose bind mount
+# 进容器；父仓不跟踪（git add -A 会把它记成无 .gitmodules 的悬空 gitlink）
+resolve-skills/
