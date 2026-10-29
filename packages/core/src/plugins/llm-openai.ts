@@ -183,7 +183,9 @@ class LlmOpenAI extends LlmService {
               : {
                   type: 'function',
                   function: {
-                    name: nameMap ? nameMap.toLlm(options.toolChoice.name) : options.toolChoice.name,
+                    name: nameMap
+                      ? nameMap.toLlm(options.toolChoice.name)
+                      : options.toolChoice.name,
                   },
                 },
       },
@@ -251,7 +253,9 @@ class LlmOpenAI extends LlmService {
               : {
                   type: 'function',
                   function: {
-                    name: nameMap ? nameMap.toLlm(options.toolChoice.name) : options.toolChoice.name,
+                    name: nameMap
+                      ? nameMap.toLlm(options.toolChoice.name)
+                      : options.toolChoice.name,
                   },
                 },
         stream: true,
@@ -292,11 +296,7 @@ class LlmOpenAI extends LlmService {
             return {
               index: tc.index,
               id: acc.id,
-              name: acc.name
-                ? nameMap
-                  ? nameMap.toInternal(acc.name)
-                  : acc.name
-                : undefined,
+              name: acc.name ? (nameMap ? nameMap.toInternal(acc.name) : acc.name) : undefined,
               arguments: tc.function?.arguments ?? undefined,
             }
           }),

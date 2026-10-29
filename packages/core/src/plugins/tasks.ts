@@ -270,14 +270,14 @@ const DEFAULT_TASKS: TaskDef[] = [
       'pse-review',
     ],
     systemPrompt:
-      '本任务跑「付费 DeepSeek 深度复盘」：调用 pse-review 工具时必须显式传 provider=\'deepseek\'。' +
+      "本任务跑「付费 DeepSeek 深度复盘」：调用 pse-review 工具时必须显式传 provider='deepseek'。" +
       '该分支经 tsm-hub 网关走 deepseek-v4-flash 精确路由（DeepSeek 主路 + sensenova 同模型兜底），' +
       'PSE_MODEL_STREAM=true，费用约 ¥0.1–1/次，会触发人工审批（付费闸门，属预期行为，向用户说明）。' +
       '推荐流程：先用 portfolio-check 刷新持仓快照、stock-scan / csv-analyze 补充市场数据，' +
-      '再调用 pse-review(provider=\'deepseek\') 跑完整 PSE 多智能体复盘（prepare 重算数据 → ' +
+      "再调用 pse-review(provider='deepseek') 跑完整 PSE 多智能体复盘（prepare 重算数据 → " +
       'Planner/Specialist/Evaluator 三角色分析 + 知识库检索 → 保存周报），全程流式输出、' +
       '典型耗时 10–25 分钟，期间向用户说明进度，不要重复发起。' +
-      '周报保存后汇报文件路径与核心结论。仅当用户明确说「用免费模型」时才改用 provider=\'free\'。',
+      "周报保存后汇报文件路径与核心结论。仅当用户明确说「用免费模型」时才改用 provider='free'。",
   },
   {
     id: 'foundation',

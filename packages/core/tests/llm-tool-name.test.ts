@@ -90,5 +90,8 @@ test('the investment task whitelist produces a fully provider-safe tools array',
   assert.equal(llmNames[4], 'fs__read_file', 'the old tools[10] offender is now valid')
   for (const n of llmNames) assert.match(n, /^[a-zA-Z0-9_-]+$/)
   // and the reverse mapping restores every canonical name
-  assert.deepEqual(llmNames.map((n) => map.toInternal(n)), whitelist)
+  assert.deepEqual(
+    llmNames.map((n) => map.toInternal(n)),
+    whitelist,
+  )
 })
