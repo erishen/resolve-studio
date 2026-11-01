@@ -194,9 +194,18 @@ function registerWpTask(ctx: Context, task: WpTaskDef) {
       }
       const onProgress = execCtx?.onProgress
       // 真浏览器任务放宽超时（避免开 Chrome + 签名预热 + 发布全流程被 5min SIGTERM 掐掉）。
-      const taskTimeout = BROWSER_TASKS.has(task.makeTarget) ? BROWSER_TASK_TIMEOUT_MS : TASK_TIMEOUT_MS
+      const taskTimeout = BROWSER_TASKS.has(task.makeTarget)
+        ? BROWSER_TASK_TIMEOUT_MS
+        : TASK_TIMEOUT_MS
 
-      ctx.logger(task.name).info('running make %s (cwd=%s, timeout=%ds)', task.makeTarget, WP_TOOLS, taskTimeout / 1000)
+      ctx
+        .logger(task.name)
+        .info(
+          'running make %s (cwd=%s, timeout=%ds)',
+          task.makeTarget,
+          WP_TOOLS,
+          taskTimeout / 1000,
+        )
 
       try {
         const { stdout, stderr } = await execFileAsync('make', [task.makeTarget], {
