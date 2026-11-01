@@ -126,17 +126,18 @@ function build({ llm, iface, pseReviewConfig, fs } = {}) {
   return doc
 }
 
-const VARIANTS = {
-  'cordis.yml': build({ llm: LLM_MOCK, iface: CLI }),
-  'cordis.openai.yml': build({ llm: LLM_OPENAI, iface: CLI }),
-  'cordis.web.yml': build({ llm: LLM_MOCK, iface: WEB }),
-  // tool-pse-review 的 provider 不再硬编码进 yml（此前固定 'free'，导致深度复盘一直
+// tool-pse-review 的 provider 不再硬编码进 yml（此前固定 'free'，导致深度复盘一直
 // 掉进免费池 gpt-oss-20b：慢 + ITPM 429 → failover 更慢模型，30min 超时反复被杀）。
 // 改为：仅当生成时显式导出 PSE_REVIEW_PROVIDER 才写进 yml；否则省略 config，
 // 运行时按 `config.provider ?? process.env.PSE_REVIEW_PROVIDER ?? 'free'` 解析——
 // 容器由 harness .env 设 PSE_REVIEW_PROVIDER=deepseek（付费快通道，见 .env + compose）。
 const PSE_REVIEW_PROVIDER = process.env.PSE_REVIEW_PROVIDER
-'cordis.openai.web.yml': build({
+
+const VARIANTS = {
+  'cordis.yml': build({ llm: LLM_MOCK, iface: CLI }),
+  'cordis.openai.yml': build({ llm: LLM_OPENAI, iface: CLI }),
+  'cordis.web.yml': build({ llm: LLM_MOCK, iface: WEB }),
+  'cordis.openai.web.yml': build({
     llm: LLM_OPENAI,
     iface: WEB,
     pseReviewConfig: PSE_REVIEW_PROVIDER ? { provider: PSE_REVIEW_PROVIDER } : undefined,

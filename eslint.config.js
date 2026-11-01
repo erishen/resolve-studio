@@ -127,8 +127,34 @@ export default tseslint.config(
   },
   {
     files: ['scripts/**/*.mjs', 'scripts/**/*.ts'],
+    languageOptions: {
+      globals: nodeGlobals,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
+    },
     rules: {
       'no-console': 'off',
+    },
+  },
+  {
+    // CommonJS scripts (fred-cdp-fetch.cjs): require/process/console are the
+    // language, not violations. Needs its own block — sourceType must stay
+    // 'commonjs' (the .mjs block above forces 'module', which would break
+    // parsing require()), and tseslint's no-require-imports is an ESM rule.
+    files: ['scripts/**/*.cjs'],
+    languageOptions: {
+      globals: nodeGlobals,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'commonjs',
+      },
+    },
+    rules: {
+      'no-undef': 'off',
+      'no-console': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
     },
   },
   prettier,
