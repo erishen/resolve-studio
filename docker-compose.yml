@@ -24,6 +24,9 @@ services:
       - OPENAI_BASE_URL=${DOCKER_OPENAI_BASE_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-}
+      # pse-review 深度复盘 provider（tool-pse-review 按 config ?? 此 env ?? 'free' 解析）：
+      # deepseek=付费快速通道（deepseek-v4-flash），free=免费池。默认 deepseek。
+      - PSE_REVIEW_PROVIDER=${PSE_REVIEW_PROVIDER:-deepseek}
       # 浏览器已迁至共享容器 browser-desk（仓库根 browser-desk/）：本容器不再需要 DISPLAY。
       # CDP_URL 指向 browser-desk 的 Chrome，browser-open / desktop-login / sf-pw-publish
       # 均经 playwright-core connectOverCDP 连接；宿主 make dev 直连本机 Chrome 时可覆盖。
@@ -63,6 +66,11 @@ services:
       # 容器内 127.0.0.1 是容器自身，宿主代理须经 host.docker.internal 进，
       # 端口一律显式配置（见 .env 的 WP_PROXY），不得写死本机代理端口。
       - WP_PROXY=${WP_PROXY:-}
+      # FRED 联邦基金利率抓取兜底：asset-lens 的 urllib 抓取会被 FRED(Akamai) 按
+      # TLS 指纹拦截（换代理节点无效），此 env 指向一条走 CDP 浏览器指纹的抓取命令，
+      # 作为 FED_FETCH_CMD 兜底路径。脚本经宿主挂载树进容器，NODE_PATH 让 CJS
+      # require 找到 /app 下的 playwright-core。未设此 env 时兜底自动不启用。
+      - FED_FETCH_CMD=${FED_FETCH_CMD:-NODE_PATH=/app/packages/core/node_modules node /workspace/work/harness/resolve-studio/scripts/fred-cdp-fetch.cjs}
       - ASSET_LENS_DIR=/workspace/invest-kit/apps/asset-lens
       - LANGGRAPH_CSV_ANALYST_DIR=/workspace/invest-kit/apps/langgraph-csv-analyst
       - PRODUCT_ANALYST_DIR=/workspace/invest-kit/apps/crewai-product-analyst
