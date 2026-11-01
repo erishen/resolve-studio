@@ -123,6 +123,15 @@ function truncate(s: string, max: number): string {
 }
 
 /**
+ * 保留「尾部」的截断。发布/归档类 make 任务的真正结论与报错都打在日志末尾
+ * （"✅ 已发布 → URL"、make 最终 status），开头是校验/跳过的噪声；失败路径
+ * 保留头部会把结论砍掉，与 tool-wp-publish 的处理保持一致。
+ */
+function truncateToTail(s: string, max: number): string {
+  return s.length <= max ? s : `…[truncated ${s.length - max} chars head]…\n${s.slice(-max)}`
+}
+
+/**
  * Build the parameter schema on demand, never at registration time.
  *
  * The project list is live data: projects.json grows as new articles are
@@ -309,12 +318,23 @@ function registerTask(ctx: Context, task: CrewAiPublishTaskDef) {
           resync
         )
       } catch (err) {
-        const e = err as { message?: string; stdout?: string; stderr?: string; code?: number }
+        const e = err as {
+          message?: string
+          stdout?: string
+          stderr?: string
+          code?: number
+          killed?: boolean
+          signal?: string
+        }
         const tail =
           (e.stdout || '') + (e.stderr ? '\n--- stderr ---\n' + e.stderr : '') ||
           e.message ||
           String(err)
-        return `error: ${task.name} failed (exit ${e.code ?? 'unknown'}) — ${truncate(tail, 2000)}`
+        const exitBits: string[] = []
+        exitBits.push(`exit ${e.code ?? 'unknown'}`)
+        if (e.killed) exitBits.push('killed (timeout)')
+        if (e.signal) exitBits.push(`signal=${e.signal}`)
+        return `error: ${task.name} failed (${exitBits.join(', ')}) — ${truncateToTail(tail, 4000)}`
       }
     },
   } satisfies Tool)

@@ -64,7 +64,21 @@ async function probeSfSession(statePath: string): Promise<'valid' | 'expired' | 
 const WP_TOOLS = process.env.WORDPRESS_TOOLS_DIR
 
 const TASK_TIMEOUT_MS = 300_000
+/**
+ * 真浏览器发布/登录类任务的超时：除纯文件任务外需连/开 Chrome、预热抓取思否签名
+ * （最长 ~90s）、再发一篇，全流程 5 分钟常常不够，之前 sf-pw-publish 多次在此被
+ * execFile SIGTERM 杀掉、报成 "exit unknown"。放宽到 10 分钟。
+ */
+const BROWSER_TASK_TIMEOUT_MS = 600_000
 const MAX_OUTPUT = 32 * 1024
+
+/**
+ * 真正启动 Playwright 浏览器的 make 目标（超时差异化用；纯文件/API/cookie 任务
+ * 仍用默认 5 分钟）。目前仅 sf-pw-publish：需连/开 Chrome + 登录校验 + 预热抓取
+ * 思否签名（最长 ~90s）+ 发一篇，全流程 5 分钟常常不够——之前 sf-pw-publish 多次
+ * 在此被 execFile SIGTERM 杀掉、报成 "exit unknown"。放宽到 10 分钟。
+ */
+const BROWSER_TASKS = new Set(['sf-pw-publish'])
 
 interface WpTaskDef {
   name: string
@@ -115,6 +129,15 @@ const TASKS: WpTaskDef[] = [
 
 function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n…[truncated ${s.length - max} chars]`
+}
+
+/**
+ * 保留「尾部」的截断。发布/构建类 make 任务的真正结论与报错都打在日志末尾
+ * （"✅ 已发布 → URL"、"SF_SESSION_EXPIRED"、make 最终 status），而开头是大量
+ * 已跳过文章的噪声；保留头部会把结论砍掉。失败路径统一用本函数保留尾部。
+ */
+function truncateToTail(s: string, max: number): string {
+  return s.length <= max ? s : `…[truncated ${s.length - max} chars head]…\n${s.slice(-max)}`
 }
 
 function registerWpTask(ctx: Context, task: WpTaskDef) {
@@ -170,13 +193,15 @@ function registerWpTask(ctx: Context, task: WpTaskDef) {
         }
       }
       const onProgress = execCtx?.onProgress
+      // 真浏览器任务放宽超时（避免开 Chrome + 签名预热 + 发布全流程被 5min SIGTERM 掐掉）。
+      const taskTimeout = BROWSER_TASKS.has(task.makeTarget) ? BROWSER_TASK_TIMEOUT_MS : TASK_TIMEOUT_MS
 
-      ctx.logger(task.name).info('running make %s (cwd=%s)', task.makeTarget, WP_TOOLS)
+      ctx.logger(task.name).info('running make %s (cwd=%s, timeout=%ds)', task.makeTarget, WP_TOOLS, taskTimeout / 1000)
 
       try {
         const { stdout, stderr } = await execFileAsync('make', [task.makeTarget], {
           cwd: WP_TOOLS,
-          timeout: TASK_TIMEOUT_MS,
+          timeout: taskTimeout,
           maxBuffer: 4 << 20,
         })
         const combined = (stdout || '') + (stderr ? '\n--- stderr ---\n' + stderr : '')
@@ -189,16 +214,31 @@ function registerWpTask(ctx: Context, task: WpTaskDef) {
           resync
         )
       } catch (err) {
-        const e = err as { message?: string; stdout?: string; stderr?: string; code?: number }
+        const e = err as {
+          message?: string
+          stdout?: string
+          stderr?: string
+          code?: number
+          killed?: boolean
+          signal?: string
+        }
+        // 真实报错/结论都在日志末尾，保留尾部而不是头部（见 truncateToTail 注释）。
         const tail =
           (e.stdout || '') + (e.stderr ? '\n--- stderr ---\n' + e.stderr : '') ||
           e.message ||
           String(err)
+        // 退出信息：make 被 kill / 超时 / 非 0 退出时 e.code 常为 undefined，
+        // 把 killed/signal/timeout 一并暴露，避免误读为 "exit unknown"。
+        const exitBits: string[] = []
+        exitBits.push(`exit ${e.code ?? 'unknown'}`)
+        if (e.killed) exitBits.push('killed (timeout)')
+        if (e.signal) exitBits.push(`signal=${e.signal}`)
+        const exitInfo = exitBits.join(', ')
         // 会话过期/未登录：脚本会打 SF_SESSION_EXPIRED 或「已保存登录态已失效」，识别后补一行刷新指引。
         const hint = /SF_SESSION_EXPIRED|登录态已失效|未登录思否|PHPSESSID/.test(tail)
           ? `\n💡 看起来是登录态失效：请刷新会话后重试——可在宿主 wordpress-tools 目录运行 make sf-pw-publish，或开 resolve-studio 桌面面板点专用登录按钮（VNC 内登录自动写回 .sf-state.json）。`
           : ''
-        return `error: ${task.name} failed (exit ${e.code ?? 'unknown'}) — ${truncate(tail, 2000)}${hint}`
+        return `error: ${task.name} failed (${exitInfo}) — ${truncateToTail(tail, 4000)}${hint}`
       }
     },
   } satisfies Tool)
