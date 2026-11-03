@@ -88,9 +88,21 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages uv \
     && uv --version
 # npm/pnpm 直连（npmjs 容器内直连可达；unset 防 127.0.0.1 自指代理注入，见 build stage）。
 # 装完清空代理 env，避免 node 运行时误带（backend 内部走局域网网关）。
+#
+# 缓存清理（省 ~102MB）：pnpm install 会把 tarball 落进 content-addressable store
+# (/root/.local/share/pnpm/store)，npm 也会留 /root/.npm。两者都是「下载缓存」，
+# 装完即无用——node_modules 里已是展开后的独立副本（实测 inode 链接数为 1，
+# 非硬链接），删掉 store 不会影响 require 解析。必须在同一个 RUN 里删：
+# 分层删除只是给旧层打 whiteout，镜像总体积不会变小。
+# 保留 pnpm 本体（/usr/local/lib/node_modules，37MB）：agent 的 shell 工具会
+# 真的调 `pnpm -C packages/core test`，删了会让工具链在容器内不可用。
 RUN set -e; unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY all_proxy; \
     npm install -g pnpm@9 \
-    && pnpm install --frozen-lockfile --prod --network-concurrency=4 --fetch-retries=5
+    && pnpm install --frozen-lockfile --prod --network-concurrency=4 --fetch-retries=5 \
+    && rm -rf /root/.local/share/pnpm/store /root/.npm \
+    && cd packages/core \
+    && node -e "require('openai'); require('playwright-core'); console.log('deps ok after cache purge')"
+
 ENV HTTPS_PROXY=
 ENV HTTP_PROXY=
 
