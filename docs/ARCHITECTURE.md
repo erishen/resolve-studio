@@ -441,10 +441,10 @@ plugins:
 - 反代 `/novnc` 的能力必须落在**同时能访问 `backend` 与 `browser-desk`** 的容器上 → 只能是 frontend。
 - 于是 frontend 承担「网关」角色，backend 退为内网服务：`backend` 端口绑 `127.0.0.1`，**从不直接暴露给浏览器**，CORS 问题在架构层消失。
 
-| 服务 | 镜像 | 网络 | 职责 |
-| ---- | ---- | ---- | ---- |
-| `frontend` | `nginx:alpine-slim` | `default` + `browser-desk-net` | 静态托管 + `/api` 反代 + `/novnc` 反代 |
-| `backend` | 自建（`Dockerfile`） | `default` + `browser-desk-net` | 全部业务运行时 |
+| 服务       | 镜像                 | 网络                           | 职责                                   |
+| ---------- | -------------------- | ------------------------------ | -------------------------------------- |
+| `frontend` | `nginx:alpine-slim`  | `default` + `browser-desk-net` | 静态托管 + `/api` 反代 + `/novnc` 反代 |
+| `backend`  | 自建（`Dockerfile`） | `default` + `browser-desk-net` | 全部业务运行时                         |
 
 > `backend` 也挂着 `browser-desk-net`，但它的源码里**没有任何** `18080` / `frontend` 引用——backend 对 browser-desk 完全无感，耦合只存在于 frontend 一侧。
 
@@ -461,10 +461,10 @@ cd ../resolve-studio && docker compose up -d     # 后：加入该网络
 
 ### 镜像体积
 
-| 镜像 | 体积 | 说明 |
-| ---- | ---- | ---- |
-| `nginx:alpine-slim` | 13.3MB | 曾用 `nginx:alpine`（68.3MB）。slim 版编译模块一致（`ssl_module` / `stub_status` / `stream_ssl`），本项目 `nginx.conf` 只用 proxy + `try_files` + `expires`，无功能降级；healthcheck 依赖的 `wget` 由 BusyBox 自带。 |
-| `resolve-studio-backend` | 474MB | 构建期已删 pnpm store 与 npm cache（省 ~102MB）。**必须在同一个 `RUN` 里删**：分层删除只给旧层打 whiteout，镜像总体积不变。pnpm 本体保留（37MB）——agent 的 shell 工具会真的调 `pnpm -C packages/core test`。 |
+| 镜像                     | 体积   | 说明                                                                                                                                                                                                                 |
+| ------------------------ | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nginx:alpine-slim`      | 13.3MB | 曾用 `nginx:alpine`（68.3MB）。slim 版编译模块一致（`ssl_module` / `stub_status` / `stream_ssl`），本项目 `nginx.conf` 只用 proxy + `try_files` + `expires`，无功能降级；healthcheck 依赖的 `wget` 由 BusyBox 自带。 |
+| `resolve-studio-backend` | 474MB  | 构建期已删 pnpm store 与 npm cache（省 ~102MB）。**必须在同一个 `RUN` 里删**：分层删除只给旧层打 whiteout，镜像总体积不变。pnpm 本体保留（37MB）——agent 的 shell 工具会真的调 `pnpm -C packages/core test`。         |
 
 ---
 
@@ -472,17 +472,17 @@ cd ../resolve-studio && docker compose up -d     # 后：加入该网络
 
 包管理器固定 **pnpm**，常用任务收敛在 `Makefile`（`make help` 查看）：
 
-| 命令                           | 作用                                                             |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `make install`                 | 装后端 + 前端依赖                                                |
-| `make check`                   | `typecheck`(src) + `test`                                        |
-| `make build`                   | 编译后端到 `dist/`                                               |
-| `make build-web`               | 构建前端到 `web/dist/`                                           |
+| 命令                           | 作用                                                                                             |
+| ------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `make install`                 | 装后端 + 前端依赖                                                                                |
+| `make check`                   | `typecheck`(src) + `test`                                                                        |
+| `make build`                   | 编译后端到 `dist/`                                                                               |
+| `make build-web`               | 构建前端到 `web/dist/`                                                                           |
 | `make dev`                     | 单终端起后端（**真实模型**，需 `.env` + `OPENAI_*`）+ 前端 dev，开 `:5173` 即可聊，`Ctrl-C` 退出 |
-| `make dev-mock`                | 同上但后端走离线 mock（无需密钥）                                   |
-| `make dev-bg` / `dev-bg-mock`  | 后台常驻版（关终端也不停），`make dev-bg-stop` 停止                 |
-| `make chat` / `make chat-real` | 起 CLI（mock / 真实模型）                                        |
-| `make clean`                   | 清构建产物                                                       |
+| `make dev-mock`                | 同上但后端走离线 mock（无需密钥）                                                                |
+| `make dev-bg` / `dev-bg-mock`  | 后台常驻版（关终端也不停），`make dev-bg-stop` 停止                                              |
+| `make chat` / `make chat-real` | 起 CLI（mock / 真实模型）                                                                        |
+| `make clean`                   | 清构建产物                                                                                       |
 
 > 注意：**没有 `make dev-real`**。`make dev` 默认就是接真实模型的那个，`make dev-mock` 才是离线的。
 
